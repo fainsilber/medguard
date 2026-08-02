@@ -1,0 +1,8 @@
+# Local development secrets for `wrangler dev`. Copy to `.dev.vars` and fill in.
+# Generate a keypair with: node scripts/generate-vapid-keys.mjs
+#
+# .dev.vars is gitignored. Never commit real keys.
+
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:you@example.com

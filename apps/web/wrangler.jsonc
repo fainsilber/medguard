@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "medguard-web",
+  "compatibility_date": "2025-01-01",
+
+  // Pure static hosting — no Worker code of our own. `wrangler deploy` uploads dist/ as-is.
+  "assets": {
+    "directory": "./dist",
+    // Client-side routing isn't in use yet, but this is the correct default for an SPA:
+    // an unmatched path serves index.html instead of a 404, so future routes don't break
+    // on refresh or a direct link.
+    "not_found_handling": "single-page-application"
+  }
+}
