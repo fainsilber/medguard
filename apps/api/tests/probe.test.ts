@@ -1,5 +1,6 @@
 import { SELF, env, listDurableObjectIds, runDurableObjectAlarm } from 'cloudflare:test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SHABBAT_BURST_COUNT } from '@medguard/shared';
 
 /**
  * Proves the whole Web Push path works without a phone: VAPID signing and aes128gcm encryption
@@ -107,7 +108,7 @@ describe('POST /api/v1/probe/push validation', () => {
 });
 
 describe('scheduled push burst', () => {
-  it('queues the Shabbat burst of 3 without sending immediately', async () => {
+  it('queues the default Shabbat burst without sending immediately', async () => {
     const response = await schedule({
       probeId: 'burst',
       subscription: await makeSubscription(),
@@ -115,11 +116,14 @@ describe('scheduled push burst', () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ scheduled: 3 });
+    // Asserts against the shared constant rather than a literal, so this test can't drift
+    // silently out of sync the way it would have if SHABBAT_BURST_COUNT changed but this
+    // number didn't — which is exactly what almost happened tuning the burst from field data.
+    await expect(response.json()).resolves.toMatchObject({ scheduled: SHABBAT_BURST_COUNT });
 
     // Nothing sent yet — the delay is what lets the phone be locked first.
     const log = await SELF.fetch('https://example.com/api/v1/probe/push-log/burst');
-    await expect(log.json()).resolves.toMatchObject({ pending: 3, sent: [] });
+    await expect(log.json()).resolves.toMatchObject({ pending: SHABBAT_BURST_COUNT, sent: [] });
   });
 
   it('sends a correctly signed, encrypted push when the alarm fires', async () => {
