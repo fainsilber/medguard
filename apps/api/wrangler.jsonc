@@ -8,6 +8,14 @@
     "enabled": true
   },
 
+  // VAPID_PRIVATE_KEY is NOT here — it's set as a Worker secret (`wrangler secret put`), never
+  // committed. These two are safe to commit: the public key is sent to every subscribing
+  // browser anyway, and the subject is just a contact URL for push services.
+  "vars": {
+    "VAPID_PUBLIC_KEY": "BClH7AYsOuNPIJT7EunVl1-7qAGppjDCYACqIA5FF6W54KUrhthYY1xwGxumg-LuWQFK2cLpvqdGkwSzL4DO0z0",
+    "VAPID_SUBJECT": "mailto:medguard@fainsilber.co.il"
+  },
+
   "d1_databases": [
     {
       // The binding is the variable name on `env`, not the database name — the code and the

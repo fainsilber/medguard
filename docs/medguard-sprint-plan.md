@@ -56,7 +56,7 @@ Places where the PRD as written is not achievable or not safe. **Most worth your
 
 **D4 — `ShabbatConfig` is missing the Israel/diaspora flag.** `@hebcal/core` needs `il`: Israel keeps one day of Yom Tov, the diaspora two. Without it, chag handling is wrong half the year. **Fix:** add `israelHolidays: boolean`, surfaced in settings.
 
-**D5 — Shabbat pushes must carry no action buttons.** Standard-mode pushes have "Taken"/"Snooze" lock-screen buttons; tapping one on Shabbat writes data. **Fix:** informational-only pushes while in mode. Reconciliation happens after Havdalah.
+**D5 — Shabbat pushes must carry no action buttons, and reach every caregiver at once instead of escalating.** Standard-mode pushes have "Taken"/"Snooze" lock-screen buttons; tapping one on Shabbat writes data. **Fix:** informational-only pushes while in mode. Reconciliation happens after Havdalah. Per `docs/halachic-decisions.md` Q3, escalation isn't simply turned off — the dose-time burst fans out to *every* registered device in the household on the first push, so there is structurally nothing left to escalate to. This differs from standard mode (Sprint 5), where the initial push may target fewer devices and escalation reaches the rest after 15 minutes unacknowledged.
 
 **D6 — Alternating doses conflict with the schema.** PRD §2.2 requires 50mg Mon/Wed/Fri ÷ 25mg Tue/Thu/Sat, but `Schedule` carries a single `dosageQuantity`. **Fix:** model as two schedules for the same medicine, each with its own `daysOfWeek` and quantity; the UI presents them as one alternating regimen.
 
@@ -213,9 +213,11 @@ Dark mode and large tap targets from the start, not retrofitted. This gets used 
 
 Most domain-sensitive sprint. Correctness is measured against the Jewish calendar, so it's tested against fixtures and then against your luach.
 
-**Scope:** `@hebcal/core` computing candle-lighting and Havdalah from household coordinates, honouring `candleLightingOffsetMins` (18), `havdalahDegreesOrMins`, and `israelHolidays` (D4); state machine `weekday → pre_shabbat_arming → shabbat_active → motzei_pending → weekday`, recovering correctly after a reload mid-Shabbat; **Yom Tov incl. three-day sequences** (chag adjacent to Shabbat); escalation and action-button suppression while in mode (D5); `pending_shabbat` status; the 3-push burst (D1) plus the 45s foreground engine; **zmanim verification screen** showing the next 8 weeks so you can check against your luach before trusting it; **Do Not Disturb / Focus setup checklist** — a residual gap the app cannot force shut; Motzei Shabbat reconciliation sheet with one-tap bulk confirm, per-item override, retroactive PRN entry, inventory reconciliation, and multi-caregiver race handling so two people can't double-log.
+**Scope:** `@hebcal/core` computing candle-lighting and Havdalah from household coordinates, honouring `candleLightingOffsetMins` (18), `havdalahDegreesOrMins`, and `israelHolidays` (D4); state machine `weekday → pre_shabbat_arming → shabbat_active → motzei_pending → weekday`, recovering correctly after a reload mid-Shabbat; **Yom Tov incl. three-day sequences** (chag adjacent to Shabbat); **all-devices fan-out with no escalation while in mode** (D5, per `docs/halachic-decisions.md` Q3) and no action buttons on Shabbat pushes; `pending_shabbat` status; the 3-push burst (D1) plus the 45s foreground engine; **zmanim verification screen** showing the next 8 weeks so you can check against your luach before trusting it; **Do Not Disturb / Focus setup checklist** — a residual gap the app cannot force shut; Motzei Shabbat reconciliation sheet with one-tap bulk confirm, per-item override, retroactive PRN entry, inventory reconciliation, and multi-caregiver race handling so two people can't double-log.
 
-**Tests:** zmanim fixtures across dates and locations; three-day chag asserting mode stays continuously on; Israel vs diaspora divergence; DST-boundary Shabbatot; state recovery mid-Shabbat; suppression tests proving no escalation push and no action buttons are emitted while in mode; reconciliation E2E.
+No emergency-interaction affordance ships in this sprint (Q5, deferred) — Shabbat pushes stay informational-only with no exception path.
+
+**Tests:** zmanim fixtures across dates and locations; three-day chag asserting mode stays continuously on; Israel vs diaspora divergence; DST-boundary Shabbatot; state recovery mid-Shabbat; **fan-out test proving every registered household device receives the dose-time burst**; suppression tests proving no escalation push and no action buttons are emitted while in mode; reconciliation E2E.
 
 **Exit gate:** fixtures match published times; **you have verified 8 weeks against your luach** — wrong by 18 minutes is a real problem; three-day chag continuity green; suppression tests green.
 
@@ -246,13 +248,7 @@ Everything else runs unattended; these need you and a real device.
 
 ## Halachic questions for your rav
 
-**Send these now** — they're needed before Sprint 6 and the lead time is outside your control. Answers get recorded in `docs/halachic-decisions.md` so the reasoning survives the code.
-
-1. Is a device that plays audio automatically, fully pre-programmed before Shabbat, acceptable? Does it change if the trigger is a server push from outside rather than a local timer?
-2. Is the Motzei Shabbat reconciliation model acceptable — doses given on Shabbat but logged only after Havdalah?
-3. If a dose is missed and a caregiver must be alerted, is any escalation permitted? (*Pikuach nefesh* considerations likely apply, but you want that stated rather than assumed.)
-4. Is a *grama* (indirect action) mechanism required for anything?
-5. May a caregiver dismiss or interact with a notification on Shabbat in an emergency, and should the UI make that path explicit?
+Working answers are recorded in `docs/halachic-decisions.md`, but **these are pragmatic placeholders, not an actual ruling** — send the questions to your rav before Sprint 6 ships for real; the lead time on a response is outside your control, so don't wait.
 
 ---
 
