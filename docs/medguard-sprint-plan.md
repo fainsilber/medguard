@@ -120,9 +120,18 @@ Everything below runs green from `npm test` and `npm run e2e`, headless, unatten
 
 ## Sprints
 
-### Sprint 0 — Foundations, harness & capability probe
+### Sprint 0 — Foundations, harness & capability probe — ✅ **Complete** (2026-08-02)
 
 Prove every test layer works before there's anything to test, and replace platform guesses with evidence from your actual phones.
+
+**Delivered:** monorepo, five-layer test harness (95 tests), CI, both apps deployed — API at `https://medguard-api.fainsilber.workers.dev`, PWA at `https://medguard-web.fainsilber.workers.dev`. Full results in `docs/platform-capabilities.md`.
+
+**What the probe actually found, beyond "yes it works":**
+- **Custom notification sound is not supported** — confirmed on-device, settling delta D1 in this plan's favor over sprint plan v1.0's assumption.
+- **Server-side push scheduling (DO Alarms) is precise; in-page JS timers are not** — a locked Android phone showed a 54.5s gap in a plain `setInterval`, direct evidence for why the Shabbat design doesn't rely on one.
+- **The Shabbat burst was tuned three times from real feedback**, not guessed: 3×/15s → 10×/5s → 10×/~1.67s (in `main`) → 10×/~889ms (on the Sprint 1 branch, not yet device-tested). See `docs/platform-capabilities.md`.
+- **iOS is untested** — no device was available. Biggest open gap; run the probe on an iPhone before relying on iOS push behavior beyond "best effort."
+- Two infrastructure problems surfaced and fixed along the way: an npm optional-dependency lockfile bug, and every WebCrypto Web Push library on npm implementing the wrong encryption scheme for iOS (RFC 8291 `aes128gcm` hand-implemented instead — see `apps/api/src/push/encrypt.ts`).
 
 **Scope:** monorepo, TS strict, ESLint (incl. the no-ambient-time rule) + Prettier; Vite/React/Tailwind boots; PWA manifest + SW via `vite-plugin-pwa` (`injectManifest` — Sprint 5 needs a custom SW); Hono `/api/v1/health`; D1 binding + first migration; stub `HouseholdDO`; Vitest workspace; Playwright; GitHub Actions; deploy to a real HTTPS URL (most of these APIs need secure context).
 
@@ -137,9 +146,9 @@ Prove every test layer works before there's anything to test, and replace platfo
 
 **Tests:** one deliberately trivial test per layer — shared unit, Dexie under `fake-indexeddb`, RTL render, `vitest-pool-workers` against real D1, Playwright smoke. Their only job is to prove the harness runs.
 
-**Exit gate:** `npm test` green across all five layers; `npm run e2e` green headless; CI green; probe results recorded in `docs/platform-capabilities.md`.
+**Exit gate:** `npm test` green across all five layers; `npm run e2e` green headless; CI green; probe results recorded in `docs/platform-capabilities.md`. ✅ Met — Android run complete and recorded; iOS still open (no device available), doesn't block Sprint 1 but should happen before Sprint 6 leans on iOS push behavior.
 
-**Your time:** ~1 hour running the probe on two phones. The highest-leverage hour in the project.
+**Your time:** ~1 hour running the probe on two phones. The highest-leverage hour in the project. (Spent on Android; iOS still owed.)
 
 ---
 
@@ -237,10 +246,10 @@ No emergency-interaction affordance ships in this sprint (Q5, deferred) — Shab
 
 Everything else runs unattended; these need you and a real device.
 
-1. **Sprint 0 capability probe** on both phones (~1 hr).
+1. **Sprint 0 capability probe** on both phones (~1 hr). ✅ Android done (`docs/platform-capabilities.md`); iOS still open.
 2. **A 25-hour dry run on a weekday, phone locked and screen off** — every alert fires, every one auto-stops, none repeats, zero touches. *Do not let the first real test be an actual Shabbat.*
 3. **Real push on a locked iPhone** — CDP proves our handler is correct, not that APNs delivers. Test with the PWA installed, and under Focus and Low Power Mode.
-4. **Real push on a locked Android phone** — is the 3-push burst actually loud enough to wake you at 3 AM? Tune `chimeDurationSeconds` from what you find.
+4. **Real push on a locked Android phone** — is the burst actually loud enough to wake you at 3 AM? Already iterated three times from direct feedback (see Sprint 0 above); the current 10×/~889ms value is untested on-device — confirm it, since at that spacing individual pushes risk blurring together rather than reading as distinct alerts. Tune `SHABBAT_BURST_COUNT`/`SHABBAT_BURST_SPACING_MS` in `packages/shared/src/push.ts` from what you find.
 5. **Zmanim vs. your luach**, 8 weeks (Sprint 6 exit gate).
 6. **Two-phone concurrency** — two caregivers tapping the same PRN dose within a second, on real hardware over real cellular.
 
