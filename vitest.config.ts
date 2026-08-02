@@ -49,15 +49,19 @@ export default defineConfig({
         branches: 80,
         statements: 80,
 
-        // The patient-safety modules. A dosing error here can harm a child, so these are
-        // held at 100% branch coverage and the build fails below it. Enabled per module as
-        // each one lands in Sprint 1.
-        'packages/shared/src/clock.ts': {
-          lines: 100,
-          functions: 100,
-          branches: 100,
-          statements: 100,
-        },
+        // The patient-safety modules. A dosing error here can harm a child, so these are held
+        // at 100% branch coverage and the build fails below it.
+        //
+        // timezone.ts and logs.ts are held to the same bar despite not being named in the sprint
+        // plan: a DST bug skips or doubles a dose, and a bug in supersession arithmetic makes the
+        // rolling-cap count wrong. Both are safety-critical in the same way the named three are.
+        'packages/shared/src/clock.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+        'packages/shared/src/safety.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+        'packages/shared/src/schedule.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+        'packages/shared/src/inventory.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+        'packages/shared/src/timezone.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+        'packages/shared/src/logs.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+        'packages/shared/src/sync.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
       },
     },
   },
