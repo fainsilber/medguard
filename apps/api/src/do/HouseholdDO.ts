@@ -1,7 +1,6 @@
-
 import { DurableObject } from 'cloudflare:workers';
 import { systemClock } from '@medguard/shared';
-import type { ProbePushPayload } from '@medguard/shared';
+import type { ProbePushLog, ProbePushPayload, ProbeSendRecord } from '@medguard/shared';
 import { readVapidConfig, sendPush } from '../push/send.js';
 import type { PushSubscription } from '../push/send.js';
 
@@ -23,18 +22,6 @@ interface QueuedPush extends Record<string, SqlStorageValue> {
   due_at_ms: number;
   subscription: string;
   payload: string;
-}
-
-export interface ProbeSendRecord {
-  burstIndex: number;
-  burstTotal: number;
-  dueAtIso: string;
-  sentAtIso: string;
-  /** Alarm accuracy: how late the DO actually woke up relative to the scheduled time. */
-  latenessMs: number;
-  ok: boolean;
-  status: number;
-  error?: string;
 }
 
 export class HouseholdDO extends DurableObject<Env> {
@@ -114,7 +101,7 @@ export class HouseholdDO extends DurableObject<Env> {
   }
 
   /** What the server actually did, so a missing notification can be told apart from a failed send. */
-  async getProbeLog(): Promise<{ pending: number; sent: ProbeSendRecord[] }> {
+  async getProbeLog(): Promise<ProbePushLog> {
     const sent = this.ctx.storage.sql
       .exec<{ record: string }>('SELECT record FROM probe_push_log ORDER BY id')
       .toArray()

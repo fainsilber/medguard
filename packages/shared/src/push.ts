@@ -55,3 +55,25 @@ export interface ProbePushReceipt {
  */
 export const SHABBAT_BURST_COUNT = 3;
 export const SHABBAT_BURST_SPACING_MS = 15_000;
+
+/**
+ * What the server actually did with one queued push — read by the probe UI (and, later, any
+ * caregiver-facing delivery-status view) to tell "never sent" apart from "sent, but the phone
+ * never showed it". That distinction is otherwise pure guesswork on a locked device.
+ */
+export interface ProbeSendRecord {
+  burstIndex: number;
+  burstTotal: number;
+  dueAtIso: IsoInstant;
+  sentAtIso: IsoInstant;
+  /** Alarm accuracy: how late the Durable Object actually woke up relative to the scheduled time. */
+  latenessMs: number;
+  ok: boolean;
+  status: number;
+  error?: string;
+}
+
+export interface ProbePushLog {
+  pending: number;
+  sent: ProbeSendRecord[];
+}
