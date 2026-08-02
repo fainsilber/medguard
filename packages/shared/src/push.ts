@@ -51,10 +51,16 @@ export interface ProbePushReceipt {
 /**
  * The Shabbat alert (delta D1). A single push gives a ~1-2 second system tone, not the PRD's
  * 45 seconds, so the burst re-alerts the phone across roughly that window using one shared tag
- * with renotify — three notifications' worth of noise, one notification's worth of clutter.
+ * with renotify — many notifications' worth of noise, one notification's worth of clutter.
+ *
+ * Tuned from a real Sprint 0 capability-probe run on Android (2026-08-02), not guessed: the
+ * original 3×/15s burst arrived instantly and each alert was clearly distinct, but felt too
+ * sparse to reliably wake someone — "I could hear it, but I'd rather have more, like 10 in the
+ * same 45 sec". 10×/5s covers the same ~45s window (matching PRD §3's default chime duration)
+ * at roughly 3x the alert density. Revisit after the same test on iOS and after a real Shabbat.
  */
-export const SHABBAT_BURST_COUNT = 3;
-export const SHABBAT_BURST_SPACING_MS = 15_000;
+export const SHABBAT_BURST_COUNT = 10;
+export const SHABBAT_BURST_SPACING_MS = 5_000;
 
 /**
  * What the server actually did with one queued push — read by the probe UI (and, later, any

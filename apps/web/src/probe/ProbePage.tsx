@@ -419,7 +419,7 @@ export function ProbePage() {
             disabled={!subscription || scheduling}
             onClick={() => void handleSchedule(SHABBAT_BURST_COUNT, SHABBAT_BURST_SPACING_MS)}
           >
-            Send Shabbat burst (3×, 15s apart)
+            Send Shabbat burst ({SHABBAT_BURST_COUNT}×, {SHABBAT_BURST_SPACING_MS / 1000}s apart)
           </button>
           <button
             type="button"
