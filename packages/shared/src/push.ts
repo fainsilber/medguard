@@ -53,19 +53,20 @@ export interface ProbePushReceipt {
  * 45 seconds, so the burst re-alerts the phone across roughly that window using one shared tag
  * with renotify — many notifications' worth of noise, one notification's worth of clutter.
  *
- * Tuned twice from real Sprint 0 capability-probe runs on Android, not guessed:
+ * Tuning history, from real Sprint 0 capability-probe runs on Android, not guessed:
  *   1. (2026-08-02) 3×/15s arrived instantly and each alert was clearly distinct, but felt too
  *      sparse to reliably wake someone — "I could hear it, but I'd rather have more, like 10 in
  *      the same 45 sec". Changed to 10×/5s.
  *   2. (2026-08-02, same day) after trying 10×/5s: "the frequency was better but I think the
  *      same 10 but in 15 second would be better" — same count, denser. 10×/~1.67s covers a 15s
- *      window instead of 45s, keeping the same alert count from tuning pass 1 but compressing
- *      it to roughly a third of the span. Revisit after the same test on iOS and after a real
- *      Shabbat.
+ *      window instead of 45s.
+ *   3. (2026-08-02, Sprint 1 kickoff) requested directly, not yet probe-tested on a device:
+ *      10 alerts in 8 seconds — same count again, denser still. 10×/~889ms covers an 8s window.
+ *      Confirm this one on-device before treating it as settled the way passes 1 and 2 were.
  */
 export const SHABBAT_BURST_COUNT = 10;
-// 15s window / (10 - 1) gaps ≈ 1667ms, so 10 pushes span exactly ~15s start-to-finish.
-export const SHABBAT_BURST_SPACING_MS = 1_667;
+// 8s window / (10 - 1) gaps ≈ 889ms, so 10 pushes span ~8s start-to-finish.
+export const SHABBAT_BURST_SPACING_MS = 889;
 
 /**
  * What the server actually did with one queued push — read by the probe UI (and, later, any
