@@ -1,0 +1,42 @@
+{
+  "name": "@medguard/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "//optionalDependencies": "Tailwind v4 compiles CSS with lightningcss, whose platform binary ships as an optional dep. npm prunes optional deps on repeat installs (npm/cli#4828), which silently breaks `vite build` with \"Cannot find module ../lightningcss.<platform>.node\". Declaring the platforms we build on pins them; npm installs only the one matching the host.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@medguard/shared": "*",
+    "dexie": "^4.0.11",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "workbox-precaching": "^7.3.0",
+    "workbox-window": "^7.3.0"
+  },
+  "optionalDependencies": {
+    "lightningcss-darwin-arm64": "^1.32.0",
+    "lightningcss-linux-x64-gnu": "^1.32.0",
+    "lightningcss-win32-x64-msvc": "^1.32.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "fake-indexeddb": "^6.0.0",
+    "jsdom": "^25.0.0",
+    "tailwindcss": "^4.0.0",
+    "vite": "^6.0.0",
+    "vite-plugin-pwa": "^0.21.0"
+  }
+}

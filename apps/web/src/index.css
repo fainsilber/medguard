@@ -1,0 +1,39 @@
+@import 'tailwindcss';
+
+/*
+ * This app gets used half-asleep, in the dark, at 3am. Dark-first and large touch targets are
+ * defaults here rather than a later accessibility pass.
+ */
+@theme {
+  --color-safe: oklch(0.72 0.19 145);
+  --color-locked: oklch(0.64 0.24 27);
+  --color-capped: oklch(0.55 0.02 260);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-slate-950);
+  color: var(--color-slate-100);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* Respect the notch / home indicator on installed iOS PWAs. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+/* Never ship a tap target smaller than this — see the 3am usability rule. */
+button,
+[role='button'] {
+  min-height: 44px;
+  min-width: 44px;
+}

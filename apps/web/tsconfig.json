@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "types": ["vite/client", "vite-plugin-pwa/client", "@testing-library/jest-dom"],
+    "paths": {
+      "@medguard/shared": ["../../packages/shared/src/index.ts"],
+      "@medguard/shared/testing": ["../../packages/shared/src/testing.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx", "*.config.ts"]
+}

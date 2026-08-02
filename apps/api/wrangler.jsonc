@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "medguard-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "medguard",
+      // Replaced by the real id from `wrangler d1 create medguard` before the Sprint 3 deploy.
+      // Tests never touch it — vitest-pool-workers provisions an isolated local D1 per test file.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "HOUSEHOLD",
+        "class_name": "HouseholdDO"
+      }
+    ]
+  },
+
+  // CRITICAL: new_sqlite_classes, not new_classes.
+  // KV-backed Durable Objects require a paid Workers plan; SQLite-backed ones run on free.
+  // Changing this after the fact costs a migration, so it is correct from the first commit.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["HouseholdDO"]
+    }
+  ]
+}
