@@ -14,8 +14,18 @@ export default defineConfig({
     cloudflareTest(async () => ({
       wrangler: { configPath: './wrangler.jsonc' },
       miniflare: {
-        // Handed to the setup file, which applies them into each test's isolated D1.
-        bindings: { TEST_MIGRATIONS: await readD1Migrations(migrationsDir) },
+        bindings: {
+          // Handed to the setup file, which applies them into each test's isolated D1.
+          TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
+
+          // A throwaway keypair generated solely for tests, so the push path is exercised in
+          // CI where no .dev.vars exists. These are not used anywhere real: outbound fetch is
+          // intercepted, so nothing is ever sent to a push service.
+          VAPID_SUBJECT: 'mailto:test@medguard.invalid',
+          VAPID_PUBLIC_KEY:
+            'BH7wRMtDhX-_fcWE9FIRJC7yH7h9sFYekB5i6XMYh8EuXcr013vn7x0sS9Mv2UtVkLaQ4DiwljYTS715xigo_lM',
+          VAPID_PRIVATE_KEY: 'DpbCd7ViYjhEg68WPbhMF7Dj9ERMmJmPG8TM16BPEkw',
+        },
       },
     })),
   ],

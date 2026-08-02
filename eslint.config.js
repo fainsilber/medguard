@@ -79,6 +79,7 @@ export default tseslint.config(
       globals: {
         Buffer: 'readonly',
         console: 'readonly',
+        crypto: 'readonly',
         process: 'readonly',
         __dirname: 'readonly',
       },

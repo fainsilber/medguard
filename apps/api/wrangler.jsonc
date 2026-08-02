@@ -10,11 +10,13 @@
 
   "d1_databases": [
     {
+      // The binding is the variable name on `env`, not the database name — the code and the
+      // generated types use `env.DB`.
       "binding": "DB",
       "database_name": "medguard",
-      // Replaced by the real id from `wrangler d1 create medguard` before the Sprint 3 deploy.
-      // Tests never touch it — vitest-pool-workers provisions an isolated local D1 per test file.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // Tests never touch this id: vitest-pool-workers provisions an isolated local D1 per
+      // test file, so the suite runs with no account and no network.
+      "database_id": "10682a81-c052-4465-975f-e22efca55588",
       "migrations_dir": "migrations"
     }
   ],

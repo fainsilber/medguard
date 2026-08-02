@@ -7,6 +7,8 @@
  */
 declare namespace Cloudflare {
   interface Env {
-    TEST_MIGRATIONS: { name: string; queries: string[] }[];
+    // Optional so the generated `Env` stays assignable to `Cloudflare.Env` in src/, where this
+    // binding does not exist. The test setup file asserts its presence at runtime.
+    TEST_MIGRATIONS?: { name: string; queries: string[] }[];
   }
 }

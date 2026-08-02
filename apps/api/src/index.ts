@@ -1,8 +1,13 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { probeRoutes } from './routes/probe.js';
 
 export { HouseholdDO } from './do/HouseholdDO.js';
 
 const app = new Hono<{ Bindings: Env }>();
+
+// The PWA is served from Pages and the API from Workers, so they are different origins.
+app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }));
 
 /**
  * Liveness plus a real check of both stateful bindings: D1 (migrations applied) and the
@@ -23,6 +28,8 @@ app.get('/api/v1/health', async (c) => {
     durableObject: { reachable: durableObject.ok, storage: durableObject.storage },
   });
 });
+
+app.route('/api/v1/probe', probeRoutes);
 
 app.notFound((c) => c.json({ error: 'not_found' }, 404));
 
