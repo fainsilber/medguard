@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "//optionalDependencies": "Tailwind v4 compiles CSS with lightningcss, whose platform binary ships as an optional dep. npm prunes optional deps on repeat installs (npm/cli#4828), which silently breaks `vite build` with \"Cannot find module ../lightningcss.<platform>.node\". Declaring the platforms we build on pins them; npm installs only the one matching the host.",
+  "//optionalDependencies": "Tailwind v4 compiles CSS with lightningcss, whose platform binaries ship as optional deps. npm prunes non-matching optional deps from the lockfile on every install/uninstall (npm/cli#4828), which breaks `vite build` locally and `npm ci` on other platforms in CI. Listing lightningcss's full platform set as DIRECT optional deps keeps every entry in the lockfile permanently; npm still installs only the one matching the host, and skips the rest on os/cpu mismatch.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -19,8 +19,16 @@
     "workbox-window": "^7.3.0"
   },
   "optionalDependencies": {
+    "lightningcss-android-arm64": "^1.32.0",
     "lightningcss-darwin-arm64": "^1.32.0",
+    "lightningcss-darwin-x64": "^1.32.0",
+    "lightningcss-freebsd-x64": "^1.32.0",
+    "lightningcss-linux-arm-gnueabihf": "^1.32.0",
+    "lightningcss-linux-arm64-gnu": "^1.32.0",
+    "lightningcss-linux-arm64-musl": "^1.32.0",
     "lightningcss-linux-x64-gnu": "^1.32.0",
+    "lightningcss-linux-x64-musl": "^1.32.0",
+    "lightningcss-win32-arm64-msvc": "^1.32.0",
     "lightningcss-win32-x64-msvc": "^1.32.0"
   },
   "devDependencies": {
