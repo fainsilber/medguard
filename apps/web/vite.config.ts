@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
@@ -5,6 +6,20 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 const sharedSrc = fileURLToPath(new URL('../../packages/shared/src', import.meta.url));
+
+/**
+ * Baked into the bundle so a deployed page can be identified from the phone browser alone —
+ * the failure mode this exists for is a deploy that silently never happened (e.g. the Cloudflare
+ * Git connection dropping), which is otherwise invisible until you notice a feature is missing.
+ * Falls back rather than failing the build if git isn't available for some reason.
+ */
+function gitShortSha(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return 'unknown';
+  }
+}
 
 export default defineConfig({
   plugins: [
@@ -46,6 +61,10 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    __APP_VERSION__: JSON.stringify(gitShortSha()),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   resolve: {
     alias: {
       '@medguard/shared/testing': `${sharedSrc}/testing.ts`,
