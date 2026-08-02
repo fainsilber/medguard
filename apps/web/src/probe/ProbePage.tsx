@@ -13,6 +13,7 @@ import { fetchServerLog, fetchVapidPublicKey, scheduleBurst } from './probeApi.j
 import type { ScheduleBurstResult } from './probeApi.js';
 import { createTimerSurvivalProbe } from './timerSurvival.js';
 import type { TimerSurvivalResult } from './timerSurvival.js';
+import { APP_VERSION, BUILD_TIME } from '../version.js';
 
 /**
  * Sprint 0 capability probe: answers "does the platform actually do this" with evidence from
@@ -276,6 +277,13 @@ export function ProbePage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">MedGuard</h1>
         <p className="text-sm text-slate-400">Sprint 0 — foundations &amp; capability probe</p>
+        {/* If this doesn't change after a merge to main, the deploy didn't actually happen —
+            exactly the failure mode that motivated adding it (a silently disconnected
+            Cloudflare Git integration). */}
+        <p className="text-xs text-slate-500">
+          v{APP_VERSION}
+          {BUILD_TIME && ` · built ${new Date(BUILD_TIME).toLocaleString()}`}
+        </p>
       </header>
 
       <Section title="1. Environment">
