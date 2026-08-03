@@ -24,7 +24,7 @@ export default defineConfig({
     coverage: {
       // istanbul, not v8: the v8 provider needs node:inspector, which does not exist in
       // workerd, so it silently collects nothing from the Worker and Durable Object tests.
-      // That would leave the server-side authoritative safety checks (delta D2) uncovered —
+      // That would leave the Durable Object's authoritative double-dose check uncovered —
       // exactly the code that must not be. istanbul instruments at transform time and works
       // in all three environments.
       provider: 'istanbul',

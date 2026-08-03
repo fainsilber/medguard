@@ -9,8 +9,9 @@ import type { PushSubscription } from '../push/send.js';
  *
  * A DO is single-threaded, which is exactly what the safety model needs: it is the one place
  * where two caregivers' concurrent PRN doses can be serialized and re-checked authoritatively
- * before either is accepted (delta D2). Sprint 4 adds the WebSocket Hibernation API and the
- * broadcast fan-out.
+ * before either is accepted — the fix for local-first sync otherwise letting two devices both
+ * think a dose is safe and administer it inside the same cooldown window. Sprint 4 adds the
+ * WebSocket Hibernation API and the broadcast fan-out.
  *
  * Sprint 0 uses it to retire two Sprint 5 risks early: that DO Alarms can drive scheduled Web
  * Push at all, and that a push actually arrives on a locked phone.

@@ -34,9 +34,9 @@ export function buildNotificationOptions(payload: ProbePushPayload): ExtendedNot
 
 /**
  * Compares what we asked for against what the Notification object actually retained. This is
- * the evidence that settles delta D1: sprint plan v1.0 claimed a push could carry a custom
- * notification sound, and this is what proves or disproves it on the device it actually runs on,
- * rather than by reading the spec.
+ * the evidence that settles whether a push notification can carry a custom sound at all — an
+ * earlier draft of the sprint plan assumed it could, and this proves or disproves it on the
+ * device it actually runs on, rather than by reading the spec.
  */
 export function retainedOptions(
   payload: ProbePushPayload,
