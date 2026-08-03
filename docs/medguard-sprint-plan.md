@@ -223,6 +223,8 @@ Dark mode and large tap targets from the start, not retrofitted. This gets used 
 
 **What almost slipped through:** the code merged to `main` doesn't deploy itself — `apps/api` has no CI-driven deploy step (unlike `apps/web`, which auto-deploys via Cloudflare's Git integration on every push to `main`). Sprint 3's backend sat merged but never live for a while as a result, which is exactly the kind of gap that's invisible until someone actually tries the feature. Worth deciding before Sprint 4 whether the API should get the same auto-deploy treatment, or whether a manual deploy step staying manual is the safer choice for a database migration.
 
+**Resolved 2026-08-03:** `.github/workflows/ci.yml` gained a `deploy-api` job — `needs: verify`, so it only runs after the full test suite is green, then applies pending D1 migrations remotely and runs `wrangler deploy`, on every push to `main`. Chose full auto-deploy over a manual approval gate; a `production` GitHub Environment is declared so a required-reviewer gate can be added later under Settings > Environments without touching the workflow itself.
+
 **Still needs you:** the two-real-phone check — join a household from an actual second device, not just curl.
 
 ---
