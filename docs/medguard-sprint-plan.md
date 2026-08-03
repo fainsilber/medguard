@@ -5,6 +5,7 @@
 **Supersedes:** Sprint Plan v1.0 (commit `3f18003`, kept in git history)
 **Team model:** Claude builds; you guide, decide, review.
 **Cadence:** 8 milestone sprints, no fixed dates. A sprint ends when its exit gate passes.
+**Progress:** Sprints 0, 1 and 2 complete (last updated 2026-08-03). Next up: Sprint 3 — backend, D1, join-code auth, first multi-device deploy.
 
 ---
 
@@ -21,11 +22,11 @@ Because a dosing error here can harm a child, this plan treats the safety logic 
 | Question | Decision |
 | --- | --- |
 | Shabbat chime | **No dedicated device.** Web Push for locked phones; in-app 45s chime engine when foregrounded. Native Android app (Phase 2) solves the locked-device case properly. |
-| Shabbat alert style | **Burst of 3 pushes, ~15s apart**, shared tag + `renotify`, approximating the PRD's 45s. Driven by `chimeDurationSeconds`. |
+| Shabbat alert style | **Burst of 10 pushes, ~1.11s apart**, shared tag + `renotify`, approximating the PRD's 45s. Started at 3×/15s and was retuned four times against a real Android phone — see Sprint 0 and `docs/platform-capabilities.md`. |
 | Auth | **Join code + device token only.** No magic link, no email provider. |
 | Devices | **Mixed iOS + Android, Android prioritized.** Native Android planned; no iOS native planned. iOS best-effort. |
 | Cloudflare | Account ready. Miniflare for all dev/CI; real deploys from Sprint 3 on. |
-| Patients | Schema supports N, UI ships 1. `patientId` is already everywhere; no switcher yet. |
+| Patients | Schema supports N, UI ships 1. `patientId` is already everywhere; no switcher yet. **Confirmed 2026-08-03: multi-patient is a real future requirement, not a hedge** — keep it a UI change, never let it become a migration. |
 | Hebrew / RTL | Deferred to post-v1 (carried from plan v1.0). |
 
 ---
@@ -152,9 +153,16 @@ Prove every test layer works before there's anything to test, and replace platfo
 
 ---
 
-### Sprint 1 — Domain core & local persistence
+### Sprint 1 — Domain core & local persistence — ✅ **Complete** (2026-08-02)
 
 The highest-value sprint: every safety guarantee traces back to code written here, and it's all pure functions, so it can be tested exhaustively.
+
+**Delivered:** `packages/shared` — `types.ts`, `schemas.ts`, `clock.ts`, `timezone.ts`, `schedule.ts`, `safety.ts`, `inventory.ts`, `logs.ts`, `sync.ts` — plus the Dexie schema and repository layer in `apps/web/src/db/`. All exit gates met.
+
+**Worth knowing:**
+- **The 100% branch gate was widened beyond the three modules the plan named.** `timezone.ts` and `logs.ts` are held to the same bar: a DST bug skips or doubles a dose, and a bug in supersession arithmetic makes the rolling-24h count wrong. Both are safety-critical in exactly the way the named three are. `clock.ts` and `sync.ts` too. Enforced in `vitest.config.ts`.
+- **`zoneOffsetMs` had a sub-millisecond truncation bug**, caught by a property test rather than an example — the kind of defect that would have surfaced months later as a dose landing a millisecond outside a cooldown window.
+- **Inventory is an append-only ledger, not a mutable counter** (the fix for the Last-Write-Wins data-loss problem the plan flagged): stock is the sum of immutable `InventoryAdjustment` deltas, deduplicated by client-generated id, so a sync retry can never double-apply and two offline caregivers can never lose each other's decrement.
 
 **Scope:** types + zod schemas per PRD §5, amended per D3/D4/D6/D8; `Clock` + `IdGenerator`; schedule expansion (`daily`, `interval_days`, `specific_days`, alternating via D6, bounded courses); **schedule versioning** — editing closes the old version (`endDate`, `active: false`) and creates a new one, so past occurrences and logs are never rewritten; PRN cooldown + rolling-24h cap; inventory ledger arithmetic; LWW merge; Dexie repositories with every mutation writing to `syncOutbox` in the same transaction.
 
@@ -164,13 +172,23 @@ The highest-value sprint: every safety guarantee traces back to code written her
 
 **Tests:** table-driven + `fast-check` property tests (*"for any log history and any clock, `canTake` never returns true inside the cooldown"*). DST both directions, leap day, interval crossing month end. Transactional integrity — a failed mutation leaves no orphan outbox row.
 
-**Exit gate:** 100% branch on `safety.ts`/`schedule.ts`/`inventory.ts`; safety-invariant suite green; zero ambient-time lint violations.
+**Exit gate:** 100% branch on `safety.ts`/`schedule.ts`/`inventory.ts`; safety-invariant suite green; zero ambient-time lint violations. ✅ Met, and held to a wider set of modules than the three named — see above.
 
 ---
 
-### Sprint 2 — Offline PWA: CRUD, PRN safety UI, export
+### Sprint 2 — Offline PWA: CRUD, PRN safety UI, export — ✅ **Complete** (2026-08-03)
 
 A fully usable single-device app with no backend. First sprint you can evaluate as a product, including the 3 AM ergonomics.
+
+**Delivered:** every screen in scope, wired into a tab shell behind a caregiver-identity gate, with the Sprint 0 capability probe kept reachable as a Diagnostics tab. 503 tests green; coverage gates hold; Playwright offline smoke test passes with no backend running.
+
+**Changed from the plan after using it:**
+- **"PRN" is now "As needed" throughout, and it's an explicit choice rather than an inferred one.** The plan carried the clinical term; it means nothing to a caregiver who isn't a nurse. More importantly, as-needed status was originally *inferred* from a medicine having no schedule — which was both invisible in the UI and a latent bug: stopping a medicine's schedule silently made it look as-needed. It's now a stored `asNeeded` field set from a "How is it taken?" question on the medicine form.
+- **The schedule editor opens inside the medicine's own row.** It first rendered below the entire medicine list, so with more than a couple of medicines the panel appeared far from the button that opened it and was easy to miss entirely.
+- **An overdue dose asks when it was actually taken.** Recording the moment the button was pressed is wrong when a caregiver gave the 08:00 dose on time but only acknowledged the notification at 09:15 — it misstates the history *and* starts the rolling-24h cap window from the wrong instant. Overdue doses now offer "On time", "Just now", or a specific time; on-time doses log in one tap, unchanged, because friction on the common path is what stops people logging at all. Both times are shown on the Today row and carried as separate columns in the CSV and printed summary.
+- **`features/prn/` had to be renamed `features/prnDoses/`.** `PRN` is a reserved Windows device name (like `CON`/`AUX`): a directory with that exact name is invisible to native `git.exe` on Windows, though every other tool sees it fine. Recorded here because it's the kind of thing that costs an hour to diagnose from scratch.
+
+---
 
 **Scope:** Medicines / Schedules / Inventory CRUD; Today view (overdue, due now, upcoming, done) with Taken / Skipped / Snooze 15m; PRN screen with three distinct states — 🟢 GREEN, 🔴 LOCKED with live countdown, ⚫ CAPPED (a different problem, so a different message); double-confirm override with mandatory reason, flagged permanently on the log; last-administered banner; **correction flow** — a mistaken log is superseded, never edited, with history viewable (invariant 1); **clock-skew guard** forcing RED (D7); manual stock adjustments; low-stock banner; days-of-supply projection.
 
@@ -180,7 +198,9 @@ Dark mode and large tap targets from the start, not retrofitted. This gets used 
 
 **Tests:** RTL under a fake clock — countdown rendering, the locked→unlocked flip at the exact boundary, cap boundary at 23h59m vs 24h01m, override needing two deliberate confirmations, skewed clock → RED. Playwright offline smoke with no backend: create medicine → schedule → log → verify decrement.
 
-**Exit gate:** full offline flow passes E2E with the backend down; coverage gates hold.
+**Exit gate:** full offline flow passes E2E with the backend down; coverage gates hold. ✅ Met.
+
+**Still standing in for something real, and known to be:** the clock-skew guard compares wall-clock drift against a monotonic reference captured at page load, so it catches a clock changing *during* a session but not one that was always wrong — the real check needs Sprint 3's server time endpoint. The caregiver name is a typed string, not authentication (Sprint 3). The household timezone is auto-detected rather than chosen in a settings screen (Sprint 6 needs one anyway for Shabbat coordinates). "Snooze 15m" is local UI state that a reload clears — there's no alarm engine to re-ring until Sprint 5. Each is commented as such at its call site.
 
 ---
 
@@ -252,6 +272,7 @@ Everything else runs unattended; these need you and a real device.
 4. **Real push on a locked Android phone** — is the burst actually loud enough to wake you at 3 AM? Iterated four times from direct feedback (see Sprint 0 above), including one round that went too far the other way — 10×/~889ms turned out too tight and the OS started dropping some of the ten. Current value is 10×/~1.11s, not yet re-confirmed on-device. Tune `SHABBAT_BURST_COUNT`/`SHABBAT_BURST_SPACING_MS` in `packages/shared/src/push.ts` from what you find.
 5. **Zmanim vs. your luach**, 8 weeks (Sprint 6 exit gate).
 6. **Two-phone concurrency** — two caregivers tapping the same PRN dose within a second, on real hardware over real cellular.
+7. **The 3 AM ergonomics of the Sprint 2 screens on a real phone** — contrast and tap-target size half-asleep in the dark, and whether the as-needed override flow's two confirmations feel like a deliberate safety step or just an obstacle. The RTL tests prove the states are correct; they can't tell you whether the thing is usable at 3 AM by someone frightened and exhausted. Nothing in Sprint 2 has been on a phone yet.
 
 ---
 
