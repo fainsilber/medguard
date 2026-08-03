@@ -5,7 +5,7 @@
 **Supersedes:** Sprint Plan v1.0 (commit `3f18003`, kept in git history)
 **Team model:** Claude builds; you guide, decide, review.
 **Cadence:** 8 milestone sprints, no fixed dates. A sprint ends when its exit gate passes.
-**Progress:** Sprints 0–3 complete in code (last updated 2026-08-03); Sprint 3's production deploy and two-real-phone check still outstanding. Next up: Sprint 4 — Durable Objects, real-time sync, the double-dose guard.
+**Progress:** Sprints 0–3 complete, deployed, and verified against the live API (last updated 2026-08-03). The two-real-phone check is the one thing left that only you can do. Next up: Sprint 4 — Durable Objects, real-time sync, the double-dose guard.
 
 ---
 
@@ -219,9 +219,11 @@ Dark mode and large tap targets from the start, not retrofitted. This gets used 
 
 **Tests:** `vitest-pool-workers` against real routes and real D1 — auth happy path, expired code, reused code, **cross-household access denied** (this is where a mistake leaks medical data), malformed payload, idempotent replay of the same outbox batch. Migration tests.
 
-**Exit gate:** integration suite green; **deployed** (Pages + Workers + D1); you can join a household from a second real phone. ⚠️ Partially met — the integration suite is green and the whole flow was verified end to end against a live local Worker with real D1 (household created, code issued, second device joined, a record pushed from one device pulled by the other, reused code rejected). **The production deploy and the two-real-phone check are still outstanding** and need you: see below.
+**Exit gate:** integration suite green; **deployed** (Pages + Workers + D1); you can join a household from a second real phone. ✅ Deployed and verified 2026-08-03 — the remote D1 database migrated to schema version 2, the Worker redeployed, and the full flow re-run against the live API itself (household created, join code issued, `/api/v1/me`, a record pushed and pulled). See `docs/data-handling.md` § Known test data in production for the one household that verification run left behind and how to remove it.
 
-**What still needs you:** create the remote D1 database and apply the migrations to it (`npx wrangler d1 migrations apply medguard --remote`), then deploy. Only then can the second-phone check actually happen. Until the remote database is migrated, the deployed API will fail on every route that touches it.
+**What almost slipped through:** the code merged to `main` doesn't deploy itself — `apps/api` has no CI-driven deploy step (unlike `apps/web`, which auto-deploys via Cloudflare's Git integration on every push to `main`). Sprint 3's backend sat merged but never live for a while as a result, which is exactly the kind of gap that's invisible until someone actually tries the feature. Worth deciding before Sprint 4 whether the API should get the same auto-deploy treatment, or whether a manual deploy step staying manual is the safer choice for a database migration.
+
+**Still needs you:** the two-real-phone check — join a household from an actual second device, not just curl.
 
 ---
 
