@@ -22,6 +22,7 @@ import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useTick } from '../../app/useTick.js';
 import { DoseCorrection } from '../logs/DoseCorrection.js';
 import { Card, buttonClass, primaryButtonClass } from '../../ui/primitives.js';
+import { TakenTimePrompt } from './TakenTimePrompt.js';
 import { classifyOccurrence } from './classifyOccurrence.js';
 import type { OccurrenceStatus } from './classifyOccurrence.js';
 import { findLogForOccurrence } from './matchOccurrenceLog.js';
@@ -59,6 +60,7 @@ export function TodayView() {
   const householdSettings = useHouseholdSettings();
   const [snoozedUntil, setSnoozedUntil] = useState<Map<string, number>>(new Map());
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [promptingKey, setPromptingKey] = useState<string | null>(null);
 
   useTick(REFRESH_INTERVAL_MS);
 
@@ -93,7 +95,7 @@ export function TodayView() {
     return new Map(medicines.map((medicine) => [medicine.id, `${medicine.name} ${medicine.strength}`]));
   }, [db]);
 
-  const handleTaken = async (occurrence: Occurrence, key: string) => {
+  const handleTaken = async (occurrence: Occurrence, key: string, actualTimeIso?: string) => {
     setBusyKey(key);
     try {
       await repository.recordDose({
@@ -104,15 +106,29 @@ export function TodayView() {
         type: 'scheduled',
         status: 'taken',
         scheduledTime: occurrence.dueAt,
-        actualTime: clock.nowIso(),
+        actualTime: actualTimeIso ?? clock.nowIso(),
         quantityTaken: occurrence.dosageQuantity,
         loggedByUserId: userId,
         loggedByDeviceId: deviceId,
         syncStatus: 'pending',
       });
+      setPromptingKey(null);
     } finally {
       setBusyKey(null);
     }
+  };
+
+  /**
+   * An overdue dose is the one case where "when was this taken?" has a real answer other than
+   * "now" — so it asks. Anything else logs straight away, because friction on the common path is
+   * what makes a caregiver stop logging at all.
+   */
+  const handleTakenClick = (occurrence: Occurrence, key: string, status: OccurrenceStatus) => {
+    if (status === 'overdue') {
+      setPromptingKey(key);
+      return;
+    }
+    void handleTaken(occurrence, key);
   };
 
   const handleSkipped = async (occurrence: Occurrence, key: string) => {
@@ -178,56 +194,76 @@ export function TodayView() {
               {inSection.map(({ occurrence, log, key }) => (
                 <li
                   key={key}
-                  className="flex items-center justify-between gap-3 rounded-md border border-slate-800 p-3 text-sm"
+                  className="flex flex-col gap-3 rounded-md border border-slate-800 p-3 text-sm"
                 >
-                  <div>
-                    <p className="font-medium">
-                      {medicineNames.get(occurrence.medicineId) ?? 'Unknown medicine'}
-                    </p>
-                    <p className="text-slate-400">
-                      {formatLocalTime(timeZone!, fromIso(occurrence.dueAt))} · {occurrence.dosageQuantity}
-                    </p>
-                    {log && (
-                      <>
-                        <p className="text-xs text-slate-500">
-                          {log.status === 'taken' ? 'Taken' : 'Skipped'} by {log.loggedByUserId}
-                        </p>
-                        <DoseCorrection allLogs={logs ?? []} tipLog={log} timeZone={timeZone!} />
-                      </>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {status !== 'done' && (
-                      <>
-                        <button
-                          type="button"
-                          className={primaryButtonClass}
-                          disabled={busyKey === key}
-                          onClick={() => void handleTaken(occurrence, key)}
-                        >
-                          Taken
-                        </button>
-                        <button
-                          type="button"
-                          className={buttonClass}
-                          disabled={busyKey === key}
-                          onClick={() => void handleSkipped(occurrence, key)}
-                        >
-                          Skip
-                        </button>
-                        {status !== 'snoozed' && (
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">
+                        {medicineNames.get(occurrence.medicineId) ?? 'Unknown medicine'}
+                      </p>
+                      <p className="text-slate-400">
+                        Due {formatLocalTime(timeZone!, fromIso(occurrence.dueAt))} ·{' '}
+                        {occurrence.dosageQuantity}
+                      </p>
+                      {log && (
+                        <>
+                          <p className="text-xs text-slate-500">
+                            {log.status === 'taken'
+                              ? `Taken ${formatLocalTime(timeZone!, fromIso(log.actualTime))}`
+                              : 'Skipped'}{' '}
+                            by {log.loggedByUserId}
+                            {log.status === 'taken' &&
+                              log.actualTime !== occurrence.dueAt &&
+                              ' · not at the scheduled time'}
+                          </p>
+                          <DoseCorrection allLogs={logs ?? []} tipLog={log} timeZone={timeZone!} />
+                        </>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {status !== 'done' && promptingKey !== key && (
+                        <>
+                          <button
+                            type="button"
+                            className={primaryButtonClass}
+                            disabled={busyKey === key}
+                            onClick={() => handleTakenClick(occurrence, key, status)}
+                          >
+                            Taken
+                          </button>
                           <button
                             type="button"
                             className={buttonClass}
                             disabled={busyKey === key}
-                            onClick={() => handleSnooze(key)}
+                            onClick={() => void handleSkipped(occurrence, key)}
                           >
-                            Snooze 15m
+                            Skip
                           </button>
-                        )}
-                      </>
-                    )}
+                          {status !== 'snoozed' && (
+                            <button
+                              type="button"
+                              className={buttonClass}
+                              disabled={busyKey === key}
+                              onClick={() => handleSnooze(key)}
+                            >
+                              Snooze 15m
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
+
+                  {promptingKey === key && (
+                    <TakenTimePrompt
+                      dueAtIso={occurrence.dueAt}
+                      nowMs={nowMs}
+                      timeZone={timeZone!}
+                      saving={busyKey === key}
+                      onConfirm={(actualTimeIso) => void handleTaken(occurrence, key, actualTimeIso)}
+                      onCancel={() => setPromptingKey(null)}
+                    />
+                  )}
                 </li>
               ))}
             </ul>

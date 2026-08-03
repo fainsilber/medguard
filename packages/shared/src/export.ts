@@ -14,7 +14,8 @@ import type { IntakeLog, Uuid } from './types.js';
 
 const CSV_HEADER = [
   'Date',
-  'Time',
+  'Scheduled time',
+  'Time given',
   'Medicine',
   'Type',
   'Status',
@@ -62,6 +63,9 @@ export function buildIntakeLogCsv(
     lines.push(
       [
         formatLocalDate(timeZone, instantMs),
+        // Blank for an as-needed dose, which has no scheduled time by definition. Keeping both
+        // columns is what lets a clinician see that the 08:00 dose was actually given at 09:15.
+        log.scheduledTime === undefined ? '' : formatLocalTime(timeZone, fromIso(log.scheduledTime)),
         formatLocalTime(timeZone, instantMs),
         medicineNames.get(log.medicineId) ?? 'Unknown medicine',
         log.type === 'prn' ? 'As needed' : 'Scheduled',

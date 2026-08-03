@@ -59,7 +59,7 @@ test('create medicine, schedule it, log a dose offline, and see stock decrement'
   // Log it taken — an offline write, straight to IndexedDB, no network involved.
   await page.getByRole('button', { name: 'Taken' }).click();
   await expect(page.getByText('Done')).toBeVisible();
-  await expect(page.getByText('Taken by Mom')).toBeVisible();
+  await expect(page.getByText(/Taken \d\d:\d\d by Mom/)).toBeVisible();
 
   // Stock reflects exactly one dose's worth decremented.
   await nav.getByRole('button', { name: 'Inventory' }).click();

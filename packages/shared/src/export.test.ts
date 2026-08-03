@@ -25,7 +25,7 @@ const MEDICINE_NAMES = new Map([['medicine-1', 'Ondansetron 4mg']]);
 describe('buildIntakeLogCsv', () => {
   it('emits just the header when there are no logs', () => {
     expect(buildIntakeLogCsv([], MEDICINE_NAMES, TIME_ZONE)).toBe(
-      'Date,Time,Medicine,Type,Status,Quantity,Given by,Override reason,Notes\r\n',
+      'Date,Scheduled time,Time given,Medicine,Type,Status,Quantity,Given by,Override reason,Notes\r\n',
     );
   });
 
@@ -39,10 +39,28 @@ describe('buildIntakeLogCsv', () => {
     const lines = csv.trim().split('\r\n');
 
     expect(lines).toEqual([
-      'Date,Time,Medicine,Type,Status,Quantity,Given by,Override reason,Notes',
-      '2026-06-15,08:00,Ondansetron 4mg,As needed,Taken,1,Mom,,',
-      '2026-06-15,20:00,Ondansetron 4mg,Scheduled,Skipped,0,Mom,,',
+      'Date,Scheduled time,Time given,Medicine,Type,Status,Quantity,Given by,Override reason,Notes',
+      '2026-06-15,,08:00,Ondansetron 4mg,As needed,Taken,1,Mom,,',
+      '2026-06-15,,20:00,Ondansetron 4mg,Scheduled,Skipped,0,Mom,,',
     ]);
+  });
+
+  it('records the scheduled time alongside the time actually given, when they differ', () => {
+    const logs = [
+      log('late', {
+        type: 'scheduled',
+        scheduledTime: '2026-06-15T08:00:00.000Z',
+        actualTime: '2026-06-15T09:15:00.000Z',
+      }),
+    ];
+
+    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, TIME_ZONE);
+    expect(csv).toContain('2026-06-15,08:00,09:15,Ondansetron 4mg,Scheduled,Taken,1,Mom,,');
+  });
+
+  it('leaves the scheduled-time column blank for an as-needed dose, which has no due time', () => {
+    const csv = buildIntakeLogCsv([log('prn', { type: 'prn' })], MEDICINE_NAMES, TIME_ZONE);
+    expect(csv).toContain('2026-06-15,,12:00,');
   });
 
   it('excludes a log that a correction superseded, but includes the correction', () => {

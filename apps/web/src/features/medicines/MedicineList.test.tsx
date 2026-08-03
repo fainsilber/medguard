@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
@@ -56,6 +56,28 @@ describe('MedicineList', () => {
     await addMedicine('Vitamin D');
 
     expect(screen.queryByText(/between doses/)).not.toBeInTheDocument();
+  });
+
+  it('opens the schedule editor inside the row of the medicine it belongs to', async () => {
+    const user = userEvent.setup();
+    await renderWithRepository(<MedicineList />, { timeZone: 'UTC' });
+    await screen.findByText('No medicines yet.');
+    await addMedicine('Prednisone');
+    await addMedicine('Ondansetron');
+
+    // Expand the *first* medicine's schedule. Rendered below the whole list, as it used to be, the
+    // panel would sit under Ondansetron and read as belonging to it instead.
+    const prednisoneRow = screen
+      .getAllByRole('listitem')
+      .find((row) => row.textContent?.includes('Prednisone'))!;
+    await user.click(within(prednisoneRow).getByRole('button', { name: 'Schedule' }));
+
+    expect(await within(prednisoneRow).findByText('No active schedule.')).toBeInTheDocument();
+
+    const ondansetronRow = screen
+      .getAllByRole('listitem')
+      .find((row) => row.textContent?.includes('Ondansetron'))!;
+    expect(within(ondansetronRow).queryByText('No active schedule.')).not.toBeInTheDocument();
   });
 
   it('only offers to manage a schedule for a medicine that is not as-needed', async () => {

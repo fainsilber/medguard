@@ -86,7 +86,8 @@ export function ExportScreen() {
             <thead>
               <tr className="border-b border-slate-700 text-xs uppercase text-slate-400">
                 <th className="py-1 pr-2">Date</th>
-                <th className="py-1 pr-2">Time</th>
+                <th className="py-1 pr-2">Due</th>
+                <th className="py-1 pr-2">Given</th>
                 <th className="py-1 pr-2">Medicine</th>
                 <th className="py-1 pr-2">Status</th>
                 <th className="py-1 pr-2">Qty</th>
@@ -98,6 +99,11 @@ export function ExportScreen() {
               {rows.map((log) => (
                 <tr key={log.id} className="border-b border-slate-800 align-top">
                   <td className="py-1 pr-2 whitespace-nowrap">{formatLocalDate(timeZone, fromIso(log.actualTime))}</td>
+                  <td className="py-1 pr-2 whitespace-nowrap text-slate-400">
+                    {log.scheduledTime === undefined
+                      ? '—'
+                      : formatLocalTime(timeZone, fromIso(log.scheduledTime))}
+                  </td>
                   <td className="py-1 pr-2 whitespace-nowrap">{formatLocalTime(timeZone, fromIso(log.actualTime))}</td>
                   <td className="py-1 pr-2">{medicineNames.get(log.medicineId) ?? 'Unknown medicine'}</td>
                   <td className="py-1 pr-2">{log.status === 'taken' ? 'Taken' : 'Skipped'}</td>

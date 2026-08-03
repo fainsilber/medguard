@@ -65,61 +65,63 @@ export function MedicineList() {
           {medicines.map((medicine) => (
             <li
               key={medicine.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-slate-800 p-3"
+              className="flex flex-col gap-3 rounded-md border border-slate-800 p-3"
             >
-              <div>
-                <p className="font-medium">
-                  {medicine.name} <span className="text-slate-400">{medicine.strength}</span>
-                  {medicine.asNeeded && <Badge tone="neutral">as needed</Badge>}
-                  {medicine.archived && <Badge tone="neutral">archived</Badge>}
-                </p>
-                {(medicine.minHoursBetweenDoses !== undefined ||
-                  medicine.maxDailyDoses !== undefined) && (
-                  <p className="text-xs text-slate-400">
-                    {medicine.minHoursBetweenDoses !== undefined &&
-                      `Min ${medicine.minHoursBetweenDoses}h between doses`}
-                    {medicine.minHoursBetweenDoses !== undefined &&
-                      medicine.maxDailyDoses !== undefined &&
-                      ' · '}
-                    {medicine.maxDailyDoses !== undefined && `Max ${medicine.maxDailyDoses}/day`}
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium">
+                    {medicine.name} <span className="text-slate-400">{medicine.strength}</span>
+                    {medicine.asNeeded && <Badge tone="neutral">as needed</Badge>}
+                    {medicine.archived && <Badge tone="neutral">archived</Badge>}
                   </p>
-                )}
-              </div>
-              <div className="flex shrink-0 gap-2">
-                {!medicine.asNeeded && (
-                  <button
-                    type="button"
-                    className={buttonClass}
-                    onClick={() => setExpandedId((current) => (current === medicine.id ? null : medicine.id))}
-                  >
-                    {expandedId === medicine.id ? 'Hide schedule' : 'Schedule'}
+                  {(medicine.minHoursBetweenDoses !== undefined ||
+                    medicine.maxDailyDoses !== undefined) && (
+                    <p className="text-xs text-slate-400">
+                      {medicine.minHoursBetweenDoses !== undefined &&
+                        `Min ${medicine.minHoursBetweenDoses}h between doses`}
+                      {medicine.minHoursBetweenDoses !== undefined &&
+                        medicine.maxDailyDoses !== undefined &&
+                        ' · '}
+                      {medicine.maxDailyDoses !== undefined && `Max ${medicine.maxDailyDoses}/day`}
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  {!medicine.asNeeded && (
+                    <button
+                      type="button"
+                      className={buttonClass}
+                      onClick={() => setExpandedId((current) => (current === medicine.id ? null : medicine.id))}
+                    >
+                      {expandedId === medicine.id ? 'Hide schedule' : 'Schedule'}
+                    </button>
+                  )}
+                  <button type="button" className={buttonClass} onClick={() => setEditing(medicine)}>
+                    Edit
                   </button>
-                )}
-                <button type="button" className={buttonClass} onClick={() => setEditing(medicine)}>
-                  Edit
-                </button>
-                {!medicine.archived && (
-                  <button
-                    type="button"
-                    className={buttonClass}
-                    onClick={() => void repository.archiveMedicine(medicine.id)}
-                  >
-                    Archive
-                  </button>
-                )}
+                  {!medicine.archived && (
+                    <button
+                      type="button"
+                      className={buttonClass}
+                      onClick={() => void repository.archiveMedicine(medicine.id)}
+                    >
+                      Archive
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Nested inside this medicine's own row rather than below the whole list: with a
+                  dozen medicines, a panel at the bottom is far from the button that opened it and
+                  easy to miss entirely. */}
+              {expandedId === medicine.id && (
+                <div className="rounded-md border border-slate-700 bg-slate-900/50 p-3">
+                  <ScheduleList medicineId={medicine.id} />
+                </div>
+              )}
             </li>
           ))}
         </ul>
-      )}
-
-      {expandedId && (
-        <div className="rounded-md border border-slate-800 p-3">
-          <p className="mb-2 text-xs text-slate-500">
-            Schedule for {medicines?.find((medicine) => medicine.id === expandedId)?.name ?? 'this medicine'}
-          </p>
-          <ScheduleList medicineId={expandedId} />
-        </div>
       )}
     </Card>
   );
