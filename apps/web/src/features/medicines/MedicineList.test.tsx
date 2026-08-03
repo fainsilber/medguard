@@ -33,7 +33,7 @@ describe('MedicineList', () => {
     expect(screen.getByText('4mg')).toBeInTheDocument();
   });
 
-  it('shows the PRN guard summary when configured', async () => {
+  it('shows the as-needed guard summary when configured', async () => {
     const user = userEvent.setup();
     await renderWithRepository(<MedicineList />);
     await screen.findByText('No medicines yet.');
@@ -41,10 +41,12 @@ describe('MedicineList', () => {
     await user.click(screen.getByRole('button', { name: '+ Add medicine' }));
     await user.type(screen.getByLabelText('Name'), 'Ondansetron');
     await user.type(screen.getByLabelText('Strength'), '4mg');
+    await user.click(screen.getByRole('radio', { name: /As needed/ }));
     await user.type(screen.getByLabelText('Min hours between doses'), '4');
     await user.type(screen.getByLabelText('Max doses / day'), '4');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
+    expect(await screen.findByText('as needed')).toBeInTheDocument();
     expect(await screen.findByText(/Min 4h between doses · Max 4\/day/)).toBeInTheDocument();
   });
 
@@ -54,6 +56,22 @@ describe('MedicineList', () => {
     await addMedicine('Vitamin D');
 
     expect(screen.queryByText(/between doses/)).not.toBeInTheDocument();
+  });
+
+  it('only offers to manage a schedule for a medicine that is not as-needed', async () => {
+    const user = userEvent.setup();
+    await renderWithRepository(<MedicineList />);
+    await screen.findByText('No medicines yet.');
+    await addMedicine('Prednisone');
+
+    await user.click(screen.getByRole('button', { name: '+ Add medicine' }));
+    await user.type(screen.getByLabelText('Name'), 'Ondansetron');
+    await user.type(screen.getByLabelText('Strength'), '4mg');
+    await user.click(screen.getByRole('radio', { name: /As needed/ }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Ondansetron');
+
+    expect(screen.getAllByRole('button', { name: 'Schedule' })).toHaveLength(1);
   });
 
   it('archives a medicine instead of deleting it', async () => {

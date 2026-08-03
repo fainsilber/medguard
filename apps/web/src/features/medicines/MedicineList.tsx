@@ -70,6 +70,7 @@ export function MedicineList() {
               <div>
                 <p className="font-medium">
                   {medicine.name} <span className="text-slate-400">{medicine.strength}</span>
+                  {medicine.asNeeded && <Badge tone="neutral">as needed</Badge>}
                   {medicine.archived && <Badge tone="neutral">archived</Badge>}
                 </p>
                 {(medicine.minHoursBetweenDoses !== undefined ||
@@ -85,13 +86,15 @@ export function MedicineList() {
                 )}
               </div>
               <div className="flex shrink-0 gap-2">
-                <button
-                  type="button"
-                  className={buttonClass}
-                  onClick={() => setExpandedId((current) => (current === medicine.id ? null : medicine.id))}
-                >
-                  {expandedId === medicine.id ? 'Hide schedule' : 'Schedule'}
-                </button>
+                {!medicine.asNeeded && (
+                  <button
+                    type="button"
+                    className={buttonClass}
+                    onClick={() => setExpandedId((current) => (current === medicine.id ? null : medicine.id))}
+                  >
+                    {expandedId === medicine.id ? 'Hide schedule' : 'Schedule'}
+                  </button>
+                )}
                 <button type="button" className={buttonClass} onClick={() => setEditing(medicine)}>
                   Edit
                 </button>

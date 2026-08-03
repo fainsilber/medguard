@@ -70,6 +70,7 @@ export const medicineSchema = z.object({
   name: z.string().min(1).max(200),
   strength: z.string().min(1).max(100),
   form: medicineFormSchema,
+  asNeeded: z.boolean(),
   // Positive, not just non-negative: a zero-hour cooldown is indistinguishable from "no cooldown"
   // but reads as if a limit exists. Omit the field instead.
   minHoursBetweenDoses: z.number().positive().max(24 * 7).optional(),

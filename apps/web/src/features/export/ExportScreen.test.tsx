@@ -28,6 +28,7 @@ async function seedOneDose(repository: MedGuardRepository) {
       name: 'Ondansetron',
       strength: '4mg',
       form: 'pill',
+      asNeeded: false,
       archived: false,
       updatedAt: '2026-06-01T00:00:00.000Z',
       updatedByDeviceId: 'seed',

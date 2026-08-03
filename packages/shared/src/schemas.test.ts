@@ -101,6 +101,7 @@ describe('medicineSchema', () => {
     name: 'Ondansetron',
     strength: '4mg',
     form: 'pill',
+    asNeeded: false,
     archived: false,
     ...syncable,
   };

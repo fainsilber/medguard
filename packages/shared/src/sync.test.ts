@@ -10,6 +10,7 @@ function medicine(overrides: Partial<Medicine> = {}): Medicine {
     name: 'Ondansetron',
     strength: '4mg',
     form: 'pill',
+    asNeeded: false,
     archived: false,
     updatedAt: '2026-06-15T12:00:00.000Z',
     updatedByDeviceId: 'device-a',
