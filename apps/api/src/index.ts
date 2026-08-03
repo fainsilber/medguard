@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { systemClock } from '@medguard/shared';
+import { authRoutes } from './routes/auth.js';
 import { probeRoutes } from './routes/probe.js';
+import { syncRoutes } from './routes/sync.js';
 
 export { HouseholdDO } from './do/HouseholdDO.js';
 
@@ -29,6 +32,20 @@ app.get('/api/v1/health', async (c) => {
   });
 });
 
+/**
+ * Authoritative time, for the client's clock-skew guard (delta D7).
+ *
+ * A device with a wrong clock cannot prove a cooldown has elapsed, so the client compares its own
+ * reading against this and fails closed when they disagree by more than the tolerance. Kept
+ * deliberately unauthenticated and free of any database work: it must stay cheap and it must keep
+ * answering even when everything else is degraded, because the safe-to-dose decision depends on it.
+ */
+app.get('/api/v1/time', (c) => {
+  return c.json({ nowIso: systemClock.nowIso(), nowMs: systemClock.nowMs() });
+});
+
+app.route('/api/v1', authRoutes);
+app.route('/api/v1/sync', syncRoutes);
 app.route('/api/v1/probe', probeRoutes);
 
 app.notFound((c) => c.json({ error: 'not_found' }, 404));

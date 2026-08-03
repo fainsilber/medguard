@@ -1,5 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { ClockTrust } from '@medguard/shared';
+import { getApiBaseUrl } from '../../api/config.js';
+import { useClockTrust } from '../../clock/useClockTrust.js';
 import { useMedGuardDb } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useTick } from '../../app/useTick.js';
@@ -14,6 +16,11 @@ const COUNTDOWN_TICK_MS = 1000;
 export function PrnScreen({ clockTrust }: { clockTrust?: ClockTrust }) {
   const db = useMedGuardDb();
   const householdSettings = useHouseholdSettings();
+
+  // Checked once here for the whole screen rather than per card: it is one shared property of the
+  // device, and every card would otherwise poll the server independently.
+  const verifiedTrust = useClockTrust(clockTrust ? undefined : getApiBaseUrl());
+  const effectiveTrust = clockTrust ?? verifiedTrust;
 
   useTick(COUNTDOWN_TICK_MS);
 
@@ -47,7 +54,7 @@ export function PrnScreen({ clockTrust }: { clockTrust?: ClockTrust }) {
           medicine={medicine}
           logs={logs.filter((log) => log.medicineId === medicine.id)}
           timeZone={householdSettings.timeZone}
-          {...(clockTrust !== undefined ? { clockTrust } : {})}
+          clockTrust={effectiveTrust}
         />
       ))}
     </div>

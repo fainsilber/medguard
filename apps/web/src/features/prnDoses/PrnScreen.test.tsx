@@ -106,7 +106,9 @@ describe('PrnScreen', () => {
   it('ticks a locked countdown down live as time advances, with a single shared interval', async () => {
     const clock = manualClock('2026-06-15T08:46:00.000Z');
 
-    await renderWithRepository(<PrnScreen />, {
+    // Passed explicitly because there is no server here. Without it the screen correctly reports
+    // the clock as unverified and blocks — see the fail-closed test below.
+    await renderWithRepository(<PrnScreen clockTrust={{ kind: 'trusted', offsetMs: 0 }} />, {
       clock,
       timeZone: TIME_ZONE,
       seed: async (repository) => {
@@ -136,4 +138,18 @@ describe('PrnScreen', () => {
 
     expect(await screen.findByText('Locked: 3 hrs 13 mins remaining')).toBeInTheDocument();
   }, 8000);
+
+  it('blocks rather than showing green when the clock cannot be verified against the server', async () => {
+    // No server is reachable in this test, so the trust check can only return `unverified`. The
+    // medicine is well outside its cooldown and would otherwise be safe — this asserts the app
+    // fails closed (safety invariant 3) instead of trusting an unverifiable clock.
+    await renderWithRepository(<PrnScreen />, {
+      clock: manualClock('2026-06-16T12:00:00.000Z'),
+      timeZone: TIME_ZONE,
+      seed: seedPrnMedicine,
+    });
+
+    expect(await screen.findByText('🔴 Clock unverified')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Give dose' })).not.toBeInTheDocument();
+  });
 });
