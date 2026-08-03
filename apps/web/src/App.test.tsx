@@ -12,11 +12,27 @@ afterEach(() => {
   localStorage.clear();
 });
 
+/**
+ * A fresh device is offered a household first. These tests are about the app shell, so they take
+ * the standalone path — which also keeps them free of any network dependency.
+ */
+async function signInStandalone(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Use this device on its own for now' }));
+  await user.type(screen.getByLabelText('Your name'), 'Mom');
+  await user.click(screen.getByRole('button', { name: 'Continue' }));
+}
+
 describe('App', () => {
-  it('asks who is using the device before showing anything else', () => {
+  it('offers a household, then asks who is using the device, before showing anything else', async () => {
+    const user = userEvent.setup();
     render(<App />);
 
     expect(screen.getByRole('heading', { name: 'MedGuard' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start a new household' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Use this device on its own for now' }));
+
     expect(screen.getByText(/Who’s using this device/)).toBeInTheDocument();
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
   });
@@ -25,8 +41,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.type(screen.getByLabelText('Your name'), 'Mom');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await signInStandalone(user);
 
     const nav = await screen.findByRole('navigation', { name: 'Sections' });
     const todayTab = within(nav).getByRole('button', { name: 'Today' });
@@ -42,8 +57,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.type(screen.getByLabelText('Your name'), 'Mom');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await signInStandalone(user);
 
     const nav = await screen.findByRole('navigation', { name: 'Sections' });
     await user.click(within(nav).getByRole('button', { name: 'Diagnostics' }));

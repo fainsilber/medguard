@@ -4,9 +4,11 @@ A local-first PWA for households managing complex pediatric-oncology medication 
 several caregivers — scheduled doses, as-needed doses with cooldown and daily-cap safety guards,
 inventory tracking, and (from Sprint 6) Shabbat/Yom Tov automation.
 
-**Status:** Sprints 0–2 complete. The app is fully usable offline on a single device; multi-device
-sync arrives in Sprints 3–4. See [`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) for
-what's built, what changed along the way, and what's next.
+**Status:** Sprints 0–3 complete in code. The app is fully usable offline on a single device, and a
+second device can now join a household with a 6-digit code and sync through the backend. Real-time
+push-based sync and the server-side double-dose guard arrive in Sprint 4. See
+[`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) for what's built, what changed along
+the way, and what's next.
 
 - **Live PWA:** https://medguard-web.fainsilber.workers.dev
 - **API:** https://medguard-api.fainsilber.workers.dev
@@ -97,5 +99,6 @@ fine. This cost real diagnostic time once already; `features/prn/` is now `featu
 | --- | --- |
 | [`docs/medguard-prd.md`](docs/medguard-prd.md) | Product requirements — the source of truth for behaviour. |
 | [`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) | Sprint-by-sprint plan, progress, and every deviation from the PRD with its reasoning. |
+| [`docs/data-handling.md`](docs/data-handling.md) | What medical data is stored, where, who can reach it, and the known gaps. |
 | [`docs/platform-capabilities.md`](docs/platform-capabilities.md) | Real-device probe results — what push and background timers actually do on Android and iOS, measured rather than assumed. |
 | [`docs/halachic-decisions.md`](docs/halachic-decisions.md) | Working answers on Shabbat behaviour. **Pragmatic placeholders, not a ruling** — the questions still need to go to a rav before Sprint 6 ships. |

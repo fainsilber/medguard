@@ -5,7 +5,7 @@
 **Supersedes:** Sprint Plan v1.0 (commit `3f18003`, kept in git history)
 **Team model:** Claude builds; you guide, decide, review.
 **Cadence:** 8 milestone sprints, no fixed dates. A sprint ends when its exit gate passes.
-**Progress:** Sprints 0, 1 and 2 complete (last updated 2026-08-03). Next up: Sprint 3 — backend, D1, join-code auth, first multi-device deploy.
+**Progress:** Sprints 0–3 complete in code (last updated 2026-08-03); Sprint 3's production deploy and two-real-phone check still outstanding. Next up: Sprint 4 — Durable Objects, real-time sync, the double-dose guard.
 
 ---
 
@@ -204,13 +204,24 @@ Dark mode and large tap targets from the start, not retrofitted. This gets used 
 
 ---
 
-### Sprint 3 — Backend: D1, Hono API, join-code auth — **first deploy**
+### Sprint 3 — Backend: D1, Hono API, join-code auth — ✅ **Complete** (2026-08-03)
+
+**Delivered:** migration `0002_domain.sql`, join-code auth, the sync surface (`bootstrap` / `pull` / `push`), the server time endpoint, `docs/data-handling.md`, and household onboarding in the PWA. 595 tests green; coverage gates hold; 8 Playwright tests including a two-device join.
+
+**Decisions worth knowing:**
+- **Per-entity tables, with the write rules factored out once.** The tempting shortcut was a single generic `sync_records` table with a JSON payload — merge logic written once instead of seven times. Rejected because Sprint 4's authoritative PRN re-check and Sprint 5's alarm scheduling both need real server-side domain queries, which a JSON blob makes awkward. Instead each table has real columns *and* the validated record as JSON: the columns are what the server queries, the payload is what round-trips to the client so the SQL mapping cannot silently drop a field. The merge, cursor and dedup rules live in one `tables.ts` config, not seven copies.
+- **`seq`, not timestamps, is the sync cursor.** A per-household monotonic counter assigned by the server. Timestamps cannot do this: two devices can write the same millisecond, and a device with a wrong clock could write a record *behind* a cursor a puller had already passed — losing it permanently.
+- **DELETE is not supported on the sync path.** The domain has no hard deletes by design (medicines archive, logs supersede), so rejecting it enforces safety invariant 1 at the boundary rather than trusting every client.
+- **Onboarding is skippable.** "Use this device on its own for now" is a first-class option. The app is fully usable offline on one device, and a caregiver in a hospital with no signal must never be blocked from logging a dose because a server is unreachable.
+- **The clock-skew guard now combines two checks.** The server check catches a clock that was *always* wrong (which a device cannot detect about itself); the existing local monotonic check catches one changed *mid-session* (which a server check from minutes ago would still call fine). Neither subsumes the other, so the more pessimistic answer wins, and any failure to reach the server yields `unverified` — never `trusted`.
 
 **Scope:** D1 migrations mirroring the domain; household / user / device model with `pushProvider` + `pushCredentials` (D8); 6-digit join codes, short-lived, single-use, rate-limited (a 6-digit code is brute-forceable otherwise); device tokens hashed at rest; `/api/v1/` — `bootstrap`, cursor-based delta `pull`, batched idempotent `push`; **server time endpoint** feeding the D7 skew guard; server-side zod validation reusing `packages/shared`; PHI handling documented in `docs/data-handling.md`.
 
 **Tests:** `vitest-pool-workers` against real routes and real D1 — auth happy path, expired code, reused code, **cross-household access denied** (this is where a mistake leaks medical data), malformed payload, idempotent replay of the same outbox batch. Migration tests.
 
-**Exit gate:** integration suite green; **deployed** (Pages + Workers + D1); you can join a household from a second real phone.
+**Exit gate:** integration suite green; **deployed** (Pages + Workers + D1); you can join a household from a second real phone. ⚠️ Partially met — the integration suite is green and the whole flow was verified end to end against a live local Worker with real D1 (household created, code issued, second device joined, a record pushed from one device pulled by the other, reused code rejected). **The production deploy and the two-real-phone check are still outstanding** and need you: see below.
+
+**What still needs you:** create the remote D1 database and apply the migrations to it (`npx wrangler d1 migrations apply medguard --remote`), then deploy. Only then can the second-phone check actually happen. Until the remote database is migrated, the deployed API will fail on every route that touches it.
 
 ---
 
