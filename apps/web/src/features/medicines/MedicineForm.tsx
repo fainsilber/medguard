@@ -9,8 +9,8 @@ const MEDICINE_FORMS = ['pill', 'liquid', 'injection', 'topical', 'other'] as co
 
 /**
  * Add or edit a medicine. Editing writes the same id back (an in-place field correction, not a
- * new version) — unlike schedules, a medicine's name or PRN guard isn't something that needs a
- * historical trail the way a dose amount does.
+ * new version) — unlike schedules, a medicine's name or as-needed guard isn't something that
+ * needs a historical trail the way a dose amount does.
  */
 export function MedicineForm({
   medicine,
@@ -27,6 +27,7 @@ export function MedicineForm({
   const [name, setName] = useState(medicine?.name ?? '');
   const [strength, setStrength] = useState(medicine?.strength ?? '');
   const [form, setForm] = useState<Medicine['form']>(medicine?.form ?? 'pill');
+  const [asNeeded, setAsNeeded] = useState(medicine?.asNeeded ?? false);
   const [minHours, setMinHours] = useState(medicine?.minHoursBetweenDoses?.toString() ?? '');
   const [maxDaily, setMaxDaily] = useState(medicine?.maxDailyDoses?.toString() ?? '');
   const [instructions, setInstructions] = useState(medicine?.instructions ?? '');
@@ -44,13 +45,13 @@ export function MedicineForm({
       return;
     }
 
-    const minHoursValue = minHours.trim() === '' ? undefined : Number(minHours);
+    const minHoursValue = !asNeeded || minHours.trim() === '' ? undefined : Number(minHours);
     if (minHoursValue !== undefined && !(minHoursValue > 0)) {
       setError('Minimum hours between doses must be a positive number.');
       return;
     }
 
-    const maxDailyValue = maxDaily.trim() === '' ? undefined : Number(maxDaily);
+    const maxDailyValue = !asNeeded || maxDaily.trim() === '' ? undefined : Number(maxDaily);
     if (maxDailyValue !== undefined && !(Number.isInteger(maxDailyValue) && maxDailyValue > 0)) {
       setError('Max doses per day must be a positive whole number.');
       return;
@@ -65,6 +66,7 @@ export function MedicineForm({
           name: trimmedName,
           strength: trimmedStrength,
           form,
+          asNeeded,
           archived: medicine?.archived ?? false,
           ...(minHoursValue !== undefined ? { minHoursBetweenDoses: minHoursValue } : {}),
           ...(maxDailyValue !== undefined ? { maxDailyDoses: maxDailyValue } : {}),
@@ -117,32 +119,46 @@ export function MedicineForm({
         </select>
       </label>
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className={labelClass}>
-          Min hours between doses
-          <input
-            className={inputClass}
-            type="number"
-            min="0"
-            step="0.5"
-            placeholder="PRN only"
-            value={minHours}
-            onChange={(e) => setMinHours(e.target.value)}
-          />
+      <fieldset className="flex flex-col gap-1">
+        <legend className="text-sm">How is it taken?</legend>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="radio" name="asNeeded" checked={!asNeeded} onChange={() => setAsNeeded(false)} />
+          On a schedule (set on the medicine&rsquo;s own page after saving)
         </label>
-        <label className={labelClass}>
-          Max doses / day
-          <input
-            className={inputClass}
-            type="number"
-            min="1"
-            step="1"
-            placeholder="PRN only"
-            value={maxDaily}
-            onChange={(e) => setMaxDaily(e.target.value)}
-          />
+        <label className="flex items-center gap-2 text-sm">
+          <input type="radio" name="asNeeded" checked={asNeeded} onChange={() => setAsNeeded(true)} />
+          As needed — no fixed times, given when it&rsquo;s needed
         </label>
-      </div>
+      </fieldset>
+
+      {asNeeded && (
+        <div className="grid grid-cols-2 gap-3">
+          <label className={labelClass}>
+            Min hours between doses
+            <input
+              className={inputClass}
+              type="number"
+              min="0"
+              step="0.5"
+              placeholder="optional"
+              value={minHours}
+              onChange={(e) => setMinHours(e.target.value)}
+            />
+          </label>
+          <label className={labelClass}>
+            Max doses / day
+            <input
+              className={inputClass}
+              type="number"
+              min="1"
+              step="1"
+              placeholder="optional"
+              value={maxDaily}
+              onChange={(e) => setMaxDaily(e.target.value)}
+            />
+          </label>
+        </div>
+      )}
 
       <label className={labelClass}>
         Instructions

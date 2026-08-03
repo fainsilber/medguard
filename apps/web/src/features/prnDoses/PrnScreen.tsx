@@ -17,18 +17,10 @@ export function PrnScreen({ clockTrust }: { clockTrust?: ClockTrust }) {
 
   useTick(COUNTDOWN_TICK_MS);
 
-  // A PRN (as-needed) medicine is defined negatively: it's whatever doesn't have an active
-  // schedule. Anything on a fixed schedule belongs on the Today view instead.
-  const medicines = useLiveQuery(async () => {
-    const [all, schedules] = await Promise.all([
-      db.medicines.filter((medicine) => !medicine.archived).toArray(),
-      db.schedules.toArray(),
-    ]);
-    const scheduledMedicineIds = new Set(
-      schedules.filter((schedule) => schedule.active).map((schedule) => schedule.medicineId),
-    );
-    return all.filter((medicine) => !scheduledMedicineIds.has(medicine.id));
-  }, [db]);
+  const medicines = useLiveQuery(
+    () => db.medicines.filter((medicine) => !medicine.archived && medicine.asNeeded).toArray(),
+    [db],
+  );
   const logs = useLiveQuery(() => db.intakeLogs.toArray(), [db]);
 
   if (!medicines || !logs || !householdSettings) {

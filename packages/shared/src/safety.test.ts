@@ -24,6 +24,7 @@ function makeMedicine(overrides: Partial<Medicine> = {}): Medicine {
     name: 'Ondansetron',
     strength: '4mg',
     form: 'pill',
+    asNeeded: true,
     archived: false,
     updatedAt: NOW,
     updatedByDeviceId: 'device-1',

@@ -74,9 +74,15 @@ export interface Medicine extends Syncable {
   /** Free text as printed on the label, e.g. "50mg". Never parsed — the app does not do dose math. */
   strength: string;
   form: MedicineForm;
-  /** PRN cooldown. Absent means this medicine has no minimum interval. */
+  /**
+   * Taken as needed rather than on a fixed schedule (clinically "PRN", pro re nata). An explicit
+   * choice, not inferred from the absence of a schedule — a scheduled medicine whose schedule was
+   * just stopped isn't suddenly "as needed" until a caregiver says so.
+   */
+  asNeeded: boolean;
+  /** Minimum interval between doses. Only meaningful when `asNeeded` is true. */
   minHoursBetweenDoses?: number;
-  /** Rolling-24h dose cap. Absent means uncapped. */
+  /** Rolling-24h dose cap. Only meaningful when `asNeeded` is true. */
   maxDailyDoses?: number;
   instructions?: string;
   /**

@@ -22,7 +22,7 @@ interface TabDefinition {
 const TABS: TabDefinition[] = [
   { id: 'today', label: 'Today', Screen: TodayView },
   { id: 'medicines', label: 'Medicines', Screen: MedicineList },
-  { id: 'prn', label: 'PRN', Screen: PrnScreen },
+  { id: 'prn', label: 'As needed', Screen: PrnScreen },
   { id: 'inventory', label: 'Inventory', Screen: InventoryScreen },
   { id: 'export', label: 'Export', Screen: ExportScreen },
   { id: 'diagnostics', label: 'Diagnostics', Screen: ProbePage },
