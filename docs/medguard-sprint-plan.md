@@ -48,7 +48,7 @@ Never violated, any sprint. These are the spec the safety test suite is written 
 
 Places where the PRD as written is not achievable or not safe. **Most worth your review attention.**
 
-**D1 — The 45s Shabbat chime cannot reach a locked phone.** Browsers suspend Web Workers when backgrounded; Service Workers cannot play audio at all. On iOS this is absolute. We ship the 3-push burst instead, plus the full 45s engine whenever the app is foregrounded. Dependable on Android; best-effort on iOS (needs home-screen install, system tone only, delivery can lag under Focus/Low Power). *Open question — plan v1.0 claimed a push can carry a custom notification sound via the Android channel. I believe it cannot: the Notification API's `sound` property was never implemented and the channel belongs to Chrome, not to us. Sprint 0's probe settles this with evidence.*
+**D1 — The 45s Shabbat chime cannot reach a locked phone.** Browsers suspend Web Workers when backgrounded; Service Workers cannot play audio at all. On iOS this is absolute. We ship a push burst instead (currently 10×/~1.11s, tuned from real device tests — see `docs/platform-capabilities.md`), plus the full 45s engine whenever the app is foregrounded. Confirmed working on both Android and iOS 18, with iOS still owing the finer-grained device details. *Resolved — plan v1.0 claimed a push can carry a custom notification sound via the Android channel. It cannot: Sprint 0's probe confirmed on-device that the Notification API's `sound` field is never retained by the browser.*
 
 **D2 — Local-first + LWW permits double-dosing.** Nothing stops Mom and Dad both seeing 🟢 and both administering inside the cooldown. **Fix:** the Durable Object is single-threaded per household, so it re-evaluates every PRN log authoritatively before accepting. Violation returns `409 SAFETY_VIOLATION` unless the client sent `override: true` with `overrideConfirmedBy`; either way all devices get a `safety.warning` broadcast. Client checks stay for instant UI; the DO is authoritative.
 
@@ -127,10 +127,10 @@ Prove every test layer works before there's anything to test, and replace platfo
 **Delivered:** monorepo, five-layer test harness (95 tests), CI, both apps deployed — API at `https://medguard-api.fainsilber.workers.dev`, PWA at `https://medguard-web.fainsilber.workers.dev`. Full results in `docs/platform-capabilities.md`.
 
 **What the probe actually found, beyond "yes it works":**
-- **Custom notification sound is not supported** — confirmed on-device, settling delta D1 in this plan's favor over sprint plan v1.0's assumption.
+- **Custom notification sound is not supported** — confirmed on-device: a push requesting one showed the field silently dropped. An earlier plan draft (v1.0) assumed it was possible; this settles that with evidence.
 - **Server-side push scheduling (DO Alarms) is precise; in-page JS timers are not** — a locked Android phone showed a 54.5s gap in a plain `setInterval`, direct evidence for why the Shabbat design doesn't rely on one.
-- **The Shabbat burst was tuned three times from real feedback**, not guessed: 3×/15s → 10×/5s → 10×/~1.67s (in `main`) → 10×/~889ms (on the Sprint 1 branch, not yet device-tested). See `docs/platform-capabilities.md`.
-- **iOS is untested** — no device was available. Biggest open gap; run the probe on an iPhone before relying on iOS push behavior beyond "best effort."
+- **The Shabbat burst was tuned four times from real feedback**, not guessed: 3×/15s → 10×/5s → 10×/~1.67s → 10×/~889ms (too tight — the OS started dropping some of the ten) → 10×/~1.11s (current). See `docs/platform-capabilities.md`.
+- **iOS confirmed working (iOS 18)** — push delivery works as expected once the PWA is installed to the home screen. Closes what was the biggest open gap after the initial pass. Not yet captured at the same level of detail as Android (exact latencies, whether the current burst spacing reads as distinct alerts there too) — see `docs/platform-capabilities.md`.
 - Two infrastructure problems surfaced and fixed along the way: an npm optional-dependency lockfile bug, and every WebCrypto Web Push library on npm implementing the wrong encryption scheme for iOS (RFC 8291 `aes128gcm` hand-implemented instead — see `apps/api/src/push/encrypt.ts`).
 
 **Scope:** monorepo, TS strict, ESLint (incl. the no-ambient-time rule) + Prettier; Vite/React/Tailwind boots; PWA manifest + SW via `vite-plugin-pwa` (`injectManifest` — Sprint 5 needs a custom SW); Hono `/api/v1/health`; D1 binding + first migration; stub `HouseholdDO`; Vitest workspace; Playwright; GitHub Actions; deploy to a real HTTPS URL (most of these APIs need secure context).
@@ -146,9 +146,9 @@ Prove every test layer works before there's anything to test, and replace platfo
 
 **Tests:** one deliberately trivial test per layer — shared unit, Dexie under `fake-indexeddb`, RTL render, `vitest-pool-workers` against real D1, Playwright smoke. Their only job is to prove the harness runs.
 
-**Exit gate:** `npm test` green across all five layers; `npm run e2e` green headless; CI green; probe results recorded in `docs/platform-capabilities.md`. ✅ Met — Android run complete and recorded; iOS still open (no device available), doesn't block Sprint 1 but should happen before Sprint 6 leans on iOS push behavior.
+**Exit gate:** `npm test` green across all five layers; `npm run e2e` green headless; CI green; probe results recorded in `docs/platform-capabilities.md`. ✅ Met — Android and iOS both confirmed working; iOS still owes a detailed probe run (exact latencies, burst-density behavior) rather than a full re-test — see `docs/platform-capabilities.md`.
 
-**Your time:** ~1 hour running the probe on two phones. The highest-leverage hour in the project. (Spent on Android; iOS still owed.)
+**Your time:** ~1 hour running the probe on two phones. The highest-leverage hour in the project. ✅ Done on both.
 
 ---
 
@@ -246,10 +246,10 @@ No emergency-interaction affordance ships in this sprint (Q5, deferred) — Shab
 
 Everything else runs unattended; these need you and a real device.
 
-1. **Sprint 0 capability probe** on both phones (~1 hr). ✅ Android done (`docs/platform-capabilities.md`); iOS still open.
+1. **Sprint 0 capability probe** on both phones (~1 hr). ✅ Done on both — Android in full detail, iOS confirmed working but without the same granular latency/burst-density numbers yet (`docs/platform-capabilities.md`).
 2. **A 25-hour dry run on a weekday, phone locked and screen off** — every alert fires, every one auto-stops, none repeats, zero touches. *Do not let the first real test be an actual Shabbat.*
-3. **Real push on a locked iPhone** — CDP proves our handler is correct, not that APNs delivers. Test with the PWA installed, and under Focus and Low Power Mode.
-4. **Real push on a locked Android phone** — is the burst actually loud enough to wake you at 3 AM? Already iterated three times from direct feedback (see Sprint 0 above); the current 10×/~889ms value is untested on-device — confirm it, since at that spacing individual pushes risk blurring together rather than reading as distinct alerts. Tune `SHABBAT_BURST_COUNT`/`SHABBAT_BURST_SPACING_MS` in `packages/shared/src/push.ts` from what you find.
+3. **Real push on a locked iPhone** — ✅ basic delivery confirmed on iOS 18, PWA installed to home screen (`docs/platform-capabilities.md`). Still open: exact latency numbers, whether the current burst spacing reads as distinct alerts on iOS the way it does on Android, and behavior under Focus and Low Power Mode.
+4. **Real push on a locked Android phone** — is the burst actually loud enough to wake you at 3 AM? Iterated four times from direct feedback (see Sprint 0 above), including one round that went too far the other way — 10×/~889ms turned out too tight and the OS started dropping some of the ten. Current value is 10×/~1.11s, not yet re-confirmed on-device. Tune `SHABBAT_BURST_COUNT`/`SHABBAT_BURST_SPACING_MS` in `packages/shared/src/push.ts` from what you find.
 5. **Zmanim vs. your luach**, 8 weeks (Sprint 6 exit gate).
 6. **Two-phone concurrency** — two caregivers tapping the same PRN dose within a second, on real hardware over real cellular.
 

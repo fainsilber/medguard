@@ -90,8 +90,8 @@ describe('retainedOptions', () => {
   });
 
   it('reports sound as NOT retained when requested but the browser drops it', () => {
-    // This is the actual, expected real-world result — settling delta D1 with evidence: the
-    // Notification API's `sound` field was never implemented by any browser.
+    // This is the actual, expected real-world result: the Notification API's `sound` field was
+    // never implemented by any browser, settled here with evidence rather than a guess.
     const payload = makePayload({ sound: 'alert.mp3' });
     const rendered = { sound: undefined } as unknown as ExtendedNotification;
 

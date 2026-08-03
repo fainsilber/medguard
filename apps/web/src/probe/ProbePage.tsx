@@ -435,7 +435,7 @@ export function ProbePage() {
             disabled={!subscription || scheduling}
             onClick={() => void handleSchedule(1, 0, { sound: 'alert.mp3' })}
           >
-            Send with custom sound (settles D1)
+            Send with custom sound (tests whether the browser keeps it)
           </button>
         </div>
         {scheduleError && <p className="text-locked text-sm">{scheduleError}</p>}
