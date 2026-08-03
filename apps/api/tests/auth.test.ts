@@ -133,15 +133,21 @@ describe('device token authentication', () => {
 
 describe('join codes', () => {
   it('lets a second device join and land in the same household', async () => {
-    const first = await createHousehold();
+    const first = await createHousehold('The Cohens');
     const { code } = await issueCode(first.deviceToken);
 
     const response = await post('/join-codes/redeem', { code, displayName: 'Dad' });
     expect(response.status).toBe(201);
 
-    const second = (await response.json()) as { deviceToken: string; householdId: string };
+    const second = (await response.json()) as {
+      deviceToken: string;
+      householdId: string;
+      householdName: string;
+    };
     expect(second.householdId).toBe(first.householdId);
     expect(second.deviceToken).not.toBe(first.deviceToken);
+    // Otherwise the joining device never learns the household's name — only the creator does.
+    expect(second.householdName).toBe('The Cohens');
   });
 
   it('stores only a hash of the code', async () => {
