@@ -225,6 +225,23 @@ describe('join codes', () => {
     expect(statuses.slice(10).every((status) => status === 429)).toBe(true);
   });
 
+  it('prunes rate-limit records older than the window — the only place an IP is stored', async () => {
+    await createHousehold();
+
+    await env.DB.prepare('INSERT INTO join_attempts (source, attempted_at) VALUES (?, ?)')
+      .bind('1.2.3.4', '2020-01-01T00:00:00.000Z')
+      .run();
+
+    await post('/join-codes/redeem', { code: '123456', displayName: 'Dad' });
+
+    const stale = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM join_attempts WHERE attempted_at = ?',
+    )
+      .bind('2020-01-01T00:00:00.000Z')
+      .first<{ n: number }>();
+    expect(stale?.n).toBe(0);
+  });
+
   it('still refuses a valid code once the caller is rate limited', async () => {
     const first = await createHousehold();
     const { code } = await issueCode(first.deviceToken);

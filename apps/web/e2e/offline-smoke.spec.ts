@@ -16,7 +16,10 @@ test('create medicine, schedule it, log a dose offline, and see stock decrement'
   await page.clock.setFixedTime(new Date('2026-06-15T08:00:00.000Z'));
   await page.goto('/');
 
-  // Caregiver identity gate — the app's entry point.
+  // Onboarding offers a household first. This test is specifically about the app working with no
+  // backend at all, so it takes the standalone path — which is exactly the case a caregiver in a
+  // hospital with no signal is in.
+  await page.getByRole('button', { name: 'Use this device on its own for now' }).click();
   await page.getByPlaceholder('e.g. Mom, Dad, Grandma').fill('Mom');
   await page.getByRole('button', { name: 'Continue' }).click();
 

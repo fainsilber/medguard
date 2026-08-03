@@ -63,11 +63,21 @@ async function isRateLimited(db: D1Database, source: string, nowMs: number): Pro
   return (row?.n ?? 0) >= RATE_LIMIT_MAX_ATTEMPTS;
 }
 
-async function recordAttempt(db: D1Database, source: string, nowIso: string): Promise<void> {
-  await db
-    .prepare('INSERT INTO join_attempts (source, attempted_at) VALUES (?, ?)')
-    .bind(source, nowIso)
-    .run();
+async function recordAttempt(
+  db: D1Database,
+  source: string,
+  nowIso: string,
+  nowMs: number,
+): Promise<void> {
+  const windowStart = new Date(nowMs - RATE_LIMIT_WINDOW_MS).toISOString();
+
+  await db.batch([
+    db.prepare('INSERT INTO join_attempts (source, attempted_at) VALUES (?, ?)').bind(source, nowIso),
+    // Pruned on every write rather than left to accumulate. This table exists solely to enforce a
+    // ten-minute window, and an IP address older than that window serves no purpose — keeping it
+    // would make this the one place the system quietly retains identifying data forever.
+    db.prepare('DELETE FROM join_attempts WHERE attempted_at <= ?').bind(windowStart),
+  ]);
 }
 
 /**
@@ -170,7 +180,7 @@ authRoutes.post('/join-codes/redeem', async (c) => {
     return c.json({ error: 'too_many_attempts' }, 429);
   }
   // Recorded before the lookup, so an attempt counts even if the request dies partway through.
-  await recordAttempt(c.env.DB, source, nowIso);
+  await recordAttempt(c.env.DB, source, nowIso, nowMs);
 
   const codeRow = await c.env.DB.prepare(
     'SELECT code_hash, household_id, expires_at, redeemed_at FROM join_codes WHERE code_hash = ?',

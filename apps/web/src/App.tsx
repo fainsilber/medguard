@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ComponentType } from 'react';
 import { ExportScreen } from './features/export/ExportScreen.js';
+import { HouseholdScreen } from './features/household/HouseholdScreen.js';
 import { InventoryScreen } from './features/inventory/InventoryScreen.js';
 import { MedicineList } from './features/medicines/MedicineList.js';
 import { PrnScreen } from './features/prnDoses/PrnScreen.js';
@@ -25,6 +26,7 @@ const TABS: TabDefinition[] = [
   { id: 'prn', label: 'As needed', Screen: PrnScreen },
   { id: 'inventory', label: 'Inventory', Screen: InventoryScreen },
   { id: 'export', label: 'Export', Screen: ExportScreen },
+  { id: 'household', label: 'Household', Screen: HouseholdScreen },
   { id: 'diagnostics', label: 'Diagnostics', Screen: ProbePage },
 ];
 
