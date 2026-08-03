@@ -115,6 +115,30 @@ with credentials enabled, which is broad — see gaps.
   every write rather than accumulating.
 - No automatic retention limit or expiry on anything else.
 
+### Known test data in production
+
+One household exists in the production database purely from verifying the Sprint 3 deploy against
+the live API (2026-08-03), not from real use:
+
+| Field | Value |
+| --- | --- |
+| Household name | `Deploy Verification (delete me)` |
+| Household id | `8a479c7d-67e7-421d-ab80-06b2c6381d4f` |
+| Contents | One caregiver ("Verify"), one device, one medicine named "Verify" |
+
+There is no delete route in the API by design (§ Retention and deletion, above) — removing it
+means a direct SQL delete against the production D1 database:
+
+```bash
+cd apps/api
+npx wrangler d1 execute medguard --remote \
+  --command "DELETE FROM households WHERE id = '8a479c7d-67e7-421d-ab80-06b2c6381d4f'"
+```
+
+`households` cascades to its user, device, and medicine row on delete, so this one statement is
+enough to remove all of it. Left in place for now at the user's request; safe to leave indefinitely
+if it's easier than remembering to run this.
+
 ---
 
 ## Known gaps
