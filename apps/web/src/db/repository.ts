@@ -7,6 +7,7 @@ import {
   reviseSchedule,
 } from '@medguard/shared';
 import type {
+  BackupBundle,
   Clock,
   DeviceId,
   HouseholdSettings,
@@ -345,15 +346,10 @@ export class MedGuardRepository {
   async adjustInventory(input: ManualAdjustmentInput): Promise<InventoryAdjustment> {
     const adjustment = buildManualAdjustment(input, this.adjustmentContext());
 
-    await this.db.transaction(
-      'rw',
-      this.db.inventoryAdjustments,
-      this.db.syncOutbox,
-      async () => {
-        await this.db.inventoryAdjustments.put(adjustment);
-        await this.enqueue('inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
-      },
-    );
+    await this.db.transaction('rw', this.db.inventoryAdjustments, this.db.syncOutbox, async () => {
+      await this.db.inventoryAdjustments.put(adjustment);
+      await this.enqueue('inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
+    });
 
     return adjustment;
   }
@@ -381,6 +377,101 @@ export class MedGuardRepository {
 
   allInventoryItems(): Promise<InventoryItem[]> {
     return this.db.inventoryItems.toArray();
+  }
+
+  // -------------------------------------------------------------------------
+  // Backup and restore
+  // -------------------------------------------------------------------------
+
+  /**
+   * Writes every record in a validated backup bundle as-is — no business logic re-run. A dose in
+   * the bundle does not generate a fresh inventory adjustment; its own paired adjustment, if any,
+   * is already in the bundle. An import is a restore, not a re-enactment of every dose ever given.
+   *
+   * One transaction across every table: a backup half-applied by a crash or a full disk would
+   * leave a household in a state matching neither the backup nor what was there before, which is
+   * worse than either failing cleanly or succeeding cleanly.
+   */
+  async restoreBackup(
+    bundle: Pick<
+      BackupBundle,
+      'medicines' | 'schedules' | 'intakeLogs' | 'inventoryItems' | 'inventoryAdjustments'
+    >,
+  ): Promise<void> {
+    await this.db.transaction(
+      'rw',
+      [
+        this.db.medicines,
+        this.db.schedules,
+        this.db.intakeLogs,
+        this.db.inventoryItems,
+        this.db.inventoryAdjustments,
+        this.db.syncOutbox,
+      ],
+      async () => {
+        // Cast rather than remapped field-by-field: these arrays were already validated against
+        // the exact same zod schemas the domain types are defined from — the only mismatch is
+        // TypeScript's `exactOptionalPropertyTypes` being pickier about an explicit `undefined`
+        // in an optional field's inferred type than the hand-written interfaces are.
+        await this.db.medicines.bulkPut(bundle.medicines as Medicine[]);
+        await this.db.schedules.bulkPut(bundle.schedules as Schedule[]);
+        await this.db.intakeLogs.bulkPut(bundle.intakeLogs as IntakeLog[]);
+        await this.db.inventoryItems.bulkPut(bundle.inventoryItems as InventoryItem[]);
+        await this.db.inventoryAdjustments.bulkPut(
+          bundle.inventoryAdjustments as InventoryAdjustment[],
+        );
+
+        for (const medicine of bundle.medicines) {
+          await this.enqueue('medicines', medicine.id, 'CREATE', medicine);
+        }
+        for (const schedule of bundle.schedules) {
+          await this.enqueue('schedules', schedule.id, 'CREATE', schedule);
+        }
+        for (const log of bundle.intakeLogs) {
+          await this.enqueue('intakeLogs', log.id, 'CREATE', log);
+        }
+        for (const item of bundle.inventoryItems) {
+          await this.enqueue('inventoryItems', item.id, 'CREATE', item);
+        }
+        for (const adjustment of bundle.inventoryAdjustments) {
+          await this.enqueue('inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
+        }
+      },
+    );
+  }
+
+  /**
+   * Wipes medicines, schedules, the full intake log, and the inventory ledger — everything a
+   * backup covers. Household settings and this device's own identity/session are left alone:
+   * this clears medical data, not the household connection.
+   *
+   * Local only, and structurally cannot be otherwise: nothing in the sync protocol supports
+   * deleting a record (see docs/data-handling.md), so this action has no way to reach — and no
+   * way to affect — another caregiver's device.
+   */
+  async clearAllData(): Promise<void> {
+    await this.db.transaction(
+      'rw',
+      [
+        this.db.medicines,
+        this.db.schedules,
+        this.db.intakeLogs,
+        this.db.inventoryItems,
+        this.db.inventoryAdjustments,
+        this.db.syncOutbox,
+      ],
+      async () => {
+        await this.db.medicines.clear();
+        await this.db.schedules.clear();
+        await this.db.intakeLogs.clear();
+        await this.db.inventoryItems.clear();
+        await this.db.inventoryAdjustments.clear();
+        await this.db.syncOutbox
+          .where('table')
+          .anyOf('medicines', 'schedules', 'intakeLogs', 'inventoryItems', 'inventoryAdjustments')
+          .delete();
+      },
+    );
   }
 
   // -------------------------------------------------------------------------
