@@ -265,7 +265,9 @@ No emergency-interaction affordance ships in this sprint (Q5, deferred) — Shab
 
 ### Sprint 7 — Hardening, accessibility & release
 
-**Scope:** error handling and retry at every network boundary; Workers observability; accessibility and 3 AM usability pass (contrast, tap targets, font scaling, screen-reader labels on safety-critical controls); Lighthouse PWA audit in CI; **full export/import with a tested restore path** — an untested backup is not a backup; new-caregiver onboarding that works without you explaining it; performance with 12 months of logs; `docs/runbook.md` for when sync breaks, push stops, or Shabbat alerts don't arrive; printable emergency protocol sheet; production deploy.
+**Scope:** error handling and retry at every network boundary; Workers observability; accessibility and 3 AM usability pass (contrast, tap targets, font scaling, screen-reader labels on safety-critical controls); Lighthouse PWA audit in CI; new-caregiver onboarding that works without you explaining it; performance with 12 months of logs; `docs/runbook.md` for when sync breaks, push stops, or Shabbat alerts don't arrive; printable emergency protocol sheet; production deploy.
+
+**Full export/import with a tested restore path landed early**, ahead of schedule (2026-08-03) — an untested backup is not a backup, and it was cheap to build once repository-layer transactions already existed. A full JSON backup (medicines, schedules, the complete intake log including corrected-away entries, and the inventory ledger) downloads and re-imports with a preview-before-write step, plus a typed-confirmation "clear all local data" wipe. `docs/data-handling.md` covers what it does and doesn't include. What Sprint 7 still needs to add: the same round-trip proven at 12-months-of-data scale, and folding this into the new-caregiver onboarding story.
 
 **Tests:** Lighthouse + `axe-core` budgets in CI; export→wipe→import round-trip; Today view < 500ms with 12 months of data; full-suite run.
 

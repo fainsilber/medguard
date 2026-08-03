@@ -4,9 +4,11 @@ A local-first PWA for households managing complex pediatric-oncology medication 
 several caregivers — scheduled doses, as-needed doses with cooldown and daily-cap safety guards,
 inventory tracking, and (from Sprint 6) Shabbat/Yom Tov automation.
 
-**Status:** Sprints 0–3 complete in code. The app is fully usable offline on a single device, and a
-second device can now join a household with a 6-digit code and sync through the backend. Real-time
-push-based sync and the server-side double-dose guard arrive in Sprint 4. See
+**Status:** Sprints 0–3 complete in code. The app is fully usable offline on a single device, a
+second device can join a household with a 6-digit code and sync through the backend, and every
+medicine, schedule, dose logged, and stock change can be exported to a JSON file, restored from
+one, or wiped from a device — from the Export tab. Real-time push-based sync and the server-side
+double-dose guard arrive in Sprint 4. See
 [`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) for what's built, what changed along
 the way, and what's next.
 

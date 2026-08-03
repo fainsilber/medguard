@@ -1,9 +1,4 @@
-export {
-  CLOCK_SKEW_TOLERANCE_MS,
-  fromIso,
-  isClockTrusted,
-  toIso,
-} from './clock.js';
+export { CLOCK_SKEW_TOLERANCE_MS, fromIso, isClockTrusted, toIso } from './clock.js';
 export type { Clock, ClockTrust, EpochMs, IdGenerator, IsoInstant } from './clock.js';
 
 export { systemClock, uuidIdGenerator } from './runtime/systemClock.js';
@@ -49,12 +44,7 @@ export {
   scheduleAppliesOn,
   scheduleIsLiveOn,
 } from './schedule.js';
-export type {
-  ExpansionRange,
-  Occurrence,
-  RevisionContext,
-  ScheduleRevision,
-} from './schedule.js';
+export type { ExpansionRange, Occurrence, RevisionContext, ScheduleRevision } from './schedule.js';
 
 // PRN safety guards
 export {
@@ -77,11 +67,7 @@ export {
   deriveInventoryState,
   estimateDailyConsumption,
 } from './inventory.js';
-export type {
-  AdjustmentContext,
-  InventoryState,
-  ManualAdjustmentInput,
-} from './inventory.js';
+export type { AdjustmentContext, InventoryState, ManualAdjustmentInput } from './inventory.js';
 
 // Sync
 export { hasPendingChanges, mergeCollections, mergeLww } from './sync.js';
@@ -89,6 +75,16 @@ export type { LwwRecord, MergeOutcome, MergeSource } from './sync.js';
 
 // Export
 export { buildIntakeLogCsv } from './export.js';
+
+// Backup / restore
+export {
+  BACKUP_FORMAT_VERSION,
+  backupBundleSchema,
+  buildBackupBundle,
+  parseBackupBundle,
+  summarizeBackup,
+} from './backup.js';
+export type { BackupBundle, BackupSource, BackupSummary, ParseBackupResult } from './backup.js';
 
 // Push (Sprint 0 probe contract; superseded by the real push routes in Sprint 5)
 export { SHABBAT_BURST_COUNT, SHABBAT_BURST_SPACING_MS } from './push.js';

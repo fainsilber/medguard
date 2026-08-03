@@ -1,22 +1,17 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo } from 'react';
-import { buildIntakeLogCsv, effectiveLogs, formatLocalDate, formatLocalTime, fromIso } from '@medguard/shared';
+import {
+  buildIntakeLogCsv,
+  effectiveLogs,
+  formatLocalDate,
+  formatLocalTime,
+  fromIso,
+} from '@medguard/shared';
 import { useClock, useMedGuardDb } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
+import { downloadTextFile } from '../../ui/download.js';
 import { Card, buttonClass, primaryButtonClass } from '../../ui/primitives.js';
-
-/**
- * Triggers a browser download of already-generated text — not a fetch from anywhere, so there's
- * nothing here to confirm: the caregiver just asked for exactly this file.
- */
-function downloadTextFile(content: string, filename: string, mimeType: string): void {
-  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
+import { BackupRestoreCard } from './BackupRestoreCard.js';
 
 /**
  * PRD Sprint 2 — "the app is a helper, not the only record". CSV for a spreadsheet, and a
@@ -31,7 +26,10 @@ export function ExportScreen() {
   const logs = useLiveQuery(() => db.intakeLogs.toArray(), [db]);
 
   const medicineNames = useMemo(
-    () => new Map((medicines ?? []).map((medicine) => [medicine.id, `${medicine.name} ${medicine.strength}`])),
+    () =>
+      new Map(
+        (medicines ?? []).map((medicine) => [medicine.id, `${medicine.name} ${medicine.strength}`]),
+      ),
     [medicines],
   );
 
@@ -53,7 +51,11 @@ export function ExportScreen() {
   const isEmpty = rows.length === 0;
 
   const handleDownloadCsv = () => {
-    downloadTextFile(buildIntakeLogCsv(logs, medicineNames, timeZone), `medguard-log-${generatedOn}.csv`, 'text/csv;charset=utf-8');
+    downloadTextFile(
+      buildIntakeLogCsv(logs, medicineNames, timeZone),
+      `medguard-log-${generatedOn}.csv`,
+      'text/csv;charset=utf-8',
+    );
   };
 
   return (
@@ -64,10 +66,20 @@ export function ExportScreen() {
           Keep a CSV or paper copy for hospital visits — this app is a helper, not the only record.
         </p>
         <div className="flex gap-2">
-          <button type="button" className={primaryButtonClass} disabled={isEmpty} onClick={handleDownloadCsv}>
+          <button
+            type="button"
+            className={primaryButtonClass}
+            disabled={isEmpty}
+            onClick={handleDownloadCsv}
+          >
             Download CSV
           </button>
-          <button type="button" className={buttonClass} disabled={isEmpty} onClick={() => window.print()}>
+          <button
+            type="button"
+            className={buttonClass}
+            disabled={isEmpty}
+            onClick={() => window.print()}
+          >
             Print summary
           </button>
         </div>
@@ -98,19 +110,27 @@ export function ExportScreen() {
             <tbody>
               {rows.map((log) => (
                 <tr key={log.id} className="border-b border-slate-800 align-top">
-                  <td className="py-1 pr-2 whitespace-nowrap">{formatLocalDate(timeZone, fromIso(log.actualTime))}</td>
+                  <td className="py-1 pr-2 whitespace-nowrap">
+                    {formatLocalDate(timeZone, fromIso(log.actualTime))}
+                  </td>
                   <td className="py-1 pr-2 whitespace-nowrap text-slate-400">
                     {log.scheduledTime === undefined
                       ? '—'
                       : formatLocalTime(timeZone, fromIso(log.scheduledTime))}
                   </td>
-                  <td className="py-1 pr-2 whitespace-nowrap">{formatLocalTime(timeZone, fromIso(log.actualTime))}</td>
-                  <td className="py-1 pr-2">{medicineNames.get(log.medicineId) ?? 'Unknown medicine'}</td>
+                  <td className="py-1 pr-2 whitespace-nowrap">
+                    {formatLocalTime(timeZone, fromIso(log.actualTime))}
+                  </td>
+                  <td className="py-1 pr-2">
+                    {medicineNames.get(log.medicineId) ?? 'Unknown medicine'}
+                  </td>
                   <td className="py-1 pr-2">{log.status === 'taken' ? 'Taken' : 'Skipped'}</td>
                   <td className="py-1 pr-2">{log.quantityTaken}</td>
                   <td className="py-1 pr-2">{log.loggedByUserId}</td>
                   <td className="py-1 pr-2 text-slate-400">
-                    {log.override ? `Override (${log.override.blockedBy}): ${log.override.reason}` : log.notes}
+                    {log.override
+                      ? `Override (${log.override.blockedBy}): ${log.override.reason}`
+                      : log.notes}
                   </td>
                 </tr>
               ))}
@@ -118,6 +138,8 @@ export function ExportScreen() {
           </table>
         )}
       </Card>
+
+      <BackupRestoreCard />
     </div>
   );
 }

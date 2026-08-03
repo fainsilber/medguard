@@ -1,7 +1,13 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computeQuantity, expandSchedules } from '@medguard/shared';
-import type { IntakeLog, Medicine, Schedule } from '@medguard/shared';
+import type {
+  IntakeLog,
+  InventoryAdjustment,
+  InventoryItem,
+  Medicine,
+  Schedule,
+} from '@medguard/shared';
 import { fixedClock, sequentialIds } from '@medguard/shared/testing';
 import { MedGuardRepository } from './repository.js';
 import { MedGuardDB } from './schema.js';
@@ -89,7 +95,11 @@ describe('every mutation queues its own sync', () => {
     expect(await db.medicines.count()).toBe(1);
     const outbox = await repository.pendingSync();
     expect(outbox).toHaveLength(1);
-    expect(outbox[0]).toMatchObject({ table: 'medicines', entityId: 'medicine-1', action: 'CREATE' });
+    expect(outbox[0]).toMatchObject({
+      table: 'medicines',
+      entityId: 'medicine-1',
+      action: 'CREATE',
+    });
   });
 
   it('stamps a locally-saved record as pending, attributed to this device', async () => {
@@ -206,7 +216,11 @@ describe('recordDose', () => {
     const { db, repository } = freshRepository();
     await repository.recordDose(
       makeLog({
-        override: { confirmedByUserId: 'dad', reason: 'Vomited the first dose', blockedBy: 'cooldown' },
+        override: {
+          confirmedByUserId: 'dad',
+          reason: 'Vomited the first dose',
+          blockedBy: 'cooldown',
+        },
       }),
     );
 
@@ -265,7 +279,9 @@ describe('correctDose — append, never edit', () => {
 
   it('refuses to correct a log that does not exist', async () => {
     const { repository } = freshRepository();
-    await expect(repository.correctDose('missing', makeLog())).rejects.toThrow(/No such intake log/);
+    await expect(repository.correctDose('missing', makeLog())).rejects.toThrow(
+      /No such intake log/,
+    );
   });
 });
 
@@ -506,7 +522,9 @@ describe('indexed history queries', () => {
 
   it('finds a patient history within a window, for the Today view', async () => {
     const { repository } = freshRepository();
-    await repository.recordDose(makeLog({ id: 'yesterday', actualTime: '2026-06-14T08:00:00.000Z' }));
+    await repository.recordDose(
+      makeLog({ id: 'yesterday', actualTime: '2026-06-14T08:00:00.000Z' }),
+    );
     await repository.recordDose(makeLog({ id: 'today', actualTime: '2026-06-15T08:00:00.000Z' }));
 
     const today = await repository.logsForPatientBetween(
@@ -522,8 +540,22 @@ describe('outbox lifecycle', () => {
   it('drains oldest first', async () => {
     const { db, repository } = freshRepository();
     await db.syncOutbox.bulkAdd([
-      { table: 'medicines', entityId: 'b', action: 'CREATE', payload: {}, createdAt: '2026-06-15T12:00:02.000Z', attempts: 0 },
-      { table: 'medicines', entityId: 'a', action: 'CREATE', payload: {}, createdAt: '2026-06-15T12:00:01.000Z', attempts: 0 },
+      {
+        table: 'medicines',
+        entityId: 'b',
+        action: 'CREATE',
+        payload: {},
+        createdAt: '2026-06-15T12:00:02.000Z',
+        attempts: 0,
+      },
+      {
+        table: 'medicines',
+        entityId: 'a',
+        action: 'CREATE',
+        payload: {},
+        createdAt: '2026-06-15T12:00:01.000Z',
+        attempts: 0,
+      },
     ]);
 
     expect((await repository.pendingSync()).map((entry) => entry.entityId)).toEqual(['a', 'b']);
@@ -557,5 +589,204 @@ describe('outbox lifecycle', () => {
   it('ignores a failure report for an entry already synced away', async () => {
     const { repository } = freshRepository();
     await expect(repository.markSyncFailed(999, 'gone')).resolves.toBeUndefined();
+  });
+});
+
+function makeInventoryItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
+  return {
+    id: 'item-1',
+    medicineId: 'medicine-1',
+    refillThreshold: 5,
+    unitName: 'pills',
+    updatedAt: NOW,
+    updatedByDeviceId: 'device-1',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
+function makeInventoryAdjustment(
+  overrides: Partial<InventoryAdjustment> = {},
+): InventoryAdjustment {
+  return {
+    id: 'adjustment-1',
+    medicineId: 'medicine-1',
+    delta: -1,
+    reason: 'dose',
+    createdAt: NOW,
+    createdByUserId: 'mom',
+    createdByDeviceId: 'device-1',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
+function makeBundle(
+  overrides: {
+    medicines?: Medicine[];
+    schedules?: Schedule[];
+    intakeLogs?: IntakeLog[];
+    inventoryItems?: InventoryItem[];
+    inventoryAdjustments?: InventoryAdjustment[];
+  } = {},
+) {
+  return {
+    medicines: overrides.medicines ?? [makeMedicine()],
+    schedules: overrides.schedules ?? [makeSchedule()],
+    intakeLogs: overrides.intakeLogs ?? [makeLog()],
+    inventoryItems: overrides.inventoryItems ?? [makeInventoryItem()],
+    inventoryAdjustments: overrides.inventoryAdjustments ?? [makeInventoryAdjustment()],
+  };
+}
+
+describe('restoreBackup', () => {
+  it('writes every record from the bundle', async () => {
+    const { db, repository } = freshRepository();
+    await repository.restoreBackup(makeBundle());
+
+    expect(await db.medicines.count()).toBe(1);
+    expect(await db.schedules.count()).toBe(1);
+    expect(await db.intakeLogs.count()).toBe(1);
+    expect(await db.inventoryItems.count()).toBe(1);
+    expect(await db.inventoryAdjustments.count()).toBe(1);
+  });
+
+  it('does not generate a second inventory adjustment for a restored dose', async () => {
+    // recordDose() would build one automatically; restoreBackup() must not — the bundle's own
+    // adjustment for that dose is already in inventoryAdjustments, restored separately.
+    const { db, repository } = freshRepository();
+    await repository.restoreBackup(
+      makeBundle({
+        intakeLogs: [makeLog({ status: 'taken', quantityTaken: 2 })],
+        inventoryAdjustments: [makeInventoryAdjustment({ delta: -2, relatedLogId: 'log-1' })],
+      }),
+    );
+
+    expect(await db.inventoryAdjustments.count()).toBe(1);
+  });
+
+  it('preserves a log a correction superseded — the backup is the full history, not just the tip', async () => {
+    const { db, repository } = freshRepository();
+    await repository.restoreBackup(
+      makeBundle({
+        intakeLogs: [makeLog(), makeLog({ id: 'log-2', supersedesId: 'log-1' })],
+      }),
+    );
+
+    expect(await db.intakeLogs.count()).toBe(2);
+    expect((await db.intakeLogs.get('log-1'))?.id).toBe('log-1');
+  });
+
+  it('queues an outbox entry for every restored record', async () => {
+    const { repository } = freshRepository();
+    await repository.restoreBackup(makeBundle());
+
+    expect(await repository.pendingSyncCount()).toBe(5);
+  });
+
+  it('upserts over an existing record with the same id rather than duplicating it', async () => {
+    const { db, repository } = freshRepository();
+    await repository.saveMedicine(makeMedicine({ name: 'Old name' }), 'CREATE');
+
+    await repository.restoreBackup(
+      makeBundle({ medicines: [makeMedicine({ name: 'Restored name' })] }),
+    );
+
+    expect(await db.medicines.count()).toBe(1);
+    expect((await db.medicines.get('medicine-1'))?.name).toBe('Restored name');
+  });
+
+  it('writes nothing at all when one table fails partway through', async () => {
+    const { db, repository } = freshRepository();
+    vi.spyOn(db.inventoryAdjustments, 'bulkPut').mockRejectedValue(new Error('disk failure'));
+
+    await expect(repository.restoreBackup(makeBundle())).rejects.toThrow('disk failure');
+
+    // A partially-applied backup — some tables restored, others not — would leave the household
+    // in a state matching neither the backup nor what was there before.
+    expect(await db.medicines.count()).toBe(0);
+    expect(await db.schedules.count()).toBe(0);
+    expect(await db.intakeLogs.count()).toBe(0);
+    expect(await db.syncOutbox.count()).toBe(0);
+  });
+
+  it('restores an empty bundle without error', async () => {
+    const { repository } = freshRepository();
+    await expect(
+      repository.restoreBackup({
+        medicines: [],
+        schedules: [],
+        intakeLogs: [],
+        inventoryItems: [],
+        inventoryAdjustments: [],
+      }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('clearAllData', () => {
+  it('empties medicines, schedules, intake logs, and the inventory ledger', async () => {
+    const { db, repository } = freshRepository();
+    await repository.restoreBackup(makeBundle());
+
+    await repository.clearAllData();
+
+    expect(await db.medicines.count()).toBe(0);
+    expect(await db.schedules.count()).toBe(0);
+    expect(await db.intakeLogs.count()).toBe(0);
+    expect(await db.inventoryItems.count()).toBe(0);
+    expect(await db.inventoryAdjustments.count()).toBe(0);
+  });
+
+  it('leaves household settings and this device untouched — this clears medical data, not the household connection', async () => {
+    const { db, repository } = freshRepository();
+    await repository.saveHouseholdSettings({
+      id: 'household',
+      timeZone: 'Asia/Jerusalem',
+      escalationAfterMinutes: 15,
+      snoozeMinutes: 15,
+      updatedAt: NOW,
+      updatedByDeviceId: 'device-1',
+      syncStatus: 'synced',
+    });
+
+    await repository.clearAllData();
+
+    expect(await db.householdSettings.get('household')).toBeDefined();
+  });
+
+  it('removes outbox rows for the cleared tables but not for other tables', async () => {
+    const { repository } = freshRepository();
+    await repository.restoreBackup(makeBundle());
+    await repository.saveHouseholdSettings({
+      id: 'household',
+      timeZone: 'Asia/Jerusalem',
+      escalationAfterMinutes: 15,
+      snoozeMinutes: 15,
+      updatedAt: NOW,
+      updatedByDeviceId: 'device-1',
+      syncStatus: 'synced',
+    });
+
+    await repository.clearAllData();
+
+    const outbox = await repository.pendingSync();
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]).toMatchObject({ table: 'householdSettings' });
+  });
+
+  it('is safe to call on an already-empty database', async () => {
+    const { repository } = freshRepository();
+    await expect(repository.clearAllData()).resolves.toBeUndefined();
+  });
+
+  it('clears nothing at all if any table fails to clear', async () => {
+    const { db, repository } = freshRepository();
+    await repository.restoreBackup(makeBundle());
+    vi.spyOn(db.inventoryAdjustments, 'clear').mockRejectedValue(new Error('disk failure'));
+
+    await expect(repository.clearAllData()).rejects.toThrow('disk failure');
+
+    expect(await db.medicines.count()).toBe(1);
   });
 });
