@@ -9,6 +9,7 @@ export type { Clock, ClockTrust, EpochMs, IdGenerator, IsoInstant } from './cloc
 export { systemClock, uuidIdGenerator } from './runtime/systemClock.js';
 
 // Domain entities and validation
+export { SINGLE_PATIENT_ID } from './types.js';
 export type * from './types.js';
 export * from './schemas.js';
 
@@ -46,6 +47,7 @@ export {
   occurrenceKey,
   reviseSchedule,
   scheduleAppliesOn,
+  scheduleIsLiveOn,
 } from './schedule.js';
 export type {
   ExpansionRange,
@@ -71,7 +73,9 @@ export {
   buildManualAdjustment,
   buildReversalAdjustment,
   computeQuantity,
+  daysOfSupply,
   deriveInventoryState,
+  estimateDailyConsumption,
 } from './inventory.js';
 export type {
   AdjustmentContext,
@@ -82,6 +86,9 @@ export type {
 // Sync
 export { hasPendingChanges, mergeCollections, mergeLww } from './sync.js';
 export type { LwwRecord, MergeOutcome, MergeSource } from './sync.js';
+
+// Export
+export { buildIntakeLogCsv } from './export.js';
 
 // Push (Sprint 0 probe contract; superseded by the real push routes in Sprint 5)
 export { SHABBAT_BURST_COUNT, SHABBAT_BURST_SPACING_MS } from './push.js';

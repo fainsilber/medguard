@@ -8,7 +8,8 @@ import type { Syncable } from './types.js';
  * `InventoryAdjustment` do not extend `Syncable` — they carry no `updatedAt`, because they are
  * append-only and are never overwritten. A dose history resolved by LWW would silently drop a
  * caregiver's log (safety invariant 1), and a stock counter resolved by LWW would drop a
- * decrement (delta D3). The type signature makes both mistakes unrepresentable.
+ * decrement (the reason the inventory ledger is append-only too, not a mutable counter). The
+ * type signature makes both mistakes unrepresentable.
  *
  * So this applies to medicines, schedules, inventory *settings*, Shabbat config and household
  * settings — records where "the most recent edit is the truth" is genuinely correct.

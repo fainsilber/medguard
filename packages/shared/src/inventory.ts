@@ -1,15 +1,18 @@
 import type { Clock, IdGenerator, IsoInstant } from './clock.js';
+import { scheduleIsLiveOn } from './schedule.js';
 import type {
   DeviceId,
   InventoryAdjustment,
   InventoryItem,
   IntakeLog,
+  LocalDate,
+  Schedule,
   UserId,
   Uuid,
 } from './types.js';
 
 /**
- * Stock as an append-only ledger (delta D3).
+ * Stock as an append-only ledger.
  *
  * The PRD modelled inventory as a mutable `currentQuantity`. Under Last-Write-Wins that silently
  * loses doses: two caregivers each logging a dose offline both write `n - 1`, one write wins, and
@@ -181,4 +184,75 @@ export function adjustmentForLog(
   return adjustments.find(
     (adjustment) => adjustment.reason === 'dose' && adjustment.relatedLogId === logId,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Refill projection
+// ---------------------------------------------------------------------------
+
+/**
+ * A schedule's average daily consumption, computed analytically rather than by expanding
+ * occurrences over some sample window — exact for any interval, not an approximation that
+ * happens to be close for the window chosen.
+ */
+function dailyConsumptionFor(schedule: Schedule): number {
+  const perOccurrence = schedule.timesOfDay.length * schedule.dosageQuantity;
+
+  switch (schedule.frequencyType) {
+    case 'daily':
+      return perOccurrence;
+
+    case 'interval_days': {
+      // Defensive rather than redundant, matching schedule.ts: schemas guarantee this on the
+      // way in, but this also runs over rows already in IndexedDB that may predate a schema
+      // change.
+      const interval = schedule.intervalDays;
+      if (interval === undefined || interval < 1) {
+        return 0;
+      }
+      return perOccurrence / interval;
+    }
+
+    case 'specific_days': {
+      const days = schedule.daysOfWeek;
+      if (days === undefined) {
+        return 0;
+      }
+      return (perOccurrence * days.length) / 7;
+    }
+  }
+}
+
+/**
+ * Average daily consumption of one medicine, as of `onDate`, summed across every currently-live
+ * schedule for it.
+ *
+ * Summing matters for an alternating regimen (50mg Mon/Wed/Fri, 25mg Tue/Thu/Sat): it's modelled
+ * as two schedules for the same medicine, and both contribute to how fast the bottle actually
+ * empties.
+ */
+export function estimateDailyConsumption(
+  schedules: readonly Schedule[],
+  medicineId: Uuid,
+  onDate: LocalDate,
+): number {
+  return schedules
+    .filter((schedule) => schedule.medicineId === medicineId && scheduleIsLiveOn(schedule, onDate))
+    .reduce((total, schedule) => total + dailyConsumptionFor(schedule), 0);
+}
+
+/**
+ * How many days of supply remain at the current consumption rate.
+ *
+ * `null` rather than `Infinity` when nothing is being consumed — "forever" is not a projection a
+ * caregiver can act on, and displaying it invites exactly the confusion a real number would not.
+ */
+export function daysOfSupply(currentQuantity: number, dailyConsumption: number): number | null {
+  if (dailyConsumption <= 0) {
+    return null;
+  }
+  if (currentQuantity <= 0) {
+    return 0;
+  }
+  return currentQuantity / dailyConsumption;
 }

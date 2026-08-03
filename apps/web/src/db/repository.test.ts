@@ -340,6 +340,133 @@ describe('schedules', () => {
   });
 });
 
+describe('household settings', () => {
+  it('is absent before it is ever set', async () => {
+    const { repository } = freshRepository();
+    expect(await repository.getHouseholdSettings()).toBeUndefined();
+  });
+
+  it('saves and reads back the household timezone', async () => {
+    const { repository } = freshRepository();
+    await repository.saveHouseholdSettings({
+      id: 'household',
+      timeZone: 'Asia/Jerusalem',
+      escalationAfterMinutes: 15,
+      snoozeMinutes: 15,
+      updatedAt: '2020-01-01T00:00:00.000Z',
+      updatedByDeviceId: 'placeholder',
+      syncStatus: 'synced',
+    });
+
+    expect(await repository.getHouseholdSettings()).toMatchObject({ timeZone: 'Asia/Jerusalem' });
+  });
+
+  it('queues its own sync outbox row, in the same transaction as everything else', async () => {
+    const { repository } = freshRepository();
+    await repository.saveHouseholdSettings(
+      {
+        id: 'household',
+        timeZone: 'Asia/Jerusalem',
+        escalationAfterMinutes: 15,
+        snoozeMinutes: 15,
+        updatedAt: '2020-01-01T00:00:00.000Z',
+        updatedByDeviceId: 'placeholder',
+        syncStatus: 'synced',
+      },
+      'CREATE',
+    );
+
+    const outbox = await repository.pendingSync();
+    expect(outbox[0]).toMatchObject({ table: 'householdSettings', action: 'CREATE' });
+  });
+
+  it('saves nothing when the outbox write fails, matching every other mutation', async () => {
+    const { db, repository } = freshRepository();
+    vi.spyOn(db.syncOutbox, 'add').mockRejectedValue(new Error('quota exceeded'));
+
+    await expect(
+      repository.saveHouseholdSettings({
+        id: 'household',
+        timeZone: 'Asia/Jerusalem',
+        escalationAfterMinutes: 15,
+        snoozeMinutes: 15,
+        updatedAt: '2020-01-01T00:00:00.000Z',
+        updatedByDeviceId: 'placeholder',
+        syncStatus: 'synced',
+      }),
+    ).rejects.toThrow('quota exceeded');
+
+    expect(await repository.getHouseholdSettings()).toBeUndefined();
+  });
+});
+
+describe('inventory items', () => {
+  it('is absent before stock tracking is set up for a medicine', async () => {
+    const { repository } = freshRepository();
+    expect(await repository.getInventoryItem('medicine-1')).toBeUndefined();
+  });
+
+  it('saves and reads back stock-tracking config by medicine id', async () => {
+    const { repository } = freshRepository();
+    await repository.saveInventoryItem(
+      {
+        id: 'item-1',
+        medicineId: 'medicine-1',
+        refillThreshold: 10,
+        unitName: 'pills',
+        updatedAt: '2020-01-01T00:00:00.000Z',
+        updatedByDeviceId: 'placeholder',
+        syncStatus: 'synced',
+      },
+      'CREATE',
+    );
+
+    expect(await repository.getInventoryItem('medicine-1')).toMatchObject({
+      refillThreshold: 10,
+      unitName: 'pills',
+    });
+    expect(await repository.allInventoryItems()).toHaveLength(1);
+  });
+
+  it('queues its own sync outbox row, in the same transaction as everything else', async () => {
+    const { repository } = freshRepository();
+    await repository.saveInventoryItem(
+      {
+        id: 'item-1',
+        medicineId: 'medicine-1',
+        refillThreshold: 10,
+        unitName: 'pills',
+        updatedAt: '2020-01-01T00:00:00.000Z',
+        updatedByDeviceId: 'placeholder',
+        syncStatus: 'synced',
+      },
+      'CREATE',
+    );
+
+    const outbox = await repository.pendingSync();
+    expect(outbox[0]).toMatchObject({ table: 'inventoryItems', action: 'CREATE' });
+  });
+
+  it('saves nothing when the outbox write fails, matching every other mutation', async () => {
+    const { db, repository } = freshRepository();
+    vi.spyOn(db.syncOutbox, 'add').mockRejectedValue(new Error('quota exceeded'));
+
+    await expect(
+      repository.saveInventoryItem({
+        id: 'item-1',
+        medicineId: 'medicine-1',
+        refillThreshold: 10,
+        unitName: 'pills',
+        updatedAt: '2020-01-01T00:00:00.000Z',
+        updatedByDeviceId: 'placeholder',
+        syncStatus: 'synced',
+      }),
+    ).rejects.toThrow('quota exceeded');
+
+    expect(await repository.getInventoryItem('medicine-1')).toBeUndefined();
+  });
+});
+
 describe('medicines', () => {
   it('archives rather than deletes, so history keeps its reference', async () => {
     const { db, repository } = freshRepository();

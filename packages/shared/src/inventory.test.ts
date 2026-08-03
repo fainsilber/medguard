@@ -6,10 +6,12 @@ import {
   buildManualAdjustment,
   buildReversalAdjustment,
   computeQuantity,
+  daysOfSupply,
   deriveInventoryState,
+  estimateDailyConsumption,
 } from './inventory.js';
 import { fixedClock, sequentialIds } from './testing.js';
-import type { InventoryAdjustment, InventoryItem, IntakeLog } from './types.js';
+import type { InventoryAdjustment, InventoryItem, IntakeLog, Schedule } from './types.js';
 
 const NOW = '2026-06-15T12:00:00.000Z';
 
@@ -99,7 +101,7 @@ describe('computeQuantity', () => {
   });
 });
 
-describe('the concurrent-decrement case delta D3 exists for', () => {
+describe('the concurrent-decrement case an append-only ledger exists for', () => {
   it('keeps both decrements when two caregivers dose offline at once', () => {
     // Under the PRD's original mutable counter, both devices would have written
     // `currentQuantity = 9` and one write would have been silently discarded.
@@ -270,5 +272,126 @@ describe('correcting a dose end to end', () => {
     const corrected = buildDoseAdjustment(intakeLog({ id: 'log-2', quantityTaken: 1 }), context('c'));
 
     expect(computeQuantity([opening, dose, reversal, corrected])).toBe(9);
+  });
+});
+
+function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
+  return {
+    id: 'schedule-1',
+    medicineId: 'medicine-1',
+    patientId: 'patient-1',
+    frequencyType: 'daily',
+    timesOfDay: ['08:00'],
+    dosageQuantity: 1,
+    startDate: '2026-06-01',
+    active: true,
+    updatedAt: '2026-06-01T00:00:00.000Z',
+    updatedByDeviceId: 'device-1',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
+describe('estimateDailyConsumption', () => {
+  it('is one dose a day for a once-daily schedule', () => {
+    expect(estimateDailyConsumption([makeSchedule()], 'medicine-1', '2026-06-15')).toBe(1);
+  });
+
+  it('multiplies by both times of day and dosage quantity', () => {
+    const schedule = makeSchedule({ timesOfDay: ['08:00', '20:00'], dosageQuantity: 2 });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBe(4);
+  });
+
+  it('averages an interval schedule over its interval', () => {
+    const schedule = makeSchedule({ frequencyType: 'interval_days', intervalDays: 3, dosageQuantity: 2 });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBeCloseTo(2 / 3);
+  });
+
+  it('is zero for an interval schedule missing its interval', () => {
+    const schedule = makeSchedule({ frequencyType: 'interval_days' });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBe(0);
+  });
+
+  it('is zero for a nonsensical interval', () => {
+    const schedule = makeSchedule({ frequencyType: 'interval_days', intervalDays: 0 });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBe(0);
+  });
+
+  it('averages a specific-days schedule over a week', () => {
+    // Three days a week — Mon/Wed/Fri.
+    const schedule = makeSchedule({ frequencyType: 'specific_days', daysOfWeek: [1, 3, 5] });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBeCloseTo(3 / 7);
+  });
+
+  it('is zero for a specific-days schedule missing its days', () => {
+    const schedule = makeSchedule({ frequencyType: 'specific_days' });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBe(0);
+  });
+
+  it('sums an alternating regimen across both of its schedules', () => {
+    // 50mg Mon/Wed/Fri, 25mg Tue/Thu/Sat — two schedules for the same medicine.
+    const higher = makeSchedule({
+      id: 'high',
+      frequencyType: 'specific_days',
+      daysOfWeek: [1, 3, 5],
+      dosageQuantity: 50,
+    });
+    const lower = makeSchedule({
+      id: 'low',
+      frequencyType: 'specific_days',
+      daysOfWeek: [2, 4, 6],
+      dosageQuantity: 25,
+    });
+
+    const result = estimateDailyConsumption([higher, lower], 'medicine-1', '2026-06-15');
+    expect(result).toBeCloseTo((3 * 50 + 3 * 25) / 7);
+  });
+
+  it('ignores a schedule for a different medicine', () => {
+    const schedule = makeSchedule({ medicineId: 'other-medicine' });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBe(0);
+  });
+
+  it('ignores a schedule that has not started yet', () => {
+    const schedule = makeSchedule({ startDate: '2026-07-01' });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBe(0);
+  });
+
+  it('ignores a retired schedule with no end date', () => {
+    const schedule = makeSchedule({ active: false });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBe(0);
+  });
+
+  it('includes a closed schedule within its historical window', () => {
+    const schedule = makeSchedule({ active: false, endDate: '2026-06-30' });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBe(1);
+  });
+
+  it('excludes a closed schedule past its end date', () => {
+    const schedule = makeSchedule({ active: false, endDate: '2026-06-10' });
+    expect(estimateDailyConsumption([schedule], 'medicine-1', '2026-06-15')).toBe(0);
+  });
+
+  it('is zero for no schedules at all', () => {
+    expect(estimateDailyConsumption([], 'medicine-1', '2026-06-15')).toBe(0);
+  });
+});
+
+describe('daysOfSupply', () => {
+  it('divides quantity by daily consumption', () => {
+    expect(daysOfSupply(30, 2)).toBe(15);
+  });
+
+  it('is null rather than Infinity when nothing is being consumed', () => {
+    expect(daysOfSupply(30, 0)).toBeNull();
+  });
+
+  it('is null for a negative consumption rate, which should not occur but must not divide oddly', () => {
+    expect(daysOfSupply(30, -1)).toBeNull();
+  });
+
+  it('is zero, not negative, when already out of stock', () => {
+    expect(daysOfSupply(0, 2)).toBe(0);
+    expect(daysOfSupply(-3, 2)).toBe(0);
   });
 });
