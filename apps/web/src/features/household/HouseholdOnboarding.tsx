@@ -10,22 +10,31 @@ import { buttonClass, inputClass, labelClass, primaryButtonClass } from '../../u
 /**
  * First run: start a household, or join one someone else already started.
  *
- * Deliberately skippable. The app works entirely offline on one device — that was the whole point
- * of Sprint 2 — and a caregiver standing in a hospital with no signal must not be blocked from
- * logging a dose because a server is unreachable. Connecting can happen later.
+ * Deliberately skippable on a fresh device. The app works entirely offline on one device — that
+ * was the whole point of Sprint 2 — and a caregiver standing in a hospital with no signal must not
+ * be blocked from logging a dose because a server is unreachable. Connecting can happen later.
+ *
+ * Also reused, `embedded`, from HouseholdScreen when a caregiver leaves one household and wants to
+ * join or create another without a page reload — skipping doesn't apply there (they're already
+ * using the device on its own, which is exactly why this form is showing), and their existing
+ * caregiver name is worth pre-filling rather than asking for again.
  */
 type Mode = 'choose' | 'create' | 'join';
 
 export function HouseholdOnboarding({
   onDone,
   onSkip,
+  embedded = false,
+  initialDisplayName = '',
 }: {
   onDone: () => void;
-  onSkip: () => void;
+  onSkip?: () => void;
+  embedded?: boolean;
+  initialDisplayName?: string;
 }) {
   const [mode, setMode] = useState<Mode>('choose');
   const [householdName, setHouseholdName] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  const [displayName, setDisplayName] = useState(initialDisplayName);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -92,18 +101,20 @@ export function HouseholdOnboarding({
     finish(result.value, trimmedName);
   };
 
-  return (
-    <main className="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-6 p-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">MedGuard</h1>
-        <p className="mt-2 text-sm text-slate-400">
-          {mode === 'choose'
-            ? 'Set up a household so every caregiver sees the same doses, or carry on alone on this device.'
-            : mode === 'create'
-              ? 'You can invite the other caregivers once this is set up.'
-              : 'Ask the caregiver who set up the household for a 6-digit code.'}
-        </p>
-      </div>
+  const content = (
+    <>
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">MedGuard</h1>
+          <p className="mt-2 text-sm text-slate-400">
+            {mode === 'choose'
+              ? 'Set up a household so every caregiver sees the same doses, or carry on alone on this device.'
+              : mode === 'create'
+                ? 'You can invite the other caregivers once this is set up.'
+                : 'Ask the caregiver who set up the household for a 6-digit code.'}
+          </p>
+        </div>
+      )}
 
       {mode === 'choose' && (
         <div className="flex flex-col gap-3">
@@ -113,9 +124,11 @@ export function HouseholdOnboarding({
           <button type="button" className={buttonClass} onClick={() => setMode('join')}>
             Join with a code
           </button>
-          <button type="button" className="text-sm text-slate-400 underline" onClick={onSkip}>
-            Use this device on its own for now
-          </button>
+          {!embedded && onSkip && (
+            <button type="button" className="text-sm text-slate-400 underline" onClick={onSkip}>
+              Use this device on its own for now
+            </button>
+          )}
         </div>
       )}
 
@@ -195,6 +208,14 @@ export function HouseholdOnboarding({
           </div>
         </form>
       )}
-    </main>
+    </>
+  );
+
+  if (embedded) {
+    return <div className="flex flex-col gap-4">{content}</div>;
+  }
+
+  return (
+    <main className="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-6 p-4">{content}</main>
   );
 }

@@ -183,7 +183,10 @@ authRoutes.post('/join-codes/redeem', async (c) => {
   await recordAttempt(c.env.DB, source, nowIso, nowMs);
 
   const codeRow = await c.env.DB.prepare(
-    'SELECT code_hash, household_id, expires_at, redeemed_at FROM join_codes WHERE code_hash = ?',
+    `SELECT jc.code_hash, jc.household_id, jc.expires_at, jc.redeemed_at, h.name AS household_name
+     FROM join_codes jc
+     JOIN households h ON h.id = jc.household_id
+     WHERE jc.code_hash = ?`,
   )
     .bind(await hashSecret(parsed.data.code))
     .first<{
@@ -191,6 +194,7 @@ authRoutes.post('/join-codes/redeem', async (c) => {
       household_id: string;
       expires_at: string;
       redeemed_at: string | null;
+      household_name: string;
     }>();
 
   if (!codeRow || codeRow.redeemed_at !== null || codeRow.expires_at <= nowIso) {
@@ -231,7 +235,13 @@ authRoutes.post('/join-codes/redeem', async (c) => {
   ]);
 
   return c.json(
-    { deviceToken: token, householdId: codeRow.household_id, userId, deviceId },
+    {
+      deviceToken: token,
+      householdId: codeRow.household_id,
+      householdName: codeRow.household_name,
+      userId,
+      deviceId,
+    },
     201,
   );
 });
@@ -254,4 +264,32 @@ authRoutes.get('/me', requireDevice, async (c) => {
     displayName: user?.display_name ?? null,
     deviceId,
   });
+});
+
+/**
+ * Revokes the calling device's own token — the server-side half of "sign out." A caregiver's
+ * local sign-out clears the token from this device, but the token itself would otherwise stay
+ * valid indefinitely (delta from docs/data-handling.md's biggest known gap): anyone who somehow
+ * retained a copy of it could keep using it. This makes the token genuinely dead, not just
+ * locally forgotten.
+ */
+authRoutes.post('/leave', requireDevice, async (c) => {
+  const { deviceId } = c.get('auth');
+  await c.env.DB.prepare('DELETE FROM devices WHERE id = ?').bind(deviceId).run();
+  return c.json({ ok: true });
+});
+
+/**
+ * Deletes the caller's own household — every user, device, and medical record in it, for every
+ * caregiver, permanently. There is no owner/member distinction anywhere in this schema (every
+ * caregiver already sees and can log everything equally — docs/data-handling.md), so any
+ * authenticated member of the household may do this; it is not restricted to whoever created it.
+ *
+ * Scoped entirely from the token, like every other route here — there is no household id in the
+ * request for a caller to substitute someone else's household into.
+ */
+authRoutes.delete('/households', requireDevice, async (c) => {
+  const { householdId } = c.get('auth');
+  await c.env.DB.prepare('DELETE FROM households WHERE id = ?').bind(householdId).run();
+  return c.json({ ok: true });
 });
