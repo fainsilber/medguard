@@ -276,7 +276,7 @@ export function ProbePage() {
     <main className="mx-auto flex min-h-full max-w-2xl flex-col gap-6 p-4">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">MedGuard</h1>
-        <p className="text-sm text-slate-400">Sprint 0 — foundations &amp; capability probe</p>
+        <p className="text-sm text-slate-400">Capability probe &amp; diagnostics</p>
         {/* If this doesn't change after a merge to main, the deploy didn't actually happen —
             exactly the failure mode that motivated adding it (a silently disconnected
             Cloudflare Git integration). */}
