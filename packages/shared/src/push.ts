@@ -49,23 +49,37 @@ export interface ProbePushReceipt {
 }
 
 /**
- * The Shabbat alert (delta D1). A single push gives a ~1-2 second system tone, not the PRD's
- * 45 seconds, so the burst re-alerts the phone across roughly that window using one shared tag
- * with renotify — many notifications' worth of noise, one notification's worth of clutter.
+ * The Shabbat alert.
  *
- * Tuned twice from real Sprint 0 capability-probe runs on Android, not guessed:
- *   1. (2026-08-02) 3×/15s arrived instantly and each alert was clearly distinct, but felt too
- *      sparse to reliably wake someone — "I could hear it, but I'd rather have more, like 10 in
- *      the same 45 sec". Changed to 10×/5s.
- *   2. (2026-08-02, same day) after trying 10×/5s: "the frequency was better but I think the
- *      same 10 but in 15 second would be better" — same count, denser. 10×/~1.67s covers a 15s
- *      window instead of 45s, keeping the same alert count from tuning pass 1 but compressing
- *      it to roughly a third of the span. Revisit after the same test on iOS and after a real
- *      Shabbat.
+ * A browser Notification can't play a custom sound or a long chime — a single push gets a
+ * ~1-2 second system tone, nowhere near the PRD's 45-second Shabbat chime. So instead of one
+ * push, we send a rapid burst of several, sharing one notification tag with `renotify` — the
+ * phone re-alerts on each one rather than stacking a pile of separate notifications. It reads
+ * as one sustained alert made of several buzzes, approximating a longer chime out of pieces a
+ * push service can actually deliver.
+ *
+ * Tuned three times from real Sprint 0 device tests, not guessed:
+ *   1. (2026-08-02, Android) 3 pushes / 15s apart arrived instantly and each buzz was clearly
+ *      distinct, but felt too sparse to reliably wake someone — "I could hear it, but I'd rather
+ *      have more, like 10 in the same 45 sec". Changed to 10 pushes / 5s apart.
+ *   2. (2026-08-02, Android, same day) after trying that: "the frequency was better but I think
+ *      the same 10 but in 15 second would be better" — same count, denser: 10 pushes spanning a
+ *      15s window (~1.67s apart) instead of 45s.
+ *   3. (2026-08-03, Android) tried tightening further to 10 pushes spanning 8s (~889ms apart,
+ *      committed only on the Sprint 1 branch, never merged to main) — too tight: "the alerts are
+ *      so close to one another that the OS prevents some and I didn't hear 10 chimes." The
+ *      Android OS was coalescing or dropping some of the notifications rather than showing every
+ *      one. Backed off to 10 pushes spanning 10s (~1.11s apart) — this is the current value.
+ *
+ * Still open: the same test on iOS, and a real Shabbat dry run. (iOS push delivery itself was
+ * separately confirmed working once the PWA is installed to the home screen — see
+ * docs/platform-capabilities.md — but this exact burst spacing hasn't been tried there.)
  */
 export const SHABBAT_BURST_COUNT = 10;
-// 15s window / (10 - 1) gaps ≈ 1667ms, so 10 pushes span exactly ~15s start-to-finish.
-export const SHABBAT_BURST_SPACING_MS = 1_667;
+// 10s window / (10 - 1) gaps ≈ 1111ms, so 10 pushes span ~10s start-to-finish. Pass 3 above
+// (889ms) was tried and found too tight — the OS started dropping notifications rather than
+// showing all ten.
+export const SHABBAT_BURST_SPACING_MS = 1_111;
 
 /**
  * What the server actually did with one queued push — read by the probe UI (and, later, any
