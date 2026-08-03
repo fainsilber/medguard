@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { SHABBAT_BURST_COUNT, SHABBAT_BURST_SPACING_MS } from '@medguard/shared';
 import type { ProbeNotificationOptions, ProbePushLog, ProbePushReceipt } from '@medguard/shared';
+import { getApiBaseUrl, setApiBaseUrl } from '../api/config.js';
 import {
   checkStoragePersistence,
   snapshotEnvironment,
@@ -26,9 +27,6 @@ import { APP_VERSION, BUILD_TIME } from '../version.js';
  */
 
 const PROBE_ID_STORAGE_KEY = 'medguard-probe-id';
-const API_BASE_URL_STORAGE_KEY = 'medguard-probe-api-base-url';
-const DEFAULT_API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8787';
 
 function loadOrCreateProbeId(): string {
   const existing = localStorage.getItem(PROBE_ID_STORAGE_KEY);
@@ -102,9 +100,10 @@ const inputClass = 'rounded-md border border-slate-700 bg-slate-900 px-2 py-1 te
 
 export function ProbePage() {
   const [probeId] = useState(loadOrCreateProbeId);
-  const [apiBaseUrl, setApiBaseUrl] = useState(
-    () => localStorage.getItem(API_BASE_URL_STORAGE_KEY) ?? DEFAULT_API_BASE_URL,
-  );
+  // Shares its override with useClockTrust (the PRN screen's server-time check) rather than
+  // keeping its own separate one: setting the API URL here used to have no effect on that check
+  // at all, which made this field a confusing dead end when the two ever needed to agree.
+  const [apiBaseUrl, setApiBaseUrlState] = useState(getApiBaseUrl);
 
   const [environment, setEnvironment] = useState<EnvironmentSnapshot | null>(null);
   const [storageResult, setStorageResult] = useState<StorageCheckResult | null>(null);
@@ -129,8 +128,8 @@ export function ProbePage() {
   const [receipts, setReceipts] = useState<ProbePushReceipt[]>([]);
 
   const persistApiBaseUrl = useCallback((value: string) => {
+    setApiBaseUrlState(value);
     setApiBaseUrl(value);
-    localStorage.setItem(API_BASE_URL_STORAGE_KEY, value);
   }, []);
 
   const refreshEnvironment = useCallback(() => {
