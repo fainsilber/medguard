@@ -20,6 +20,18 @@ export type LocalTime = string;
 export type SyncStatus = 'synced' | 'pending';
 
 /**
+ * The one patient every record belongs to. The schema carries `patientId` on every entity so
+ * multi-patient support is a UI change later rather than a migration, but the UI ships single-
+ * patient in v1 (see sprint plan assumptions) — everything just uses this constant for now.
+ *
+ * A real (if arbitrary) UUID rather than a human-readable placeholder like `"patient-1"`,
+ * because `patientId` fields are validated as UUIDs — using a non-UUID placeholder now would
+ * mean every local record silently fails that validation the moment Sprint 3 starts enforcing
+ * it at the sync boundary.
+ */
+export const SINGLE_PATIENT_ID: Uuid = '00000000-0000-4000-8000-000000000001';
+
+/**
  * Fields every locally-mutable, server-synced record carries.
  *
  * `updatedByDeviceId` exists purely to break Last-Write-Wins ties deterministically: two devices
@@ -174,7 +186,7 @@ export type InventoryAdjustmentReason =
   | 'lost';
 
 /**
- * Append-only ledger entry (delta D3).
+ * Append-only ledger entry.
  *
  * Stock is the sum of these, never a mutable counter: two caregivers logging a dose offline
  * would each write `currentQuantity = n - 1` and Last-Write-Wins would silently discard one

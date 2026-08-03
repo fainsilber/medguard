@@ -1,0 +1,239 @@
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useMemo, useState } from 'react';
+import {
+  addLocalDays,
+  expandSchedules,
+  formatLocalDate,
+  formatLocalTime,
+  fromIso,
+  occurrenceKey,
+  resolveLocal,
+} from '@medguard/shared';
+import type { Occurrence } from '@medguard/shared';
+import {
+  useClock,
+  useCurrentDeviceId,
+  useCurrentUserId,
+  useIdGenerator,
+  useMedGuardDb,
+  useRepository,
+} from '../../app/RepositoryContext.js';
+import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
+import { useTick } from '../../app/useTick.js';
+import { DoseCorrection } from '../logs/DoseCorrection.js';
+import { Card, buttonClass, primaryButtonClass } from '../../ui/primitives.js';
+import { classifyOccurrence } from './classifyOccurrence.js';
+import type { OccurrenceStatus } from './classifyOccurrence.js';
+import { findLogForOccurrence } from './matchOccurrenceLog.js';
+
+const SNOOZE_MINUTES = 15;
+/** Frequent enough that overdue/due-now buckets feel live, cheap enough not to matter. */
+const REFRESH_INTERVAL_MS = 30_000;
+
+const STATUS_LABEL: Record<OccurrenceStatus, string> = {
+  overdue: 'Overdue',
+  due_now: 'Due now',
+  snoozed: 'Snoozed',
+  upcoming: 'Upcoming',
+  done: 'Done',
+};
+
+/** Colours the section heading itself rather than a separate per-row badge, which would just
+ * repeat text already on screen — a caregiver already knows what section they're looking at. */
+const STATUS_HEADING_CLASS: Record<OccurrenceStatus, string> = {
+  overdue: 'text-locked',
+  due_now: 'text-capped',
+  snoozed: 'text-slate-500',
+  upcoming: 'text-slate-500',
+  done: 'text-safe',
+};
+
+/** Doses due today, PRD §2's "Today view (overdue, due now, upcoming, done)". */
+export function TodayView() {
+  const db = useMedGuardDb();
+  const repository = useRepository();
+  const clock = useClock();
+  const ids = useIdGenerator();
+  const userId = useCurrentUserId();
+  const deviceId = useCurrentDeviceId();
+  const householdSettings = useHouseholdSettings();
+  const [snoozedUntil, setSnoozedUntil] = useState<Map<string, number>>(new Map());
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  useTick(REFRESH_INTERVAL_MS);
+
+  const schedules = useLiveQuery(() => db.schedules.toArray(), [db]);
+  const logs = useLiveQuery(() => db.intakeLogs.toArray(), [db]);
+
+  const nowMs = clock.nowMs();
+  const timeZone = householdSettings?.timeZone;
+  const today = timeZone ? formatLocalDate(timeZone, nowMs) : undefined;
+
+  const rows = useMemo(() => {
+    if (!schedules || !logs || !timeZone || !today) {
+      return undefined;
+    }
+
+    const tomorrow = addLocalDays(today, 1);
+    const range = {
+      fromMs: resolveLocal(timeZone, today, '00:00').instantMs,
+      toMs: resolveLocal(timeZone, tomorrow, '00:00').instantMs,
+    };
+
+    return expandSchedules(schedules, range, timeZone).map((occurrence) => {
+      const key = occurrenceKey(occurrence);
+      const log = findLogForOccurrence(logs, occurrence);
+      const status = classifyOccurrence(occurrence.dueAt, nowMs, log !== undefined, snoozedUntil.get(key));
+      return { occurrence, log, status, key };
+    });
+  }, [schedules, logs, timeZone, today, nowMs, snoozedUntil]);
+
+  const medicineNames = useLiveQuery(async () => {
+    const medicines = await db.medicines.toArray();
+    return new Map(medicines.map((medicine) => [medicine.id, `${medicine.name} ${medicine.strength}`]));
+  }, [db]);
+
+  const handleTaken = async (occurrence: Occurrence, key: string) => {
+    setBusyKey(key);
+    try {
+      await repository.recordDose({
+        id: ids.next(),
+        patientId: occurrence.patientId,
+        medicineId: occurrence.medicineId,
+        scheduleId: occurrence.scheduleId,
+        type: 'scheduled',
+        status: 'taken',
+        scheduledTime: occurrence.dueAt,
+        actualTime: clock.nowIso(),
+        quantityTaken: occurrence.dosageQuantity,
+        loggedByUserId: userId,
+        loggedByDeviceId: deviceId,
+        syncStatus: 'pending',
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleSkipped = async (occurrence: Occurrence, key: string) => {
+    setBusyKey(key);
+    try {
+      await repository.recordDose({
+        id: ids.next(),
+        patientId: occurrence.patientId,
+        medicineId: occurrence.medicineId,
+        scheduleId: occurrence.scheduleId,
+        type: 'scheduled',
+        status: 'skipped',
+        scheduledTime: occurrence.dueAt,
+        actualTime: clock.nowIso(),
+        quantityTaken: 0,
+        loggedByUserId: userId,
+        loggedByDeviceId: deviceId,
+        syncStatus: 'pending',
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  /**
+   * Local display state only, not persisted (Sprint 2 has no alarm engine to re-ring in 15
+   * minutes — that's Sprint 5). This just moves the occurrence out of the urgent buckets for a
+   * while; reloading the page clears it.
+   */
+  const handleSnooze = (key: string) => {
+    setSnoozedUntil((current) => {
+      const next = new Map(current);
+      next.set(key, nowMs + SNOOZE_MINUTES * 60_000);
+      return next;
+    });
+  };
+
+  if (!rows || !medicineNames) {
+    return (
+      <Card>
+        <p className="text-sm text-slate-400">Loading…</p>
+      </Card>
+    );
+  }
+
+  const sections: OccurrenceStatus[] = ['overdue', 'due_now', 'snoozed', 'upcoming', 'done'];
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">Today</h2>
+      {rows.length === 0 && <p className="text-sm text-slate-400">Nothing scheduled today.</p>}
+
+      {sections.map((status) => {
+        const inSection = rows.filter((row) => row.status === status);
+        if (inSection.length === 0) return null;
+
+        return (
+          <section key={status} className="flex flex-col gap-2">
+            <h3 className={`text-xs font-semibold uppercase tracking-wide ${STATUS_HEADING_CLASS[status]}`}>
+              {STATUS_LABEL[status]}
+            </h3>
+            <ul className="flex flex-col gap-2">
+              {inSection.map(({ occurrence, log, key }) => (
+                <li
+                  key={key}
+                  className="flex items-center justify-between gap-3 rounded-md border border-slate-800 p-3 text-sm"
+                >
+                  <div>
+                    <p className="font-medium">
+                      {medicineNames.get(occurrence.medicineId) ?? 'Unknown medicine'}
+                    </p>
+                    <p className="text-slate-400">
+                      {formatLocalTime(timeZone!, fromIso(occurrence.dueAt))} · {occurrence.dosageQuantity}
+                    </p>
+                    {log && (
+                      <>
+                        <p className="text-xs text-slate-500">
+                          {log.status === 'taken' ? 'Taken' : 'Skipped'} by {log.loggedByUserId}
+                        </p>
+                        <DoseCorrection allLogs={logs ?? []} tipLog={log} timeZone={timeZone!} />
+                      </>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {status !== 'done' && (
+                      <>
+                        <button
+                          type="button"
+                          className={primaryButtonClass}
+                          disabled={busyKey === key}
+                          onClick={() => void handleTaken(occurrence, key)}
+                        >
+                          Taken
+                        </button>
+                        <button
+                          type="button"
+                          className={buttonClass}
+                          disabled={busyKey === key}
+                          onClick={() => void handleSkipped(occurrence, key)}
+                        >
+                          Skip
+                        </button>
+                        {status !== 'snoozed' && (
+                          <button
+                            type="button"
+                            className={buttonClass}
+                            disabled={busyKey === key}
+                            onClick={() => handleSnooze(key)}
+                          >
+                            Snooze 15m
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+    </Card>
+  );
+}

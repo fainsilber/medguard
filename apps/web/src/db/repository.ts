@@ -9,9 +9,11 @@ import {
 import type {
   Clock,
   DeviceId,
+  HouseholdSettings,
   IdGenerator,
   IntakeLog,
   InventoryAdjustment,
+  InventoryItem,
   LocalDate,
   ManualAdjustmentInput,
   Medicine,
@@ -104,6 +106,25 @@ export class MedGuardRepository {
       lastError: error,
       lastAttemptAt: this.context.clock.nowIso(),
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Household settings
+  // -------------------------------------------------------------------------
+
+  async saveHouseholdSettings(
+    settings: HouseholdSettings,
+    action: SyncAction = 'UPDATE',
+  ): Promise<void> {
+    const stamped = this.stamp(settings);
+    await this.db.transaction('rw', this.db.householdSettings, this.db.syncOutbox, async () => {
+      await this.db.householdSettings.put(stamped);
+      await this.enqueue('householdSettings', stamped.id, action, stamped);
+    });
+  }
+
+  getHouseholdSettings(): Promise<HouseholdSettings | undefined> {
+    return this.db.householdSettings.get('household');
   }
 
   // -------------------------------------------------------------------------
@@ -339,6 +360,27 @@ export class MedGuardRepository {
 
   adjustmentsForMedicine(medicineId: Uuid): Promise<InventoryAdjustment[]> {
     return this.db.inventoryAdjustments.where('medicineId').equals(medicineId).toArray();
+  }
+
+  /**
+   * Creates or updates the stock-tracking config (unit name, refill threshold) for a medicine.
+   * Separate from `adjustInventory`: this describes how to track stock, not a change in the
+   * quantity itself.
+   */
+  async saveInventoryItem(item: InventoryItem, action: SyncAction = 'UPDATE'): Promise<void> {
+    const stamped = this.stamp(item);
+    await this.db.transaction('rw', this.db.inventoryItems, this.db.syncOutbox, async () => {
+      await this.db.inventoryItems.put(stamped);
+      await this.enqueue('inventoryItems', stamped.id, action, stamped);
+    });
+  }
+
+  getInventoryItem(medicineId: Uuid): Promise<InventoryItem | undefined> {
+    return this.db.inventoryItems.where('medicineId').equals(medicineId).first();
+  }
+
+  allInventoryItems(): Promise<InventoryItem[]> {
+    return this.db.inventoryItems.toArray();
   }
 
   // -------------------------------------------------------------------------

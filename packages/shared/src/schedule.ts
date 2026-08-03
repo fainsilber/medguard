@@ -64,7 +64,7 @@ export function occurrenceKey(occurrence: Occurrence): string {
  *   keeping. Yields no occurrences at all. This is how `reviseSchedule` retires a version that
  *   was replaced before it ever came into effect.
  */
-export function scheduleAppliesOn(schedule: Schedule, localDate: LocalDate): boolean {
+export function scheduleIsLiveOn(schedule: Schedule, localDate: LocalDate): boolean {
   if (localDate < schedule.startDate) {
     return false;
   }
@@ -74,6 +74,14 @@ export function scheduleAppliesOn(schedule: Schedule, localDate: LocalDate): boo
       return false;
     }
   } else if (!schedule.active) {
+    return false;
+  }
+
+  return true;
+}
+
+export function scheduleAppliesOn(schedule: Schedule, localDate: LocalDate): boolean {
+  if (!scheduleIsLiveOn(schedule, localDate)) {
     return false;
   }
 
