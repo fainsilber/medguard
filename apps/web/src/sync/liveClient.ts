@@ -1,4 +1,7 @@
 import type { LiveMessage } from '@medguard/shared';
+import { appLog } from '../logging/appLog.js';
+
+const log = appLog('live');
 
 export type LiveClientStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
 
@@ -52,11 +55,13 @@ export class LiveClient {
     const { apiBaseUrl, deviceToken } = this.options;
     const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/api/v1/live`;
 
+    log.debug('connecting', { wsUrl });
     this.setStatus('connecting');
     const ws = new WebSocket(wsUrl, [deviceToken]);
     this.ws = ws;
 
     ws.addEventListener('open', () => {
+      log.info('connection open');
       this.backoffMs = INITIAL_BACKOFF_MS;
       this.setStatus('open');
     });
@@ -67,12 +72,16 @@ export class LiveClient {
         this.options.onMessage(message);
       } catch {
         // A malformed frame must not take the whole channel down.
+        log.warn('dropped a malformed message frame');
       }
     });
 
     // 'error' is always followed by 'close' for a WebSocket, so reconnect scheduling lives there
     // alone rather than being duplicated across both handlers.
-    ws.addEventListener('close', () => this.scheduleReconnect());
+    ws.addEventListener('close', () => {
+      log.warn('connection closed');
+      this.scheduleReconnect();
+    });
   }
 
   private scheduleReconnect(): void {
@@ -81,6 +90,7 @@ export class LiveClient {
       return;
     }
     this.setStatus('reconnecting');
+    log.debug('reconnecting after backoff', { backoffMs: this.backoffMs });
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();

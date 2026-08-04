@@ -48,7 +48,7 @@ afterEach(async () => {
 });
 
 describe('ProbePage', () => {
-  it('renders all five probe sections', async () => {
+  it('renders all six probe sections', async () => {
     stubFetch();
     render(<ProbePage />);
 
@@ -56,7 +56,8 @@ describe('ProbePage', () => {
     expect(screen.getByRole('heading', { name: '2. Storage persistence' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '3. Background timer survival' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '4. Push delivery' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '5. Results' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '5. App logs' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '6. Results' })).toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByText(/VAPID key: loaded/)).toBeInTheDocument());
   });

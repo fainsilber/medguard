@@ -89,6 +89,10 @@ export {
 } from './backup.js';
 export type { BackupBundle, BackupSource, BackupSummary, ParseBackupResult } from './backup.js';
 
+// App logging (in-memory, capped — see log.ts)
+export { LogBuffer, formatLogEntriesAsText, formatLogEntry } from './log.js';
+export type { LogEntry, LogLevel } from './log.js';
+
 // Push (Sprint 0 probe contract; superseded by the real push routes in Sprint 5)
 export { SHABBAT_BURST_COUNT, SHABBAT_BURST_SPACING_MS } from './push.js';
 export type {

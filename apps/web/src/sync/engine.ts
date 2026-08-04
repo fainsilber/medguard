@@ -1,8 +1,11 @@
 import { bootstrap, pull as pullDelta, pushChanges } from '../api/syncApi.js';
 import type { MedGuardDB } from '../db/schema.js';
 import type { MedGuardRepository } from '../db/repository.js';
+import { appLog } from '../logging/appLog.js';
 import { getCursor, setCursor } from './cursor.js';
 import { applyPulledRecord, markSyncedLocally } from './tableDispatch.js';
+
+const log = appLog('sync');
 
 /**
  * Drains the local outbox and pulls remote deltas — the two halves of local-first sync that,
@@ -50,11 +53,13 @@ export class SyncEngine {
 
       const batch = pending.slice(0, PUSH_BATCH_SIZE);
       const changes = batch.map((entry) => ({ table: entry.table, record: entry.payload }));
+      log.debug('pushing batch', { batchSize: batch.length, pendingTotal: pending.length });
 
       const result = await pushChanges(apiBaseUrl, deviceToken, changes);
       if (!result.ok) {
         // A network/server failure, not a verdict on any individual record — every entry in this
         // batch stays queued for the next attempt.
+        log.error('push failed', { error: result.error, batchSize: batch.length });
         for (const entry of batch) {
           await repository.markSyncFailed(entry.id!, result.error);
         }
@@ -90,6 +95,7 @@ export class SyncEngine {
       }
     }
 
+    log.debug('outbox drained', { pushed, blocked });
     return { pushed, blocked };
   }
 
@@ -100,6 +106,7 @@ export class SyncEngine {
   async pull(): Promise<void> {
     const { db, apiBaseUrl, deviceToken, householdId } = this.deps;
     const cursor = await getCursor(db, householdId);
+    log.debug(cursor === undefined ? 'bootstrapping' : 'pulling delta', { cursor });
 
     const result =
       cursor === undefined
@@ -107,6 +114,7 @@ export class SyncEngine {
         : await pullDelta(apiBaseUrl, deviceToken, cursor);
 
     if (!result.ok) {
+      log.error('pull failed', { error: result.error, cursor });
       throw new Error(result.error);
     }
 
@@ -114,6 +122,11 @@ export class SyncEngine {
       await applyPulledRecord(db, record);
     }
     await setCursor(db, householdId, result.value.cursor);
+    log.debug('pull applied', {
+      records: result.value.records.length,
+      newCursor: result.value.cursor,
+      hasMore: result.value.hasMore ?? false,
+    });
 
     if (result.value.hasMore) {
       await this.pull();
@@ -122,7 +135,9 @@ export class SyncEngine {
 
   /** Push first, then pull — so this device's own just-applied changes don't round-trip as if remote. */
   async runOnce(): Promise<void> {
+    log.debug('sync run starting');
     await this.drainOutbox();
     await this.pull();
+    log.debug('sync run finished');
   }
 }
