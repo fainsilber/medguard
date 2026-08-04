@@ -459,6 +459,7 @@ export class MedGuardRepository {
         this.db.inventoryItems,
         this.db.inventoryAdjustments,
         this.db.syncOutbox,
+        this.db.syncMeta,
       ],
       async () => {
         await this.db.medicines.clear();
@@ -470,6 +471,10 @@ export class MedGuardRepository {
           .where('table')
           .anyOf('medicines', 'schedules', 'intakeLogs', 'inventoryItems', 'inventoryAdjustments')
           .delete();
+        // The pull cursor belongs to whichever household this device was just connected to —
+        // meaningless once that connection is gone, and actively wrong if a different household
+        // is joined next (each has its own independent sequence).
+        await this.db.syncMeta.clear();
       },
     );
   }

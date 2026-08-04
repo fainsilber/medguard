@@ -23,30 +23,43 @@ export type AuthedEnv = {
   Variables: { auth: AuthenticatedDevice };
 };
 
-export const requireDevice = createMiddleware<AuthedEnv>(async (c, next) => {
-  const token = bearerTokenFrom(c.req.header('Authorization'));
+/**
+ * The token-to-device lookup at the core of `requireDevice`, factored out so the WebSocket
+ * upgrade route can reuse it. A browser's native WebSocket API cannot set an `Authorization`
+ * header, so that route authenticates via the `Sec-WebSocket-Protocol` header instead — but it
+ * is the same credential, checked the same way, against the same table.
+ */
+export async function resolveDevice(
+  db: D1Database,
+  token: string | undefined,
+): Promise<AuthenticatedDevice | undefined> {
   if (!token) {
-    return c.json({ error: 'unauthorized' }, 401);
+    return undefined;
   }
 
   // Looked up by hash rather than compared after fetching: the database only ever holds hashes,
   // and an indexed equality lookup on a 256-bit digest is not a useful timing oracle the way a
   // character-by-character comparison of the raw token would be.
-  const row = await c.env.DB.prepare(
-    'SELECT id, household_id, user_id FROM devices WHERE token_hash = ?',
-  )
+  const row = await db
+    .prepare('SELECT id, household_id, user_id FROM devices WHERE token_hash = ?')
     .bind(await hashSecret(token))
     .first<{ id: string; household_id: string; user_id: string }>();
 
   if (!row) {
+    return undefined;
+  }
+
+  return { deviceId: row.id, householdId: row.household_id, userId: row.user_id };
+}
+
+export const requireDevice = createMiddleware<AuthedEnv>(async (c, next) => {
+  const token = bearerTokenFrom(c.req.header('Authorization'));
+  const auth = await resolveDevice(c.env.DB, token);
+  if (!auth) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
-  c.set('auth', {
-    deviceId: row.id,
-    householdId: row.household_id,
-    userId: row.user_id,
-  });
+  c.set('auth', auth);
 
   await next();
 
@@ -54,7 +67,7 @@ export const requireDevice = createMiddleware<AuthedEnv>(async (c, next) => {
   // is diagnostic bookkeeping, and failing it must not fail an otherwise good request.
   c.executionCtx.waitUntil(
     c.env.DB.prepare('UPDATE devices SET last_seen_at = ? WHERE id = ?')
-      .bind(systemClock.nowIso(), row.id)
+      .bind(systemClock.nowIso(), auth.deviceId)
       .run()
       .then(
         () => undefined,

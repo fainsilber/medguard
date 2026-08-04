@@ -11,6 +11,15 @@
  */
 const STORAGE_KEY = 'medguard-household-session';
 
+/**
+ * Fired whenever the stored session changes, so code outside whatever component made the change
+ * (the sync engine, in particular — see apps/web/src/sync/SyncProvider.tsx) can react without a
+ * shared React context. `HouseholdScreen` already funnels every connect/leave/delete/switch
+ * action through `setHouseholdSession`/`clearHouseholdSession` below, so this one dispatch point
+ * covers all of them for free.
+ */
+const SESSION_CHANGE_EVENT = 'medguard:household-session-changed';
+
 export interface HouseholdSession {
   deviceToken: string;
   householdId: string;
@@ -43,8 +52,16 @@ export function getHouseholdSession(): HouseholdSession | null {
 
 export function setHouseholdSession(session: HouseholdSession): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  window.dispatchEvent(new Event(SESSION_CHANGE_EVENT));
 }
 
 export function clearHouseholdSession(): void {
   localStorage.removeItem(STORAGE_KEY);
+  window.dispatchEvent(new Event(SESSION_CHANGE_EVENT));
+}
+
+/** Subscribes to session changes; returns an unsubscribe function. */
+export function onHouseholdSessionChange(listener: () => void): () => void {
+  window.addEventListener(SESSION_CHANGE_EVENT, listener);
+  return () => window.removeEventListener(SESSION_CHANGE_EVENT, listener);
 }

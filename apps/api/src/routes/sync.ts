@@ -3,8 +3,7 @@ import { z } from 'zod';
 import { syncableTableSchema } from '@medguard/shared';
 import { requireDevice } from '../auth/middleware.js';
 import type { AuthedEnv } from '../auth/middleware.js';
-import { PULL_PAGE_SIZE, applyRecord, currentCursor, readAll, readSince } from '../sync/repository.js';
-import type { PushResult } from '../sync/repository.js';
+import { PULL_PAGE_SIZE, currentCursor, readAll, readSince } from '../sync/repository.js';
 import { TABLES } from '../sync/tables.js';
 
 /**
@@ -79,10 +78,18 @@ syncRoutes.get('/pull', async (c) => {
 /**
  * Uploads a batch of local changes.
  *
- * Each change is validated against its table's zod schema — the same schemas the client uses, so
- * a rule cannot drift between the two sides — and reported on individually. A record that fails
- * validation is rejected without stopping the rest of the batch: one malformed row must not block
- * a caregiver's other doses from syncing.
+ * Each change is validated here against its table's zod schema — the same schemas the client
+ * uses, so a rule cannot drift between the two sides — and reported on individually. A record
+ * that fails validation is rejected without stopping the rest of the batch: one malformed row
+ * must not block a caregiver's other doses from syncing.
+ *
+ * The actual writes are delegated to the household's Durable Object rather than applied directly
+ * against D1 here: a DO processes one call at a time, which is what serializes two caregivers'
+ * concurrent PRN doses and makes the authoritative cooldown/cap re-check (delta D2) meaningful —
+ * a check performed against a snapshot of D1 read from this Worker, with no serialization, could
+ * still race. `blocked` covers both a genuine safety block and a data-integrity refusal (an
+ * inventory adjustment whose dose log was never accepted); `rejected` is unrelated — a payload
+ * that never had a valid shape to begin with, decided before the DO is ever involved.
  */
 syncRoutes.post('/push', async (c) => {
   const { householdId } = c.get('auth');
@@ -93,7 +100,7 @@ syncRoutes.post('/push', async (c) => {
     return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
   }
 
-  const results: PushResult[] = [];
+  const changes: { table: (typeof parsed.data.changes)[number]['table']; record: Record<string, unknown> }[] = [];
   const rejected: { table: string; id: string | null; issues: unknown }[] = [];
 
   for (const change of parsed.data.changes) {
@@ -109,13 +116,24 @@ syncRoutes.post('/push', async (c) => {
       continue;
     }
 
-    const outcome = await applyRecord(c.env.DB, householdId, change.table, validated.data);
-    results.push({ table: change.table, id: String(validated.data.id), outcome });
+    changes.push({ table: change.table, record: validated.data });
   }
 
+  const stub = c.env.HOUSEHOLD.get(c.env.HOUSEHOLD.idFromName(householdId));
+  const { cursor, results } = await stub.applyBatch(householdId, changes);
+
   return c.json({
-    cursor: await currentCursor(c.env.DB, householdId),
-    results,
+    cursor,
+    results: results.filter((result) => result.outcome !== 'blocked'),
+    blocked: results
+      .filter((result) => result.outcome === 'blocked')
+      .map(({ table, id, blockedReason, availableAtIso, msRemaining }) => ({
+        table,
+        id,
+        reason: blockedReason,
+        ...(availableAtIso ? { availableAtIso } : {}),
+        ...(msRemaining !== undefined ? { msRemaining } : {}),
+      })),
     rejected,
   });
 });

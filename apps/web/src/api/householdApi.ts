@@ -35,7 +35,7 @@ function messageFor(code: unknown): string {
     : 'Could not reach the server. Check your connection and try again.';
 }
 
-async function request<T>(
+export async function request<T>(
   method: 'GET' | 'POST' | 'DELETE',
   url: string,
   options: { body?: unknown; token?: string } = {},

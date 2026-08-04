@@ -195,6 +195,7 @@ describe('push and pull', () => {
 describe('idempotent replay — the difference between a resent request and a second dose', () => {
   it('applies a replayed intake log exactly once', async () => {
     const session = await createHousehold();
+    await push(session, [{ table: 'medicines', record: medicine() }]);
     const batch = [{ table: 'intakeLogs', record: intakeLog() }];
 
     const first = await push(session, batch);
@@ -212,6 +213,7 @@ describe('idempotent replay — the difference between a resent request and a se
   it('never lets a replayed log overwrite the stored one, even if the resend differs', async () => {
     const session = await createHousehold();
 
+    await push(session, [{ table: 'medicines', record: medicine() }]);
     await push(session, [{ table: 'intakeLogs', record: intakeLog({ quantityTaken: 1 }) }]);
     // A tampered or buggy resend claiming a different quantity under the same id.
     await push(session, [{ table: 'intakeLogs', record: intakeLog({ quantityTaken: 99 }) }]);
@@ -290,6 +292,7 @@ describe('last-write-wins on mutable records', () => {
 describe('validation', () => {
   it('rejects a malformed record without blocking the rest of the batch', async () => {
     const session = await createHousehold();
+    await push(session, [{ table: 'medicines', record: medicine() }]);
 
     const result = await push(session, [
       { table: 'medicines', record: { id: MEDICINE_ID, name: '' } },

@@ -32,6 +32,8 @@ export class MedGuardDB extends Dexie {
   inventoryAdjustments!: Table<InventoryAdjustment, string>;
   shabbatConfig!: Table<ShabbatConfig, string>;
   syncOutbox!: Table<SyncOutboxEntry, number>;
+  /** Local-only bookkeeping (the pull cursor) — never synced itself, never read by domain code. */
+  syncMeta!: Table<{ key: string; value: unknown }, string>;
 
   constructor(name = 'MedGuardDB') {
     super(name);
@@ -49,6 +51,20 @@ export class MedGuardDB extends Dexie {
       inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
       shabbatConfig: 'id, patientId',
       syncOutbox: '++id, table, entityId, action, createdAt',
+    });
+
+    // Sprint 4: the live sync engine needs somewhere to remember how far it's pulled.
+    this.version(2).stores({
+      householdSettings: 'id',
+      medicines: 'id, patientId, name, archived, syncStatus, updatedAt',
+      schedules: 'id, medicineId, patientId, active, regimenGroupId, syncStatus, updatedAt',
+      intakeLogs:
+        'id, patientId, medicineId, scheduleId, status, type, actualTime, syncStatus, supersedesId, [medicineId+actualTime], [patientId+actualTime]',
+      inventoryItems: 'id, medicineId, syncStatus, updatedAt',
+      inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
+      shabbatConfig: 'id, patientId',
+      syncOutbox: '++id, table, entityId, action, createdAt',
+      syncMeta: 'key',
     });
   }
 }

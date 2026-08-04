@@ -8,6 +8,9 @@ import { PrnScreen } from './features/prnDoses/PrnScreen.js';
 import { TodayView } from './features/today/TodayView.js';
 import { CaregiverGate } from './identity/CaregiverGate.js';
 import { ProbePage } from './probe/ProbePage.js';
+import { SafetyWarningBanner } from './sync/SafetyWarningBanner.js';
+import { SyncProvider } from './sync/SyncProvider.js';
+import { SyncStatusBadge } from './sync/SyncStatusBadge.js';
 import { buttonClass, primaryButtonClass } from './ui/primitives.js';
 
 interface TabDefinition {
@@ -37,8 +40,9 @@ function AppShell() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-2xl flex-col gap-4 p-4">
-      <header className="print:hidden">
+      <header className="flex items-center justify-between gap-3 print:hidden">
         <h1 className="text-2xl font-semibold tracking-tight">MedGuard</h1>
+        <SyncStatusBadge />
       </header>
 
       <nav className="flex flex-wrap gap-2 print:hidden" aria-label="Sections">
@@ -55,6 +59,8 @@ function AppShell() {
         ))}
       </nav>
 
+      <SafetyWarningBanner />
+
       <main>
         <ActiveScreen />
       </main>
@@ -66,7 +72,9 @@ function AppShell() {
 export function App() {
   return (
     <CaregiverGate>
-      <AppShell />
+      <SyncProvider>
+        <AppShell />
+      </SyncProvider>
     </CaregiverGate>
   );
 }
