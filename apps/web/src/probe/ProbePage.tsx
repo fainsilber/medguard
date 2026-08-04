@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { SHABBAT_BURST_COUNT, SHABBAT_BURST_SPACING_MS } from '@medguard/shared';
 import type { ProbeNotificationOptions, ProbePushLog, ProbePushReceipt } from '@medguard/shared';
 import { getApiBaseUrl, setApiBaseUrl } from '../api/config.js';
+import { AppLogSection } from './AppLogSection.js';
 import {
   checkStoragePersistence,
   snapshotEnvironment,
@@ -445,7 +446,11 @@ export function ProbePage() {
         )}
       </Section>
 
-      <Section title="5. Results">
+      <Section title="5. App logs">
+        <AppLogSection />
+      </Section>
+
+      <Section title="6. Results">
         <div className="flex gap-2">
           <button type="button" className={buttonClass} onClick={() => void refreshResults()}>
             Refresh results

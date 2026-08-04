@@ -5,9 +5,12 @@ import type { LiveMessage, LiveSafetyWarningMessage } from '@medguard/shared';
 import { getApiBaseUrl } from '../api/config.js';
 import { getHouseholdSession, onHouseholdSessionChange } from '../api/session.js';
 import { useMedGuardDb, useRepository } from '../app/RepositoryContext.js';
+import { appLog } from '../logging/appLog.js';
 import { SyncEngine } from './engine.js';
 import { LiveClient } from './liveClient.js';
 import type { LiveClientStatus } from './liveClient.js';
+
+const log = appLog('sync');
 
 /**
  * Starts and stops the sync engine and live WebSocket as the household connection comes and
@@ -81,8 +84,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           setError(null);
         }
       } catch (err) {
+        const message = err instanceof Error ? err.message : 'Sync failed';
+        log.error('sync round failed', { message });
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Sync failed');
+          setError(message);
         }
       } finally {
         if (!cancelled) {
