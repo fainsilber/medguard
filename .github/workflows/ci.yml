@@ -5,10 +5,11 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs on the same branch.
+# Cancel superseded runs on the same branch. Never cancel a push to main, though — that could
+# cut a deploy off mid-migration if two merges land close together.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
@@ -52,3 +53,51 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  deploy-api:
+    name: Deploy API to Cloudflare
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Shows up as a deployment in the repo's Environments tab with a link to the live API. Add
+    # required reviewers under Settings > Environments > production if this should ever need a
+    # manual approval step in front of it — nothing else in this workflow needs to change.
+    environment:
+      name: production
+      url: https://medguard-api.fainsilber.workers.dev
+    concurrency:
+      # A migration running twice at once, from two overlapping deploys, is the one thing this
+      # must never allow — unlike the lint/test job above, this run is not safe to cancel
+      # part way through, so it queues instead.
+      group: deploy-api-production
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Applied before the deploy so the Worker is never running ahead of a schema it depends
+      # on. wrangler skips its interactive confirmation prompt automatically in CI.
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: d1 migrations apply medguard --remote
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy
