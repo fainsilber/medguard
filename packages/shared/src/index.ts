@@ -70,7 +70,7 @@ export {
 export type { AdjustmentContext, InventoryState, ManualAdjustmentInput } from './inventory.js';
 
 // Sync
-export { hasPendingChanges, mergeCollections, mergeLww } from './sync.js';
+export { hasPendingChanges, isAppendOnlyTable, mergeCollections, mergeLww } from './sync.js';
 export type { LwwRecord, MergeOutcome, MergeSource } from './sync.js';
 
 // Real-time (WebSocket broadcast message shapes, shared by HouseholdDO and the client)
