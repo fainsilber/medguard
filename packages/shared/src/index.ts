@@ -73,6 +73,9 @@ export type { AdjustmentContext, InventoryState, ManualAdjustmentInput } from '.
 export { hasPendingChanges, mergeCollections, mergeLww } from './sync.js';
 export type { LwwRecord, MergeOutcome, MergeSource } from './sync.js';
 
+// Real-time (WebSocket broadcast message shapes, shared by HouseholdDO and the client)
+export type { LiveMessage, LiveSafetyWarningMessage, LiveSyncMessage } from './live.js';
+
 // Export
 export { buildIntakeLogCsv } from './export.js';
 
