@@ -4,12 +4,20 @@ const PORT = 4173;
 const BASE_URL = `http://localhost:${PORT}`;
 const isCI = !!process.env.CI;
 
+const API_PORT = 8787;
+const API_URL = `http://localhost:${API_PORT}`;
+
 /**
  * E2E runs against a production build, not the dev server, so the real service worker and the
  * real precache manifest are what gets exercised.
  *
- * Sprint 4 adds a second browser context to this setup to stand in for a second caregiver's
- * phone, and asserts the PRD's 1.5s cross-device broadcast budget.
+ * Most specs stub `apps/api` via `page.route()` — proven separately against the real workerd
+ * runtime in `apps/api/tests/`, and stubbing keeps most of this suite hermetic and fast. Sprint 4's
+ * live-sync spec is the one exception: a WebSocket connection can't be intercepted by
+ * `page.route()`, so proving real-time propagation between two devices needs a real `wrangler dev`
+ * running alongside the web preview — hence the second `webServer` entry below. Local D1 is
+ * migrated first so a fresh checkout (CI, in particular) isn't missing tables the first time this
+ * runs.
  */
 export default defineConfig({
   testDir: './apps/web/e2e',
@@ -28,10 +36,19 @@ export default defineConfig({
 
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 
-  webServer: {
-    command: 'npm run build --workspace=@medguard/web && npm run preview --workspace=@medguard/web',
-    url: BASE_URL,
-    reuseExistingServer: !isCI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: 'npm run build --workspace=@medguard/web && npm run preview --workspace=@medguard/web',
+      url: BASE_URL,
+      reuseExistingServer: !isCI,
+      timeout: 120_000,
+    },
+    {
+      command:
+        'npm run db:migrate:local --workspace=@medguard/api && npm run dev --workspace=@medguard/api',
+      url: `${API_URL}/api/v1/health`,
+      reuseExistingServer: !isCI,
+      timeout: 60_000,
+    },
+  ],
 });
