@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { hasPendingChanges, mergeCollections, mergeLww } from './sync.js';
-import type { Medicine } from './types.js';
+import { hasPendingChanges, isAppendOnlyTable, mergeCollections, mergeLww } from './sync.js';
+import type { Medicine, SyncableTable } from './types.js';
 
 function medicine(overrides: Partial<Medicine> = {}): Medicine {
   return {
@@ -141,5 +141,25 @@ describe('hasPendingChanges', () => {
 
   it('is false for a synced record', () => {
     expect(hasPendingChanges(medicine({ syncStatus: 'synced' }))).toBe(false);
+  });
+});
+
+describe('isAppendOnlyTable', () => {
+  it('is true for intake logs and inventory adjustments — the two tables never overwritten', () => {
+    expect(isAppendOnlyTable('intakeLogs')).toBe(true);
+    expect(isAppendOnlyTable('inventoryAdjustments')).toBe(true);
+  });
+
+  it('is false for every genuinely mutable table', () => {
+    const mutableTables: SyncableTable[] = [
+      'medicines',
+      'schedules',
+      'inventoryItems',
+      'shabbatConfig',
+      'householdSettings',
+    ];
+    for (const table of mutableTables) {
+      expect(isAppendOnlyTable(table)).toBe(false);
+    }
   });
 });
