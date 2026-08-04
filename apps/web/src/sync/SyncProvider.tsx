@@ -1,3 +1,4 @@
+import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { LiveMessage, LiveSafetyWarningMessage } from '@medguard/shared';
@@ -43,14 +44,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => onHouseholdSessionChange(() => setSession(getHouseholdSession())), []);
 
-  const engineRef = useRef<SyncEngine | null>(null);
+  // Called from the outbox-watching effect below, so a caregiver's own new dose is pushed right
+  // away rather than waiting for the next WebSocket event or reconnect to happen to trigger one.
+  const runSyncRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     if (!session) {
-      engineRef.current = null;
       setConnectionStatus('closed');
       setError(null);
       setPendingCount(0);
+      runSyncRef.current = async () => {};
       return;
     }
 
@@ -62,7 +65,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       deviceToken: session.deviceToken,
       householdId: session.householdId,
     });
-    engineRef.current = engine;
 
     const refreshPendingCount = async () => {
       const count = await repository.pendingSyncCount();
@@ -89,6 +91,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         await refreshPendingCount();
       }
     };
+    runSyncRef.current = runSync;
 
     const handleMessage = (message: LiveMessage) => {
       if (message.type === 'sync') {
@@ -116,12 +119,32 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       liveClient.stop();
-      engineRef.current = null;
+      runSyncRef.current = async () => {};
     };
     // db/repository are memoised per caregiver identity by RepositoryProvider and are not
     // meaningfully "changing" for this effect's purpose — only a different household session
     // should tear down and rebuild the connection.
   }, [session, db, repository]);
+
+  // Reactively drains whenever a new local mutation is queued — the sync engine otherwise has no
+  // way to learn "something changed" except a WebSocket event *from the server*, which is exactly
+  // backwards for the device that just made the change itself.
+  const outboxCount = useLiveQuery(() => db.syncOutbox.count(), [db]);
+  const previousOutboxCount = useRef(0);
+
+  useEffect(() => {
+    previousOutboxCount.current = 0;
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || outboxCount === undefined) {
+      return;
+    }
+    if (outboxCount > previousOutboxCount.current) {
+      void runSyncRef.current();
+    }
+    previousOutboxCount.current = outboxCount;
+  }, [session, outboxCount]);
 
   const status: SyncIndicatorStatus = !session
     ? { kind: 'disconnected' }

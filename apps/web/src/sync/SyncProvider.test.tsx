@@ -1,10 +1,13 @@
 import 'fake-indexeddb/auto';
-import { screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fixedClock } from '@medguard/shared/testing';
+import { fixedClock, sequentialIds } from '@medguard/shared/testing';
 import { SINGLE_PATIENT_ID } from '@medguard/shared';
+import { RepositoryProvider } from '../app/RepositoryContext.js';
 import { setHouseholdSession } from '../api/session.js';
+import { MedGuardRepository } from '../db/repository.js';
+import { MedGuardDB } from '../db/schema.js';
 import { FakeWebSocket } from '../testUtils/FakeWebSocket.js';
 import { renderWithRepository } from '../testUtils/renderWithRepository.js';
 import { SafetyWarningBanner } from './SafetyWarningBanner.js';
@@ -59,6 +62,64 @@ describe('SyncProvider', () => {
     FakeWebSocket.latest().open();
 
     await screen.findByText('Synced');
+  });
+
+  it('drains the outbox as soon as a new local mutation is queued, not only on a WebSocket event', async () => {
+    const dbName = 'SyncProviderTest-outbox-trigger';
+    setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+
+    const pushCalls: unknown[] = [];
+    stubFetch((url) => {
+      if (url.includes('/sync/push')) {
+        pushCalls.push(url);
+        return jsonResponse({
+          cursor: 1,
+          results: [{ table: 'medicines', id: 'm1', outcome: 'applied' }],
+          blocked: [],
+          rejected: [],
+        });
+      }
+      return jsonResponse({ cursor: 0, records: [], hasMore: false });
+    });
+
+    render(
+      <RepositoryProvider userId="Mom" dbName={dbName} clock={fixedClock('2026-08-03T12:00:00.000Z')}>
+        <SyncProvider>
+          <SyncStatusBadge />
+        </SyncProvider>
+      </RepositoryProvider>,
+    );
+
+    FakeWebSocket.latest().open();
+    await screen.findByText('Synced');
+    expect(pushCalls).toHaveLength(0);
+
+    // A local mutation on the same database the provider is watching — standing in for what a
+    // caregiver adding a medicine or logging a dose through the UI actually does.
+    const sideDb = new MedGuardDB(dbName);
+    const sideRepository = new MedGuardRepository(sideDb, {
+      clock: fixedClock('2026-08-03T12:00:00.000Z'),
+      ids: sequentialIds('seed'),
+      userId: 'u1',
+      deviceId: 'd1',
+    });
+    await sideRepository.saveMedicine(
+      {
+        id: 'm1',
+        patientId: SINGLE_PATIENT_ID,
+        name: 'Ondansetron',
+        strength: '4mg',
+        form: 'pill',
+        asNeeded: true,
+        archived: false,
+        updatedAt: '2026-08-03T10:00:00.000Z',
+        updatedByDeviceId: 'd1',
+        syncStatus: 'pending',
+      },
+      'CREATE',
+    );
+
+    await waitFor(() => expect(pushCalls.length).toBeGreaterThan(0));
   });
 
   it('shows a live safety.warning broadcast with the medicine\'s name, dismissible', async () => {
