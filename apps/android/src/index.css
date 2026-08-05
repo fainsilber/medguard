@@ -1,0 +1,34 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-safe: oklch(0.72 0.19 145);
+  --color-locked: oklch(0.64 0.24 27);
+  --color-capped: oklch(0.55 0.02 260);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-slate-950);
+  color: var(--color-slate-100);
+  font-family: Roboto, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+/* Material 3 touch target standards (minimum 48px on mobile Android) */
+button,
+[role='button'] {
+  min-height: 48px;
+  min-width: 48px;
+}

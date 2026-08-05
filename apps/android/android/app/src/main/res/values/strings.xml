@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MedGuard</string>
+    <string name="title_activity_main">MedGuard Android</string>
+    <string name="package_name">com.medguard.app</string>
+    <string name="notification_channel_safety_id">medguard_safety_alerts</string>
+    <string name="notification_channel_safety_name">Safety &amp; Cooldown Alerts</string>
+    <string name="notification_channel_shabbat_id">medguard_shabbat_chime</string>
+    <string name="notification_channel_shabbat_name">Shabbat Chime Alerts</string>
+</resources>
