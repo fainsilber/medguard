@@ -117,13 +117,13 @@ the count of records.
 
 **AD6 — "Missed" is undefined.** `IntakeStatus` includes `'missed'` and Sprint 5 lists "missed-dose
 detection" as scope, but neither the PRD nor the sprint plan says when a dose becomes missed.
-**Fix, proposed:** an occurrence becomes `missed` when
-`now > scheduledTime + escalationAfterMinutes × (1 + MAX_SNOOZE_COUNT)` and no effective log
-exists — it has outlived its escalation and every snooze it was ever allowed. Written by the server
-as a real `IntakeLog{status:'missed'}`, so it is an append-only fact a caregiver can correct
-(invariant 1), never a status the UI derives and re-derives differently. Suppressed entirely in
-Shabbat mode, which writes `pending_shabbat` instead. **This is a proposal, not an inherited
-requirement — it needs your sign-off before A4.**
+**Signed off:** an occurrence becomes `missed` when `now > scheduledTime + 180 minutes` (3 hours)
+and no effective log exists. Timeline: 0–60min silent window (no escalation); 60min first escalation
+alert sent to caregivers; 60–180min escalation + snooze window (up to 3 × 20-minute snoozes = 60min
+deferral); 180min dose marked missed. Written by the server as a real `IntakeLog{status:'missed'}`,
+so it is an append-only fact a caregiver can correct (invariant 1), never a status the UI derives
+and re-derives differently. Suppressed entirely in Shabbat mode, which writes `pending_shabbat`
+instead.
 
 **AD7 — Doze, OEM battery managers and Do Not Disturb cannot be fully solved in software.**
 `setAlarmClock` plus a battery-optimization exemption plus a user-granted notification-policy
@@ -139,6 +139,14 @@ endpoint and sends VAPID-signed pushes to it, with no auth. It is an open relay 
 instantiates arbitrary Durable Objects by `probeId`. The code already marks it for Sprint 5
 removal; shipping a second client alongside it is not acceptable. **Fix:** delete the probe routes,
 replace with an authenticated `POST /api/v1/devices/push` for push-credential registration.
+
+**AD9 — Native app replaces PWA on Android.** Both clients register against the same backend with
+`devices.push_provider: 'fcm' | 'webpush'`, but a household running both on the same device creates
+two local alarm sources for the same occurrences. While `occurrenceKey` dedupe prevents stacking
+notifications, the operational model is simpler if caregivers migrate to native once available.
+**Signed off:** Android households migrate to native app; PWA remains the sole client on iOS and
+web. Deployment is staged: internal test → Play rollout → migration UI guides uninstall → backwards
+compatibility handled via server-side deduplication.
 
 ---
 
@@ -351,7 +359,7 @@ scheduling at all rather than going local-only.
 | Dose alarm chain | `apps/api/src/do/HouseholdDO.ts` | DO SQLite table `dose_alarms(occurrence_id PK, medicine_id, schedule_id, due_at_ms, state, escalate_at_ms, snooze_count, fired_at_ms)`, driven by a single chained `setAlarm` — the exact pattern `schedulePushBurst` already proves works (`HouseholdDO.ts:332-424`). The probe queue is deleted alongside it. |
 | Occurrence horizon | same | Materialized from `schedules` over a rolling **48 hours**, re-materialized whenever a `schedules` or `household_settings` record lands in `applyBatch` — already the single write path for everything, so it's the natural hook — and whenever the chain runs dry. A schedule edit therefore cancels and reschedules implicitly, with no per-schedule alarm bookkeeping to get wrong. |
 | Escalation | same | `pending → notified → acknowledged \| escalated`, state in DO SQLite. Acknowledgement arrives as an ordinary synced `IntakeLog` or `DoseSnooze`, which `applyBatch` already sees — so "stopping immediately on acknowledgement from any device" falls out of the existing write path with no new channel. |
-| Snooze as data | `0003_alarms.sql`, `packages/shared/src/types.ts`, `schemas.ts`, `apps/api/src/sync/tables.ts` | `DoseSnooze { id, occurrenceId, minutes, count, createdAt, createdByUserId, createdByDeviceId }`, append-only (AD5). `MAX_SNOOZE_COUNT = 3` proposed. |
+| Snooze as data | `0003_alarms.sql`, `packages/shared/src/types.ts`, `schemas.ts`, `apps/api/src/sync/tables.ts` | `DoseSnooze { id, occurrenceId, minutes, count, createdAt, createdByUserId, createdByDeviceId }`, append-only (AD5). Each snooze grants 20 minutes; `MAX_SNOOZE_COUNT = 3` signed off. |
 | Missed-dose sweep | same | Per AD6, and only outside Shabbat mode. |
 | Low-stock push | `apps/api/src/do/HouseholdDO.ts` | Evaluated in `applyBatch` after any `inventory_adjustments` write using `deriveInventoryState` from shared. A downward threshold crossing dispatches once per medicine, with a flag cleared on refill so it cannot spam — PRD §2.4's "notifications across all caregiver devices". |
 | Probe removal | `apps/api/src/routes/probe.ts` | Deleted (AD8), replaced by an authenticated `POST /api/v1/devices/push`. The Diagnostics tab's push checks move behind device auth. |
@@ -510,14 +518,18 @@ Extends the existing list in `medguard-sprint-plan.md` rather than replacing it.
 
 ---
 
-## Open questions for you
+## Signed-off decisions
 
-1. **AD6's missed-dose rule** is a proposal. It needs your sign-off before A4.
-2. **`MAX_SNOOZE_COUNT = 3`** is a guess. Sprint 5 required a bound and never named one.
-3. **Does the PWA stay installed on the same Android phones** alongside the native app, or does the
-   native app replace it there? Both can register against one household — but two clients on one
-   device means two local alarm engines, and the `occurrenceKey` dedupe does not cross app
-   boundaries.
-4. **Play Store distribution or sideload?** A household of two phones does not obviously need a Play
+✅ **AD6 — Missed-dose rule:** Dose becomes missed 3 hours after scheduled time (0–60min silent, 60min first escalation, 60–180min snooze window, 180min missed).
+
+✅ **Snooze parameters:** 20-minute individual snooze duration, `MAX_SNOOZE_COUNT = 3`.
+
+✅ **AD9 — PWA vs Native:** Native app replaces PWA on Android; PWA continues on iOS and web. Migration via Play rollout + in-app guidance.
+
+---
+
+## Remaining open questions
+
+1. **Play Store distribution or sideload?** A household of two phones does not obviously need a Play
    listing, and sideloading skips the AD4 review entirely — at the cost of manual updates and
    `USE_EXACT_ALARM` behaving differently.
