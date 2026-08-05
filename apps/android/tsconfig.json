@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-native",
+    "lib": ["ES2022"],
+    "types": ["react", "node"],
+    "noEmit": true,
+    "allowJs": false,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["index.ts", "App.tsx", "app.config.ts", "src/**/*.ts", "src/**/*.tsx", "plugins/**/*.ts", "modules/**/*.ts"],
+  "exclude": ["node_modules", "android", ".expo", "dist"]
+}

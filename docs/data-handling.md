@@ -8,7 +8,9 @@ of them. This document exists so the handling is a deliberate, reviewable decisi
 whatever fell out of the implementation.
 
 **Status:** accurate as of Sprint 3 (2026-08-03). Real-time sync and push arrive in Sprints 4–5 and
-will extend, not replace, what is described here.
+will extend, not replace, what is described here. The Android section below was added alongside
+the A0 scaffold (`docs/android-client-plan.md`) and describes device-local storage only — the
+server-side FCM and dose-alarm work it depends on is still Sprint A4/Sprint 5, unbuilt.
 
 ---
 
@@ -33,6 +35,28 @@ full-disk encryption on a modern phone with a lock screen. **A shared, unlocked,
 is the realistic exposure**, and no application-level measure meaningfully changes that.
 `navigator.storage.persist()` is requested on first load so the OS does not evict the database
 under storage pressure.
+
+### On the device (Android, `expo-sqlite`)
+
+The same complete local record as the web client's IndexedDB copy — medicines, schedules, intake
+logs, the inventory ledger, household settings — in a SQLite file instead
+(`docs/android-client-plan.md`, "Storage and the sync port").
+
+Two things the web client doesn't need to worry about, and this one does:
+
+- **`android:allowBackup="false"`, plus explicit `dataExtractionRules` and `fullBackupContent`**
+  (`apps/android/plugins/withMedGuardAlarms.ts`). Android's auto-backup would otherwise copy this
+  SQLite file — a child's complete dosing history — into the user's Google Drive, silently and by
+  default, the first time the OS decides to back the device up. Both the modern
+  (`dataExtractionRules`, API 31+) and legacy (`fullBackupContent`) mechanisms exclude the
+  `database`, `sharedpref` and `file` domains, since the same failure mode applies to whichever
+  one a given OS version actually consults.
+- **The device token lives in `expo-secure-store` (Android Keystore-backed), not an equivalent of
+  `localStorage`.** A modest improvement over the web client's exposure, and free on this platform.
+
+As on web, this is local-first and fully usable with no network, and inherits the device's
+full-disk encryption rather than adding an application-level one — the same "shared, unlocked,
+unencrypted device is the realistic exposure" caveat above applies unchanged.
 
 ### On the server (Cloudflare D1)
 

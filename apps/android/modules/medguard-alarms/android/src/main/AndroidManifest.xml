@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Component declarations (receivers, the foreground service, permissions) intentionally do NOT
+  live here. docs/android-client-plan.md ("Framework and workspace") puts every manifest entry
+  the alarm layer needs in `apps/android/plugins/withMedGuardAlarms.ts` instead, so they survive
+  `expo prebuild` in one reviewable file rather than being split across this library manifest and
+  the generated app manifest.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
