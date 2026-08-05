@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Nothing leaves the device.
+
+    Android's auto-backup and device-transfer would otherwise copy the app's databases into the
+    user's Google Drive by default — and this app's database is a child's complete dosing
+    history, including every override and the name of the caregiver who gave each dose. That is
+    exactly the data `docs/data-handling.md` says stays local unless a caregiver deliberately
+    exports it.
+
+    `android:allowBackup="false"` in the manifest already disables it; these rules are the
+    Android 12+ form and are declared explicitly so a future `allowBackup` change cannot quietly
+    re-enable the copy.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

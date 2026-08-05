@@ -2,14 +2,16 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useState } from 'react';
 import {
   addLocalDays,
+  classifyOccurrence,
   expandSchedules,
+  findLogForOccurrence,
   formatLocalDate,
   formatLocalTime,
   fromIso,
   occurrenceKey,
   resolveLocal,
 } from '@medguard/shared';
-import type { Occurrence } from '@medguard/shared';
+import type { Occurrence, OccurrenceStatus } from '@medguard/shared';
 import {
   useClock,
   useCurrentDeviceId,
@@ -23,9 +25,6 @@ import { useTick } from '../../app/useTick.js';
 import { DoseCorrection } from '../logs/DoseCorrection.js';
 import { Card, buttonClass, primaryButtonClass } from '../../ui/primitives.js';
 import { TakenTimePrompt } from './TakenTimePrompt.js';
-import { classifyOccurrence } from './classifyOccurrence.js';
-import type { OccurrenceStatus } from './classifyOccurrence.js';
-import { findLogForOccurrence } from './matchOccurrenceLog.js';
 
 const SNOOZE_MINUTES = 15;
 /** Frequent enough that overdue/due-now buckets feel live, cheap enough not to matter. */

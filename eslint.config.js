@@ -65,6 +65,10 @@ export default tseslint.config(
       'apps/web/src/db/**/*.ts',
       'apps/web/src/features/**/*.{ts,tsx}',
       'apps/web/src/sync/**/*.ts',
+      'apps/android/src/app/**/*.{ts,tsx}',
+      'apps/android/src/db/**/*.ts',
+      'apps/android/src/features/**/*.{ts,tsx}',
+      'apps/android/src/native/**/*.ts',
       'apps/api/src/**/*.ts',
     ],
     rules: {

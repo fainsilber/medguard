@@ -20,7 +20,11 @@ body {
   margin: 0;
   background-color: var(--color-slate-950);
   color: var(--color-slate-100);
-  font-family: Roboto, system-ui, -apple-system, sans-serif;
+  font-family:
+    Roboto,
+    system-ui,
+    -apple-system,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);

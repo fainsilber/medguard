@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCountdown } from './formatCountdown.js';
+import { formatCountdown } from './countdown.js';
 
 describe('formatCountdown', () => {
   it('formats hours and minutes together', () => {

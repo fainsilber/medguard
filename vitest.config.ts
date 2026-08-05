@@ -18,6 +18,7 @@ export default defineConfig({
         },
       },
       './apps/web/vitest.config.ts',
+      './apps/android/vitest.config.ts',
       './apps/api/vitest.config.ts',
     ],
 
@@ -39,6 +40,8 @@ export default defineConfig({
         // suite, not by unit coverage.
         'apps/web/src/main.tsx',
         'apps/web/src/sw.ts',
+        'apps/android/src/main.tsx',
+        'apps/android/src/runtime/**',
         'packages/shared/src/runtime/**',
         'packages/shared/src/index.ts',
       ],

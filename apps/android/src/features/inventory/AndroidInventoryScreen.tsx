@@ -1,114 +1,114 @@
-import { useState, useEffect } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useState } from 'react';
+import { deriveInventoryState } from '@medguard/shared';
+import type { InventoryItem, Medicine } from '@medguard/shared';
 import {
-  toIso,
-  systemClock,
-  uuidIdGenerator,
-  type Inventory,
-  type Medicine,
-} from '@medguard/shared';
-import { androidDb } from '../../db/androidDb.js';
-import {
-  M3Card,
-  M3Badge,
-  m3ButtonPrimary,
-  m3InputClass,
-} from '../../ui/MaterialComponents.js';
+  useCurrentDeviceId,
+  useIdGenerator,
+  useMedGuardDb,
+  useRepository,
+} from '../../app/AndroidAppProvider.js';
+import { M3Badge, M3Card, m3ButtonPrimary, m3InputClass } from '../../ui/MaterialComponents.js';
 
-export function AndroidInventoryScreen({ caregiverName: _caregiverName }: { caregiverName: string }) {
-  const [medicines, setMedicines] = useState<Medicine[]>([]);
-  const [inventoryList, setInventoryList] = useState<Inventory[]>([]);
-  const [selectedMed, setSelectedMed] = useState<Medicine | null>(null);
-  const [refillQuantity, setRefillQuantity] = useState('');
+const DEFAULT_REFILL_THRESHOLD = 10;
+const DEFAULT_UNIT_NAME = 'units';
 
-  const loadData = async () => {
-    const medList = await androidDb.medicines.toArray();
-    const invList = await androidDb.inventory.toArray();
-    setMedicines(medList);
-    setInventoryList(invList);
-  };
+export function AndroidInventoryScreen() {
+  const db = useMedGuardDb();
+  const repository = useRepository();
+  const ids = useIdGenerator();
+  const deviceId = useCurrentDeviceId();
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const [refilling, setRefilling] = useState<Medicine | null>(null);
+  const [quantity, setQuantity] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  const handleRefillStock = async () => {
-    if (!selectedMed || !refillQuantity) return;
-    const qty = Number(refillQuantity);
-    if (isNaN(qty) || qty <= 0) return;
+  const medicines = useLiveQuery(() => db.medicines.toArray(), [db]);
+  const items = useLiveQuery(() => db.inventoryItems.toArray(), [db]);
+  const adjustments = useLiveQuery(() => db.inventoryAdjustments.toArray(), [db]);
 
-    const nowIso = toIso(systemClock.now());
-    let inv = inventoryList.find((i) => i.medicineId === selectedMed.id);
+  const itemFor = (medicineId: string) =>
+    (items ?? []).find((candidate) => candidate.medicineId === medicineId);
 
-    if (!inv) {
-      inv = {
-        id: uuidIdGenerator.generate(),
-        medicineId: selectedMed.id,
-        currentQuantity: qty,
-        refillThreshold: 10,
-        unitName: 'pills',
-        lastRefilledAt: nowIso,
-        updatedAt: nowIso,
-        syncStatus: 'pending',
-      };
-      await androidDb.inventory.add(inv);
-    } else {
-      inv = {
-        ...inv,
-        currentQuantity: inv.currentQuantity + qty,
-        lastRefilledAt: nowIso,
-        updatedAt: nowIso,
-        syncStatus: 'pending',
-      };
-      await androidDb.inventory.put(inv);
+  const refill = async () => {
+    if (!refilling) {
+      return;
+    }
+    const delta = Number(quantity);
+    if (!Number.isFinite(delta) || delta <= 0) {
+      setError('Enter a quantity greater than zero.');
+      return;
     }
 
-    await androidDb.syncOutbox.add({
-      table: 'inventory',
-      entityId: inv.id,
-      action: 'UPDATE',
-      payload: inv,
-      createdAt: nowIso,
+    // The tracking config is created on first refill if it does not exist yet; the quantity
+    // itself never lives on it. Stock is the sum of the ledger, so two caregivers refilling
+    // offline both land, instead of one silently overwriting the other under Last-Write-Wins.
+    const existing = itemFor(refilling.id);
+    const item: InventoryItem = existing ?? {
+      id: ids.next(),
+      medicineId: refilling.id,
+      refillThreshold: DEFAULT_REFILL_THRESHOLD,
+      unitName: DEFAULT_UNIT_NAME,
+      updatedAt: '',
+      updatedByDeviceId: deviceId,
+      syncStatus: 'pending',
+    };
+
+    await repository.saveInventoryItem(item, existing ? 'UPDATE' : 'CREATE');
+    await repository.adjustInventory({
+      medicineId: refilling.id,
+      delta,
+      reason: existing ? 'refill' : 'initial',
     });
 
-    setSelectedMed(null);
-    setRefillQuantity('');
-    await loadData();
+    setRefilling(null);
+    setQuantity('');
+    setError(null);
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-24">
+    <div className="flex flex-col gap-4 p-4 pb-28">
       <div className="flex flex-col">
-        <h2 className="text-xl font-bold tracking-tight text-slate-100">Inventory Ledger</h2>
+        <h2 className="text-xl font-bold tracking-tight text-slate-100">Inventory ledger</h2>
         <p className="text-xs text-slate-400">
-          Append-only inventory tracking with automated refill alerts.
+          Append-only stock tracking with refill alerts. Every dose logged decrements stock.
         </p>
       </div>
 
-      {/* Stock Refill Modal */}
-      {selectedMed && (
+      {refilling && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl flex flex-col gap-4">
-            <h3 className="text-lg font-bold text-slate-100">Refill {selectedMed.name}</h3>
+          <div className="flex w-full max-w-sm flex-col gap-4 rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-slate-100">Refill {refilling.name}</h3>
 
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-slate-400">Pills / Units Added:</label>
+              <label htmlFor="refill-quantity" className="text-xs font-semibold text-slate-400">
+                Units added
+              </label>
               <input
+                id="refill-quantity"
                 type="number"
-                placeholder="e.g., 30"
+                placeholder="e.g. 30"
                 className={m3InputClass}
-                value={refillQuantity}
-                onChange={(e) => setRefillQuantity(e.target.value)}
+                value={quantity}
+                onChange={(event) => setQuantity(event.target.value)}
               />
             </div>
 
-            <button onClick={handleRefillStock} className={m3ButtonPrimary}>
-              Log Refill Adjustment
+            {error && (
+              <p role="alert" className="text-xs font-semibold text-rose-400">
+                {error}
+              </p>
+            )}
+
+            <button onClick={() => void refill()} className={m3ButtonPrimary}>
+              Log refill
             </button>
 
             <button
               onClick={() => {
-                setSelectedMed(null);
-                setRefillQuantity('');
+                setRefilling(null);
+                setQuantity('');
+                setError(null);
               }}
               className="text-xs font-semibold text-slate-400 hover:text-slate-200"
             >
@@ -118,44 +118,52 @@ export function AndroidInventoryScreen({ caregiverName: _caregiverName }: { care
         </div>
       )}
 
-      {/* Inventory List */}
-      {medicines.length === 0 ? (
+      {medicines && medicines.length === 0 ? (
         <M3Card>
-          <p className="text-sm text-slate-400 text-center py-4">No medicines in inventory.</p>
+          <p className="py-4 text-center text-sm text-slate-400">No medicines to track yet.</p>
         </M3Card>
       ) : (
-        medicines.map((med) => {
-          const inv = inventoryList.find((i) => i.medicineId === med.id);
-          const currentQty = inv?.currentQuantity ?? 0;
-          const isLowStock = currentQty <= (inv?.refillThreshold ?? 10);
+        (medicines ?? []).map((medicine) => {
+          const item = itemFor(medicine.id);
+          const state = item ? deriveInventoryState(item, adjustments ?? []) : undefined;
 
           return (
-            <M3Card key={med.id}>
-              <div className="flex items-center justify-between">
+            <M3Card key={medicine.id}>
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex flex-col">
-                  <span className="text-base font-bold text-slate-100">{med.name}</span>
-                  <span className="text-xs text-slate-400">{med.strength}</span>
+                  <span className="text-base font-bold text-slate-100">{medicine.name}</span>
+                  <span className="text-xs text-slate-400">{medicine.strength}</span>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-xl font-bold font-mono text-slate-100">
-                    {currentQty} {inv?.unitName || 'units'}
+                  <span className="font-mono text-xl font-bold text-slate-100">
+                    {state ? `${state.currentQuantity} ${state.unitName}` : 'Not tracked'}
                   </span>
-                  <M3Badge tone={isLowStock ? 'locked' : 'safe'}>
-                    {isLowStock ? 'Low Stock' : 'In Stock'}
-                  </M3Badge>
+                  {state && (
+                    <M3Badge tone={state.isNegative ? 'locked' : state.isLow ? 'capped' : 'safe'}>
+                      {/* Negative stock is shown, never clamped: it means doses were logged that
+                          the recorded stock could not have covered, which is a real bookkeeping
+                          error a caregiver needs to see. */}
+                      {state.isNegative ? 'Check count' : state.isLow ? 'Low stock' : 'In stock'}
+                    </M3Badge>
+                  )}
                 </div>
               </div>
 
-              <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80">
+              <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-800/80 pt-2">
                 <span className="text-xs text-slate-400">
-                  Refill alert below {inv?.refillThreshold ?? 10} units
+                  {state
+                    ? `Refill alert at or below ${state.refillThreshold} ${state.unitName}`
+                    : 'Log a first count to start tracking'}
                 </span>
                 <button
-                  onClick={() => setSelectedMed(med)}
+                  onClick={() => {
+                    setRefilling(medicine);
+                    setError(null);
+                  }}
                   className={m3ButtonPrimary}
                 >
-                  Refill Stock
+                  {state ? 'Refill' : 'Set count'}
                 </button>
               </div>
             </M3Card>

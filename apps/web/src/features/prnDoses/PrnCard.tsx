@@ -3,8 +3,10 @@ import type { FormEvent } from 'react';
 import {
   assessDose,
   blockReasonFor,
+  formatCountdown,
   formatLocalTime,
   fromIso,
+  getLocalClockTrust,
   isDosePermitted,
   lastAdministeredDose,
 } from '@medguard/shared';
@@ -16,10 +18,8 @@ import {
   useIdGenerator,
   useRepository,
 } from '../../app/RepositoryContext.js';
-import { getLocalClockTrust } from '../../clock/localClockGuard.js';
 import { DoseCorrection } from '../logs/DoseCorrection.js';
 import { Card, buttonClass, dangerButtonClass, inputClass, primaryButtonClass } from '../../ui/primitives.js';
-import { formatCountdown } from './formatCountdown.js';
 
 const STATE_BORDER_CLASS: Record<DoseSafety['state'], string> = {
   safe: 'border-safe',

@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
+ * Typed locally for the same reason the module under test does it: `packages/shared` declares
+ * neither the DOM lib nor @types/node, so `performance` has no ambient declaration here.
+ */
+const platformPerformance = (globalThis as unknown as { performance: { now(): number } })
+  .performance;
+
+/**
  * The module captures its reference point once, at import time, from ambient `Date.now()` and
  * `performance.now()` — exactly the pattern that makes it useful in production and awkward to
  * test. `vi.resetModules()` plus a dynamic import gives each test a fresh module instance with
@@ -8,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  */
 async function loadWithReference(wallMs: number, monoMs: number) {
   vi.spyOn(Date, 'now').mockReturnValue(wallMs);
-  vi.spyOn(performance, 'now').mockReturnValue(monoMs);
+  vi.spyOn(platformPerformance, 'now').mockReturnValue(monoMs);
   const module = await import('./localClockGuard.js');
   return module.getLocalClockTrust;
 }
@@ -26,7 +33,7 @@ describe('getLocalClockTrust', () => {
     const getLocalClockTrust = await loadWithReference(1_000_000, 5_000);
 
     vi.mocked(Date.now).mockReturnValue(1_000_000 + 10_000);
-    vi.mocked(performance.now).mockReturnValue(5_000 + 10_000);
+    vi.mocked(platformPerformance.now).mockReturnValue(5_000 + 10_000);
 
     expect(getLocalClockTrust()).toEqual({ kind: 'trusted', offsetMs: 0 });
   });
@@ -37,7 +44,7 @@ describe('getLocalClockTrust', () => {
     const getLocalClockTrust = await loadWithReference(1_000_000, 5_000);
 
     vi.mocked(Date.now).mockReturnValue(1_000_000 + 10 * 60_000); // wall: +10 minutes
-    vi.mocked(performance.now).mockReturnValue(5_000 + 1_000); // real: +1 second
+    vi.mocked(platformPerformance.now).mockReturnValue(5_000 + 1_000); // real: +1 second
 
     const trust = getLocalClockTrust();
     expect(trust.kind).toBe('skewed');
@@ -48,7 +55,7 @@ describe('getLocalClockTrust', () => {
     const getLocalClockTrust = await loadWithReference(1_000_000, 5_000);
 
     vi.mocked(Date.now).mockReturnValue(1_000_000 - 10 * 60_000); // wall: -10 minutes
-    vi.mocked(performance.now).mockReturnValue(5_000 + 1_000);
+    vi.mocked(platformPerformance.now).mockReturnValue(5_000 + 1_000);
 
     const trust = getLocalClockTrust();
     expect(trust.kind).toBe('skewed');
@@ -56,21 +63,21 @@ describe('getLocalClockTrust', () => {
   });
 
   it('tolerates drift within the shared skew tolerance', async () => {
-    const { CLOCK_SKEW_TOLERANCE_MS } = await import('@medguard/shared');
+    const { CLOCK_SKEW_TOLERANCE_MS } = await import('../clock.js');
     const getLocalClockTrust = await loadWithReference(1_000_000, 5_000);
 
     vi.mocked(Date.now).mockReturnValue(1_000_000 + (CLOCK_SKEW_TOLERANCE_MS - 1));
-    vi.mocked(performance.now).mockReturnValue(5_000);
+    vi.mocked(platformPerformance.now).mockReturnValue(5_000);
 
     expect(getLocalClockTrust().kind).toBe('trusted');
   });
 
   it('flags drift exactly one millisecond past the tolerance', async () => {
-    const { CLOCK_SKEW_TOLERANCE_MS } = await import('@medguard/shared');
+    const { CLOCK_SKEW_TOLERANCE_MS } = await import('../clock.js');
     const getLocalClockTrust = await loadWithReference(1_000_000, 5_000);
 
     vi.mocked(Date.now).mockReturnValue(1_000_000 + (CLOCK_SKEW_TOLERANCE_MS + 1));
-    vi.mocked(performance.now).mockReturnValue(5_000);
+    vi.mocked(platformPerformance.now).mockReturnValue(5_000);
 
     expect(getLocalClockTrust().kind).toBe('skewed');
   });
@@ -79,7 +86,7 @@ describe('getLocalClockTrust', () => {
     const getLocalClockTrust = await loadWithReference(1_000_000, 5_000);
 
     vi.mocked(Date.now).mockReturnValue(1_000_000 + 20 * 60_000);
-    vi.mocked(performance.now).mockReturnValue(5_000 + 1_000);
+    vi.mocked(platformPerformance.now).mockReturnValue(5_000 + 1_000);
 
     const first = getLocalClockTrust();
     const second = getLocalClockTrust();

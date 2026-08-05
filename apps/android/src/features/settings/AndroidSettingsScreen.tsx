@@ -1,109 +1,150 @@
-import { useState, useEffect } from 'react';
-import { systemClock, isClockTrusted, toIso } from '@medguard/shared';
-import { androidNativeBridge, type AndroidDeviceInfo } from '../../native/androidBridge.js';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useMemo, useState } from 'react';
+import { isClockTrusted } from '@medguard/shared';
 import {
-  M3Card,
-  M3Badge,
-  m3ButtonPrimary,
-  m3InputClass,
-} from '../../ui/MaterialComponents.js';
+  useCurrentDeviceId,
+  useCurrentUserId,
+  useMedGuardDb,
+} from '../../app/AndroidAppProvider.js';
+import { useClockTrust } from '../../app/useClockTrust.js';
+import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
+import { describeCapabilities, getDeviceInfo } from '../../native/androidBridge.js';
+import { M3Badge, M3Card, m3ButtonPrimary, m3InputClass } from '../../ui/MaterialComponents.js';
 
 export function AndroidSettingsScreen({
-  caregiverName,
-  setCaregiverName,
+  onChangeCaregiver,
 }: {
-  caregiverName: string;
-  setCaregiverName: (name: string) => void;
+  onChangeCaregiver: (name: string) => void;
 }) {
-  const [deviceInfo, setDeviceInfo] = useState<AndroidDeviceInfo | null>(null);
-  const [joinCode, setJoinCode] = useState('');
-  const [joinedHousehold, setJoinedHousehold] = useState<string | null>(null);
-  const clockOffsetMs = 0;
+  const db = useMedGuardDb();
+  const userId = useCurrentUserId();
+  const deviceId = useCurrentDeviceId();
+  const clockTrust = useClockTrust();
+  const household = useHouseholdSettings();
 
-  useEffect(() => {
-    setDeviceInfo(androidNativeBridge.getDeviceInfo());
-    const savedCode = localStorage.getItem('medguard_android_household_code');
-    if (savedCode) setJoinedHousehold(savedCode);
-  }, []);
+  const [draftName, setDraftName] = useState(userId);
 
-  const handleJoinHousehold = () => {
-    if (!joinCode.trim()) return;
-    localStorage.setItem('medguard_android_household_code', joinCode.trim());
-    setJoinedHousehold(joinCode.trim());
-    setJoinCode('');
-  };
+  const deviceInfo = useMemo(() => getDeviceInfo(deviceId), [deviceId]);
+  const capabilities = useMemo(() => describeCapabilities(deviceInfo), [deviceInfo]);
+  const pendingCount = useLiveQuery(() => db.syncOutbox.count(), [db]);
 
-  const isTrusted = isClockTrusted(clockOffsetMs);
+  const trusted = isClockTrusted(clockTrust);
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-24">
+    <div className="flex flex-col gap-4 p-4 pb-28">
       <div className="flex flex-col">
-        <h2 className="text-xl font-bold tracking-tight text-slate-100">Android Device & Household</h2>
+        <h2 className="text-xl font-bold tracking-tight text-slate-100">Device &amp; household</h2>
         <p className="text-xs text-slate-400">
-          Caregiver identity, FCM push registration, and server clock verification.
+          Caregiver identity, what this build can actually do, and clock verification.
         </p>
       </div>
 
-      {/* Caregiver Name Setting */}
       <M3Card>
-        <h3 className="text-sm font-bold text-slate-100">Caregiver Identity</h3>
-        <p className="text-xs text-slate-400">Name attached to all intake logs and overrides.</p>
+        <h3 className="text-sm font-bold text-slate-100">Caregiver identity</h3>
+        <p className="text-xs text-slate-400">
+          Attached to every dose and override this device records.
+        </p>
+        <label htmlFor="caregiver-name" className="sr-only">
+          Caregiver name
+        </label>
         <input
+          id="caregiver-name"
           type="text"
           className={m3InputClass}
-          value={caregiverName}
-          onChange={(e) => setCaregiverName(e.target.value)}
+          value={draftName}
+          onChange={(event) => setDraftName(event.target.value)}
         />
+        <button
+          onClick={() => onChangeCaregiver(draftName)}
+          disabled={!draftName.trim() || draftName.trim() === userId}
+          className={m3ButtonPrimary}
+        >
+          Save name
+        </button>
       </M3Card>
 
-      {/* Household Join Code Auth */}
+      {/*
+        The honest capability report. An earlier revision of this screen showed a hard-coded
+        "FCM Active" badge and a synthetic push token; a caregiver relying on that to be woken at
+        3am would have been relying on nothing. Safety invariant 6: degradation is visible.
+      */}
       <M3Card>
-        <h3 className="text-sm font-bold text-slate-100">Household Connection</h3>
-        {joinedHousehold ? (
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-300">Connected Code: <strong className="font-mono text-sky-400">{joinedHousehold}</strong></span>
-            <M3Badge tone="safe">Connected</M3Badge>
+        <h3 className="text-sm font-bold text-slate-100">Alerting</h3>
+        <div className="flex flex-col gap-2 text-xs text-slate-300">
+          <div className="flex items-center justify-between gap-3">
+            <span>Running as</span>
+            <M3Badge tone={capabilities.platform === 'android' ? 'safe' : 'neutral'}>
+              {capabilities.platform === 'android' ? 'Android app' : 'Browser'}
+            </M3Badge>
           </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <input
-              type="text"
-              placeholder="Enter 6-digit Join Code"
-              className={m3InputClass}
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value)}
-            />
-            <button onClick={handleJoinHousehold} className={m3ButtonPrimary}>
-              Join Household
-            </button>
+          <div className="flex items-center justify-between gap-3">
+            <span>Push registration</span>
+            <M3Badge tone={capabilities.pushRegistered ? 'safe' : 'locked'}>
+              {capabilities.pushRegistered ? 'Registered' : 'Not registered'}
+            </M3Badge>
           </div>
-        )}
+          <div className="flex items-center justify-between gap-3">
+            <span>Notification channels</span>
+            <M3Badge tone={capabilities.channelsCreated ? 'safe' : 'locked'}>
+              {capabilities.channelsCreated ? 'Created' : 'Not created'}
+            </M3Badge>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span>Chime</span>
+            <M3Badge tone={capabilities.chime === 'unavailable' ? 'locked' : 'capped'}>
+              {capabilities.chime === 'unavailable' ? 'Unavailable' : 'Foreground only'}
+            </M3Badge>
+          </div>
+          <p className="text-slate-400">
+            This build cannot wake a locked phone. Dose alarms, escalation and the 45-second Shabbat
+            chime need the native alarm layer described in docs/android-client-plan.md.
+          </p>
+        </div>
       </M3Card>
 
-      {/* Android FCM Native Push Registration Card (D8) */}
       <M3Card>
-        <h3 className="text-sm font-bold text-slate-100">FCM Push Credentials (D8)</h3>
-        {deviceInfo && (
-          <div className="flex flex-col gap-1 text-xs text-slate-300 font-mono">
-            <div>Provider: <span className="text-sky-400">{deviceInfo.pushProvider}</span></div>
-            <div>Device ID: <span className="text-slate-400">{deviceInfo.deviceId.slice(0, 20)}...</span></div>
-            <div>FCM Token: <span className="text-slate-400">{deviceInfo.fcmToken.slice(0, 20)}...</span></div>
-          </div>
-        )}
+        <h3 className="text-sm font-bold text-slate-100">Sync</h3>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-slate-300">
+            {pendingCount ?? 0} local change{pendingCount === 1 ? '' : 's'} queued
+          </span>
+          <M3Badge tone="capped">Upload not wired</M3Badge>
+        </div>
+        <p className="text-xs text-slate-400">
+          Changes are recorded locally and queued in order. This client has no API connection yet,
+          so nothing has been sent to other caregivers&rsquo; devices.
+        </p>
       </M3Card>
 
-      {/* Clock Trust Guard */}
       <M3Card>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex flex-col">
-            <span className="text-sm font-bold text-slate-100">Server Clock Verification</span>
+            <span className="text-sm font-bold text-slate-100">Clock verification</span>
             <span className="text-xs text-slate-400">
-              Current local time: {toIso(systemClock.now())}
+              {trusted
+                ? 'No drift detected since this session started.'
+                : 'This clock changed mid-session — guarded medicines stay blocked.'}
             </span>
           </div>
-          <M3Badge tone={isTrusted ? 'safe' : 'locked'}>
-            {isTrusted ? 'Trusted Clock' : 'Skew Detected'}
+          <M3Badge tone={trusted ? 'safe' : 'locked'}>
+            {trusted ? 'Trusted' : 'Skew detected'}
           </M3Badge>
+        </div>
+        <p className="text-xs text-slate-400">
+          Local check only: a clock that was already wrong before the app started cannot be detected
+          without the server check.
+        </p>
+      </M3Card>
+
+      <M3Card>
+        <h3 className="text-sm font-bold text-slate-100">Household</h3>
+        <div className="flex flex-col gap-1 font-mono text-xs text-slate-300">
+          <div>
+            Timezone: <span className="text-sky-400">{household?.timeZone ?? '—'}</span>
+          </div>
+          <div>
+            Device: <span className="text-slate-400">{deviceInfo.deviceId}</span>
+          </div>
         </div>
       </M3Card>
     </div>

@@ -2,6 +2,7 @@ export { CLOCK_SKEW_TOLERANCE_MS, fromIso, isClockTrusted, toIso } from './clock
 export type { Clock, ClockTrust, EpochMs, IdGenerator, IsoInstant } from './clock.js';
 
 export { systemClock, uuidIdGenerator } from './runtime/systemClock.js';
+export { getLocalClockTrust } from './runtime/localClockGuard.js';
 
 // Domain entities and validation
 export { SINGLE_PATIENT_ID } from './types.js';
@@ -46,6 +47,12 @@ export {
 } from './schedule.js';
 export type { ExpansionRange, Occurrence, RevisionContext, ScheduleRevision } from './schedule.js';
 
+// Occurrence derivations — shared so every client agrees on what "overdue" means and on the
+// width of the due-now window, rather than each re-deriving it slightly differently.
+export { DUE_NOW_WINDOW_MS, classifyOccurrence } from './occurrence.js';
+export type { OccurrenceStatus } from './occurrence.js';
+export { findLogForOccurrence } from './occurrenceLog.js';
+
 // PRN safety guards
 export {
   ROLLING_WINDOW_MS,
@@ -55,6 +62,7 @@ export {
   isDosePermitted,
 } from './safety.js';
 export type { AssessDoseInput, BlockReason, DoseSafety, LastDoseSummary } from './safety.js';
+export { formatCountdown } from './countdown.js';
 
 // Inventory ledger
 export {

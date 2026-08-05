@@ -1,148 +1,205 @@
-import { SHABBAT_BURST_COUNT, SHABBAT_BURST_SPACING_MS } from '@medguard/shared';
+import { currentPlatform } from '../runtime/platform.js';
+import type { AndroidPlatform } from '../runtime/platform.js';
+
+/**
+ * The seam between the web layer and Android.
+ *
+ * Everything here is honest about which side of that seam it is on. Nothing fabricates a
+ * capability the running environment does not have: safety invariant 6 requires degradation to
+ * be *visible*, and a screen reporting a push channel as live when no native plugin has ever
+ * returned a token is the exact opposite of that.
+ */
+
+/**
+ * Notification channel ids, versioned per `docs/android-client-plan.md` ("Channels").
+ *
+ * A channel's sound and importance are immutable once created, so retuning the Shabbat chime
+ * the way the web burst was retuned four times would otherwise require every caregiver to
+ * reinstall the app. The suffix is bumped instead.
+ */
+export const NOTIFICATION_CHANNELS = [
+  'dose_standard_v1',
+  'dose_escalation_v1',
+  'shabbat_v1',
+  'low_stock_v1',
+  'sync_status_v1',
+] as const;
+
+export type NotificationChannelId = (typeof NOTIFICATION_CHANNELS)[number];
 
 export interface AndroidDeviceInfo {
   deviceId: string;
-  fcmToken: string;
-  manufacturer: string;
-  model: string;
-  osVersion: string;
-  pushProvider: 'fcm';
+  platform: AndroidPlatform;
+  /**
+   * Null until a native messaging plugin supplies a real token. Never invented: a synthetic
+   * token registered against `devices.push_credentials` would make the server believe it can
+   * reach a phone it cannot, and dose escalations would be delivered into a void.
+   */
+  fcmToken: string | null;
+  pushProvider: 'fcm' | 'none';
 }
 
-class AndroidNativeBridge {
-  private deviceIdKey = 'medguard_android_device_id';
-  private fcmTokenKey = 'medguard_android_fcm_token';
-  private chimeAudioContext: AudioContext | null = null;
-  private isChimeActive = false;
-  private chimeTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * The audio side of the chime, isolated so the engine's timing can be tested without Web Audio.
+ * `close` is idempotent.
+ */
+export interface ChimeAudio {
+  pulse(): void;
+  close(): void;
+}
 
-  /** Get or generate stable Android Device ID */
-  getDeviceId(): string {
-    let id = localStorage.getItem(this.deviceIdKey);
-    if (!id) {
-      id = `android-${crypto.randomUUID()}`;
-      localStorage.setItem(this.deviceIdKey, id);
+type AudioContextConstructor = new () => AudioContext;
+
+function resolveAudioContextConstructor(): AudioContextConstructor | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  const legacy = (window as unknown as { webkitAudioContext?: AudioContextConstructor })
+    .webkitAudioContext;
+  return window.AudioContext ?? legacy;
+}
+
+/**
+ * A two-note chime on the Web Audio API, or `null` where Web Audio is unavailable.
+ *
+ * An approximation, and documented as one. The PRD's 45-second auto-stopping chime on a *locked*
+ * phone is a native concern — `DoseAlarmService` with `AudioAttributes.USAGE_ALARM`, per
+ * `docs/android-client-plan.md`. A WebView is suspended when backgrounded, so this only ever
+ * sounds while the app is in the foreground.
+ */
+export function webAudioChime(): ChimeAudio | null {
+  const AudioCtx = resolveAudioContextConstructor();
+  if (!AudioCtx) {
+    return null;
+  }
+
+  let context: AudioContext | null = new AudioCtx();
+
+  return {
+    pulse() {
+      if (!context || context.state === 'closed') {
+        return;
+      }
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(523.25, context.currentTime); // C5
+      oscillator.frequency.exponentialRampToValueAtTime(659.25, context.currentTime + 0.4); // E5
+      gain.gain.setValueAtTime(0.3, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.8);
+
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.8);
+    },
+    close() {
+      const closing = context;
+      context = null;
+      void closing?.close().catch(() => {});
+    },
+  };
+}
+
+const PULSE_INTERVAL_MS = 3_000;
+
+/**
+ * The chime's state machine: start, repeat every few seconds, stop by itself after the
+ * configured duration.
+ *
+ * The auto-stop is the whole point (PRD §3 — the chime ends without anyone touching the phone),
+ * so the timer that ends it is armed *before* any audio is attempted and runs identically
+ * whether or not audio is available. Stopping cancels both timers immediately rather than
+ * leaving the repeat tick to discover on its next pass that it should have stopped.
+ */
+export class ShabbatChimeEngine {
+  private playing = false;
+  private stopTimer: ReturnType<typeof setTimeout> | null = null;
+  private pulseTimer: ReturnType<typeof setInterval> | null = null;
+  private audio: ChimeAudio | null = null;
+
+  constructor(private readonly createAudio: () => ChimeAudio | null = webAudioChime) {}
+
+  /** Returns false when a chime is already sounding, so a second alert cannot stack on it. */
+  start(durationSeconds: number, onComplete?: () => void): boolean {
+    if (this.playing) {
+      return false;
     }
-    return id;
-  }
+    this.playing = true;
 
-  /** Get or generate FCM push token for FCM registration with backend */
-  getFcmToken(): string {
-    let token = localStorage.getItem(this.fcmTokenKey);
-    if (!token) {
-      token = `fcm_${crypto.randomUUID().replace(/-/g, '')}`;
-      localStorage.setItem(this.fcmTokenKey, token);
-    }
-    return token;
-  }
-
-  /** Get full Android device details matching D8 requirement */
-  getDeviceInfo(): AndroidDeviceInfo {
-    return {
-      deviceId: this.getDeviceId(),
-      fcmToken: this.getFcmToken(),
-      manufacturer: 'Google',
-      model: 'Pixel / Android Device',
-      osVersion: 'Android 14 (API 34)',
-      pushProvider: 'fcm',
-    };
-  }
-
-  /** Initialize Android Notification Channels (Safety Channel & Shabbat Channel) */
-  initNotificationChannels(): { success: boolean; channels: string[] } {
-    const channels = ['medguard_safety_alerts', 'medguard_shabbat_chime'];
-    // In Capacitor / Android Native wrapper, window.Capacitor / Android APIs create Android NotificationChannels
-    return { success: true, channels };
-  }
-
-  /**
-   * Android Shabbat Chime Engine:
-   * Plays a distinct 45-second chime that auto-stops without requiring touch/wake.
-   * On native Android, this runs via NotificationChannel / MediaPlayer / AlarmManager.
-   */
-  startShabbatChime(durationSeconds = 45, onComplete?: () => void): boolean {
-    if (this.isChimeActive) return false;
-    this.isChimeActive = true;
+    this.stopTimer = setTimeout(() => {
+      this.stop();
+      onComplete?.();
+    }, durationSeconds * 1000);
 
     try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtx) {
-        this.chimeAudioContext = new AudioCtx();
-        const ctx = this.chimeAudioContext;
-
-        const playChimeTone = () => {
-          if (!this.isChimeActive || ctx.state === 'closed') return;
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5 note
-          osc.frequency.exponentialRampToValueAtTime(659.25, ctx.currentTime + 0.4); // E5 note
-          gain.gain.setValueAtTime(0.3, ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
-
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start();
-          osc.stop(ctx.currentTime + 0.8);
-        };
-
-        playChimeTone();
-        const intervalId = setInterval(() => {
-          if (!this.isChimeActive) {
-            clearInterval(intervalId);
-            return;
-          }
-          playChimeTone();
-        }, 3000);
-
-        this.chimeTimer = setTimeout(() => {
-          clearInterval(intervalId);
-          this.stopShabbatChime();
-          if (onComplete) onComplete();
-        }, durationSeconds * 1000);
-      }
+      this.audio = this.createAudio();
     } catch {
-      // Fallback timer if audio context unavailable
-      this.chimeTimer = setTimeout(() => {
-        this.stopShabbatChime();
-        if (onComplete) onComplete();
-      }, durationSeconds * 1000);
+      // An environment with an AudioContext constructor that refuses to build one (no output
+      // device, an autoplay policy) still gets the timed, silent chime rather than a dead screen.
+      this.audio = null;
+    }
+
+    if (this.audio) {
+      const audio = this.audio;
+      audio.pulse();
+      this.pulseTimer = setInterval(() => audio.pulse(), PULSE_INTERVAL_MS);
     }
 
     return true;
   }
 
-  /** Stop the Shabbat Chime */
-  stopShabbatChime() {
-    this.isChimeActive = false;
-    if (this.chimeTimer) {
-      clearTimeout(this.chimeTimer);
-      this.chimeTimer = null;
+  stop(): void {
+    this.playing = false;
+
+    if (this.stopTimer) {
+      clearTimeout(this.stopTimer);
+      this.stopTimer = null;
     }
-    if (this.chimeAudioContext) {
-      this.chimeAudioContext.close().catch(() => {});
-      this.chimeAudioContext = null;
+    if (this.pulseTimer) {
+      clearInterval(this.pulseTimer);
+      this.pulseTimer = null;
     }
+    this.audio?.close();
+    this.audio = null;
   }
 
-  /** Check if chime is currently playing */
-  isShabbatChimePlaying(): boolean {
-    return this.isChimeActive;
-  }
-
-  /** Simulate receiving an FCM Push payload (Sprint 0 tuning: 10 pushes ~1.11s apart) */
-  simulateFcmPushBurst(medicineName: string, count = SHABBAT_BURST_COUNT, spacingMs = SHABBAT_BURST_SPACING_MS): Promise<number> {
-    return new Promise((resolve) => {
-      let received = 0;
-      const interval = setInterval(() => {
-        received++;
-        if (received >= count) {
-          clearInterval(interval);
-          resolve(received);
-        }
-      }, spacingMs);
-    });
+  isPlaying(): boolean {
+    return this.playing;
   }
 }
 
-export const androidNativeBridge = new AndroidNativeBridge();
+/**
+ * What the app can actually do on the device it is running on right now.
+ *
+ * `channelsCreated` is false everywhere because notification channels are an Android construct
+ * that needs a native plugin to create; reporting them as created would be a claim the Settings
+ * screen then repeats to a caregiver who is relying on it to wake them at 3am.
+ */
+export interface AndroidCapabilities {
+  platform: AndroidPlatform;
+  channelsCreated: boolean;
+  channels: readonly NotificationChannelId[];
+  /** Foreground-only Web Audio, as opposed to the native alarm-stream service. */
+  chime: 'web-audio-foreground-only' | 'unavailable';
+  pushRegistered: boolean;
+}
+
+export function describeCapabilities(deviceInfo: AndroidDeviceInfo): AndroidCapabilities {
+  return {
+    platform: deviceInfo.platform,
+    channelsCreated: false,
+    channels: NOTIFICATION_CHANNELS,
+    chime: resolveAudioContextConstructor() ? 'web-audio-foreground-only' : 'unavailable',
+    pushRegistered: deviceInfo.fcmToken !== null,
+  };
+}
+
+export function getDeviceInfo(deviceId: string): AndroidDeviceInfo {
+  return {
+    deviceId,
+    platform: currentPlatform(),
+    fcmToken: null,
+    pushProvider: 'none',
+  };
+}

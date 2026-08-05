@@ -1,5 +1,5 @@
-import { CLOCK_SKEW_TOLERANCE_MS } from '@medguard/shared';
-import type { ClockTrust } from '@medguard/shared';
+import { CLOCK_SKEW_TOLERANCE_MS } from '../clock.js';
+import type { ClockTrust } from '../clock.js';
 
 /**
  * A local, pre-server approximation of clock trust.
@@ -26,9 +26,19 @@ import type { ClockTrust } from '@medguard/shared';
  * are used directly here despite the no-ambient-time rule covering the rest of the app.
  */
 
+/**
+ * Typed locally rather than by pulling in the DOM lib or @types/node, the same way
+ * `systemClock.ts` types `crypto` — `packages/shared` must stay portable across the browser,
+ * workerd and a native client, so its platform surface is kept explicit and minimal.
+ *
+ * `performance.now()` is available in browsers, Workers and Node 16+.
+ */
+const platformPerformance = (globalThis as unknown as { performance: { now(): number } })
+  .performance;
+
 const reference = {
   wallMs: Date.now(),
-  monoMs: performance.now(),
+  monoMs: platformPerformance.now(),
 };
 
 /**
@@ -40,7 +50,7 @@ const reference = {
  */
 export function getLocalClockTrust(): ClockTrust {
   const wallElapsedMs = Date.now() - reference.wallMs;
-  const monoElapsedMs = performance.now() - reference.monoMs;
+  const monoElapsedMs = platformPerformance.now() - reference.monoMs;
   const driftMs = wallElapsedMs - monoElapsedMs;
 
   if (Math.abs(driftMs) > CLOCK_SKEW_TOLERANCE_MS) {

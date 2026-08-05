@@ -1,24 +1,23 @@
 import { fileURLToPath } from 'node:url';
-import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 const sharedSrc = fileURLToPath(new URL('../../packages/shared/src', import.meta.url));
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react()],
   resolve: {
     alias: {
       '@medguard/shared/testing': `${sharedSrc}/testing.ts`,
       '@medguard/shared': `${sharedSrc}/index.ts`,
     },
   },
-  server: {
-    port: 3001,
-  },
-  build: {
-    // `webDir` in capacitor.config.json — `npx cap sync` copies this directory into the Android
-    // project's assets.
-    outDir: 'dist',
+  test: {
+    name: 'android',
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./tests/setup.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
+    exclude: ['node_modules/**'],
   },
 });

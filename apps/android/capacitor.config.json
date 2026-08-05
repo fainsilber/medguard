@@ -1,16 +1,8 @@
 {
   "appId": "com.medguard.app",
-  "appName": "MedGuard Android",
+  "appName": "MedGuard",
   "webDir": "dist",
-  "bundledWebRuntime": false,
-  "plugins": {
-    "PushNotifications": {
-      "presentationOptions": ["badge", "sound", "alert"]
-    },
-    "LocalNotifications": {
-      "smallIcon": "ic_stat_icon_config",
-      "iconColor": "#0f172a",
-      "sound": "shabbat_chime.wav"
-    }
+  "android": {
+    "allowMixedContent": false
   }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
+import { getLocalClockTrust } from '@medguard/shared';
 import type { ClockTrust } from '@medguard/shared';
-import { getLocalClockTrust } from './localClockGuard.js';
 import { CLOCK_CHECK_TTL_MS, checkServerClock } from './serverClockCheck.js';
 
 /**
