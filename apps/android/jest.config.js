@@ -17,6 +17,12 @@ module.exports = {
   moduleNameMapper: {
     // The native alarm module has no device to run against under Jest — see testUtils/mockMedguardAlarms.ts.
     'modules/medguard-alarms/src$': '<rootDir>/src/testUtils/mockMedguardAlarms.ts',
+    // Same story for expo-sqlite's native database binding — see testUtils/mockExpoSqlite.ts.
+    '^expo-sqlite$': '<rootDir>/src/testUtils/mockExpoSqlite.ts',
+    // Android Keystore and the native CSPRNG have no headless equivalent under Jest — see
+    // testUtils/mockExpoSecureStore.ts and testUtils/mockExpoCrypto.ts.
+    '^expo-secure-store$': '<rootDir>/src/testUtils/mockExpoSecureStore.ts',
+    '^expo-crypto$': '<rootDir>/src/testUtils/mockExpoCrypto.ts',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transformIgnorePatterns: [
