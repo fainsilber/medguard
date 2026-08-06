@@ -121,6 +121,9 @@ describe('SyncProvider', () => {
     );
 
     await waitFor(() => expect(pushCalls.length).toBeGreaterThan(0));
+    // Let the rest of runOnce() (the pull half, and the pending-count refresh) settle before the
+    // test ends — otherwise that in-flight work keeps running into the next test's teardown.
+    await screen.findByText('Synced');
   });
 
   it('shows a live safety.warning broadcast with the medicine\'s name, dismissible', async () => {

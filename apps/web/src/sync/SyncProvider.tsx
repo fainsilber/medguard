@@ -70,6 +70,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       apiBaseUrl: getApiBaseUrl(),
       deviceToken: session.deviceToken,
       householdId: session.householdId,
+      log,
     });
 
     const refreshPendingCount = async () => {
