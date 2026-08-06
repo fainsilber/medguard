@@ -35,7 +35,7 @@ const DATA_EXTRACTION_RULES_XML = `<?xml version="1.0" encoding="utf-8"?>
 <!--
   Explicit dataExtractionRules (Android 12+), alongside android:allowBackup="false" set via
   app.config.ts's android.allowBackup. Without this, Android's auto-backup would copy the
-  on-device SQLite database -- a child's complete dosing history -- into the user's Google
+  on-device SQLite database, a child's complete dosing history, into the user's Google
   Drive, silently and by default (docs/android-client-plan.md, "data-handling requirements";
   docs/data-handling.md).
 -->
@@ -131,7 +131,7 @@ const withAlarmManifestEntries: ConfigPlugin = (config) =>
         'android:name': 'com.medguard.alarms.DoseAlarmService',
         'android:enabled': 'true' as unknown as boolean,
         'android:exported': 'false' as unknown as boolean,
-        // Not "dataSync" or "mediaProcessing" -- Android 15 caps those at six hours per 24h.
+        // Not "dataSync" or "mediaProcessing": Android 15 caps those at six hours per 24h.
         // A 45-second chime is exactly the case "mediaPlayback" exists for
         // (docs/android-client-plan.md, "The chime").
         'android:foregroundServiceType': 'mediaPlayback',
