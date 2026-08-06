@@ -2,8 +2,9 @@ import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { sequentialIds } from '@medguard/shared/testing';
 import type { Clock } from '@medguard/shared';
+import { MedGuardRepository } from '@medguard/store';
+import { DexieStore } from '@medguard/store/dexie';
 import { RepositoryProvider } from '../app/RepositoryContext.js';
-import { MedGuardRepository } from '../db/repository.js';
 import { MedGuardDB } from '../db/schema.js';
 
 /**
@@ -11,8 +12,9 @@ import { MedGuardDB } from '../db/schema.js';
  * src/sync, so the no-ambient-time lint rule doesn't apply here the way it does to the code
  * under test.
  *
- * Each call gets its own uniquely-named database (the same isolation approach used in
- * db/repository.test.ts), so two renders in the same test file never see each other's data.
+ * Each call gets its own uniquely-named database (the same isolation approach
+ * `packages/store/src/testing/repositoryConformance.ts` uses), so two renders in the same test
+ * file never see each other's data.
  */
 let databaseCounter = 0;
 
@@ -38,7 +40,7 @@ export async function renderWithRepository(
 
   if (timeZone || seed) {
     const seedDb = new MedGuardDB(dbName);
-    const seedRepository = new MedGuardRepository(seedDb, {
+    const seedRepository = new MedGuardRepository(new DexieStore(seedDb), {
       clock: clock ?? { nowMs: () => 0, nowIso: () => '1970-01-01T00:00:00.000Z' },
       ids: sequentialIds('seed'),
       userId: 'seed',

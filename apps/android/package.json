@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@medguard/shared": "*",
+    "@medguard/store": "*",
     "expo": "~57.0.10",
     "expo-application": "~57.0.2",
     "expo-constants": "~57.0.9",
@@ -30,6 +31,7 @@
     "@types/node": "^22.10.0",
     "@types/react": "~19.2.0",
     "babel-preset-expo": "~57.0.5",
+    "better-sqlite3": "^13.0.3",
     "typescript": "^5.7.0",
     "vitest": "^4.1.0"
   },

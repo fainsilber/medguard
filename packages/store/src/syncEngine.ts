@@ -1,35 +1,78 @@
-import { bootstrap, pull as pullDelta, pushChanges } from '../api/syncApi.js';
-import type { MedGuardDB } from '../db/schema.js';
-import type { MedGuardRepository } from '../db/repository.js';
-import { appLog } from '../logging/appLog.js';
+import type { SyncableTable } from '@medguard/shared';
+import type { MedGuardRepository } from './repository.js';
 import { getCursor, setCursor } from './cursor.js';
 import { applyPulledRecord, markSyncedLocally } from './tableDispatch.js';
-
-const log = appLog('sync');
+import type { Store } from './types.js';
 
 /**
- * Drains the local outbox and pulls remote deltas — the two halves of local-first sync that,
- * before this sprint, nothing in the client actually did. A mutation would sit in `syncOutbox`
- * forever; nothing ever asked the server for what another caregiver's device had written.
+ * Drains the local outbox and pulls remote deltas — the two halves of local-first sync.
  *
  * Deliberately framework-free: a plain class with async methods, so it is exactly as testable as
- * packages/shared's pure functions, and the React layer (a hook wrapping this) is a thin adapter
- * rather than where the logic lives.
+ * packages/shared's pure functions, and each platform's React (or React Native) layer is a thin
+ * adapter rather than where the logic lives.
+ *
+ * Storage-agnostic since Sprint A1: the only platform-specific things this class needs — pushing
+ * and pulling bytes over HTTP — are injected as `SyncApi`, so `apps/web` and `apps/android` share
+ * this exact class rather than each keeping their own copy of the merge/outbox rules (safety
+ * invariant 7 — no log lost across an offline→online cycle, no retry ever double-applying).
  */
 
+/** Mirrors `apps/web/src/api/householdApi.ts`'s `ApiResult<T>` shape exactly, so the real
+ * `syncApi.ts` module can be passed as a `SyncApi` with no adapter code. */
+export type SyncApiResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+export interface SyncPushResult {
+  results: Array<{ id: string }>;
+  blocked: Array<{ id: string }>;
+  /** `id` is nullable upstream (`apps/api`'s rejection can precede id validation) — never
+   * matches a real `entityId`, which is exactly the fail-closed behavior `drainOutbox()` wants. */
+  rejected: Array<{ id: string | null }>;
+}
+
+export interface SyncPullResult {
+  records: Array<{ table: SyncableTable; id: string; payload: unknown }>;
+  cursor: number;
+  hasMore?: boolean;
+}
+
+/** The HTTP half — `apps/web/src/api/syncApi.ts` today, an equivalent module on Android tomorrow. */
+export interface SyncApi {
+  bootstrap(apiBaseUrl: string, deviceToken: string): Promise<SyncApiResult<SyncPullResult>>;
+  pull(apiBaseUrl: string, deviceToken: string, cursor: number): Promise<SyncApiResult<SyncPullResult>>;
+  pushChanges(
+    apiBaseUrl: string,
+    deviceToken: string,
+    changes: Array<{ table: string; record: unknown }>,
+  ): Promise<SyncApiResult<SyncPushResult>>;
+}
+
+/** Structured log sink — `apps/web/src/logging/appLog.ts` today. Optional: silent if omitted. */
+export interface SyncLog {
+  debug(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, meta?: Record<string, unknown>): void;
+}
+
+const noopLog: SyncLog = { debug: () => {}, error: () => {} };
+
 export interface SyncEngineDeps {
-  db: MedGuardDB;
+  store: Store;
   repository: MedGuardRepository;
+  api: SyncApi;
   apiBaseUrl: string;
   deviceToken: string;
   householdId: string;
+  log?: SyncLog;
 }
 
 /** Must stay at or under the server's own MAX_BATCH_SIZE (apps/api/src/routes/sync.ts). */
 const PUSH_BATCH_SIZE = 200;
 
 export class SyncEngine {
-  constructor(private readonly deps: SyncEngineDeps) {}
+  private readonly log: SyncLog;
+
+  constructor(private readonly deps: SyncEngineDeps) {
+    this.log = deps.log ?? noopLog;
+  }
 
   /**
    * Uploads pending local changes, oldest first, in bounded batches.
@@ -41,7 +84,7 @@ export class SyncEngine {
    * count reflects what still might succeed, not everything ever attempted.
    */
   async drainOutbox(): Promise<{ pushed: number; blocked: number }> {
-    const { repository, apiBaseUrl, deviceToken } = this.deps;
+    const { repository, api, apiBaseUrl, deviceToken } = this.deps;
     let pushed = 0;
     let blocked = 0;
 
@@ -53,13 +96,13 @@ export class SyncEngine {
 
       const batch = pending.slice(0, PUSH_BATCH_SIZE);
       const changes = batch.map((entry) => ({ table: entry.table, record: entry.payload }));
-      log.debug('pushing batch', { batchSize: batch.length, pendingTotal: pending.length });
+      this.log.debug('pushing batch', { batchSize: batch.length, pendingTotal: pending.length });
 
-      const result = await pushChanges(apiBaseUrl, deviceToken, changes);
+      const result = await api.pushChanges(apiBaseUrl, deviceToken, changes);
       if (!result.ok) {
         // A network/server failure, not a verdict on any individual record — every entry in this
         // batch stays queued for the next attempt.
-        log.error('push failed', { error: result.error, batchSize: batch.length });
+        this.log.error('push failed', { error: result.error, batchSize: batch.length });
         for (const entry of batch) {
           await repository.markSyncFailed(entry.id!, result.error);
         }
@@ -74,7 +117,7 @@ export class SyncEngine {
 
         if (applied) {
           await repository.markSynced(id);
-          await markSyncedLocally(this.deps.db, entry.table, entry.entityId);
+          await markSyncedLocally(this.deps.store, entry.table, entry.entityId);
           pushed += 1;
         } else if (wasBlocked) {
           // Not a failure to retry — the safety warning broadcast is what surfaces this to every
@@ -95,7 +138,7 @@ export class SyncEngine {
       }
     }
 
-    log.debug('outbox drained', { pushed, blocked });
+    this.log.debug('outbox drained', { pushed, blocked });
     return { pushed, blocked };
   }
 
@@ -104,25 +147,25 @@ export class SyncEngine {
    * first time), merging each record into the local database.
    */
   async pull(): Promise<void> {
-    const { db, apiBaseUrl, deviceToken, householdId } = this.deps;
-    const cursor = await getCursor(db, householdId);
-    log.debug(cursor === undefined ? 'bootstrapping' : 'pulling delta', { cursor });
+    const { store, api, apiBaseUrl, deviceToken, householdId } = this.deps;
+    const cursor = await getCursor(store, householdId);
+    this.log.debug(cursor === undefined ? 'bootstrapping' : 'pulling delta', { cursor });
 
     const result =
       cursor === undefined
-        ? await bootstrap(apiBaseUrl, deviceToken)
-        : await pullDelta(apiBaseUrl, deviceToken, cursor);
+        ? await api.bootstrap(apiBaseUrl, deviceToken)
+        : await api.pull(apiBaseUrl, deviceToken, cursor);
 
     if (!result.ok) {
-      log.error('pull failed', { error: result.error, cursor });
+      this.log.error('pull failed', { error: result.error, cursor });
       throw new Error(result.error);
     }
 
     for (const record of result.value.records) {
-      await applyPulledRecord(db, record);
+      await applyPulledRecord(store, record);
     }
-    await setCursor(db, householdId, result.value.cursor);
-    log.debug('pull applied', {
+    await setCursor(store, householdId, result.value.cursor);
+    this.log.debug('pull applied', {
       records: result.value.records.length,
       newCursor: result.value.cursor,
       hasMore: result.value.hasMore ?? false,
@@ -135,9 +178,9 @@ export class SyncEngine {
 
   /** Push first, then pull — so this device's own just-applied changes don't round-trip as if remote. */
   async runOnce(): Promise<void> {
-    log.debug('sync run starting');
+    this.log.debug('sync run starting');
     await this.drainOutbox();
     await this.pull();
-    log.debug('sync run finished');
+    this.log.debug('sync run finished');
   }
 }

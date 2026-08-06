@@ -1,12 +1,17 @@
 package com.medguard.alarms
 
+import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.core.content.ContextCompat
+import expo.modules.interfaces.permissions.Permissions
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -105,6 +110,33 @@ class MedGuardAlarmsModule : Module() {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     },
                 )
+            }
+
+            // POST_NOTIFICATIONS (Android 13+): declared in the manifest via the config plugin,
+            // but declaring it never prompts the OS dialog on its own — a runtime request is
+            // required, same as SCHEDULE_EXACT_ALARM below. Without this, the chime's
+            // foreground-service notification (and the Taken/Snooze actions) never becomes
+            // visible on a first install, even though the alarm-stream audio itself isn't gated
+            // by it.
+            AsyncFunction("hasNotificationPermission") {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                        PackageManager.PERMISSION_GRANTED
+                } else {
+                    true
+                }
+            }
+
+            AsyncFunction("requestNotificationPermission") { promise: Promise ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Permissions.askForPermissionsWithPermissionsManager(
+                        appContext.permissions,
+                        promise,
+                        Manifest.permission.POST_NOTIFICATIONS,
+                    )
+                } else {
+                    promise.resolve(mapOf("granted" to true))
+                }
             }
 
             AsyncFunction("hasNotificationPolicyAccess") {

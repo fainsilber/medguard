@@ -2,11 +2,12 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { LiveMessage, LiveSafetyWarningMessage } from '@medguard/shared';
+import { SyncEngine } from '@medguard/store';
+import * as syncApi from '../api/syncApi.js';
 import { getApiBaseUrl } from '../api/config.js';
 import { getHouseholdSession, onHouseholdSessionChange } from '../api/session.js';
-import { useMedGuardDb, useRepository } from '../app/RepositoryContext.js';
+import { useMedGuardDb, useRepository, useStore } from '../app/RepositoryContext.js';
 import { appLog } from '../logging/appLog.js';
-import { SyncEngine } from './engine.js';
 import { LiveClient } from './liveClient.js';
 import type { LiveClientStatus } from './liveClient.js';
 
@@ -36,6 +37,7 @@ const SyncReactContext = createContext<SyncContextValue | null>(null);
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const db = useMedGuardDb();
+  const store = useStore();
   const repository = useRepository();
 
   const [session, setSession] = useState(() => getHouseholdSession());
@@ -62,8 +64,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false;
     const engine = new SyncEngine({
-      db,
+      store,
       repository,
+      api: syncApi,
       apiBaseUrl: getApiBaseUrl(),
       deviceToken: session.deviceToken,
       householdId: session.householdId,
@@ -126,10 +129,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       liveClient.stop();
       runSyncRef.current = async () => {};
     };
-    // db/repository are memoised per caregiver identity by RepositoryProvider and are not
+    // db/store/repository are memoised per caregiver identity by RepositoryProvider and are not
     // meaningfully "changing" for this effect's purpose — only a different household session
     // should tear down and rebuild the connection.
-  }, [session, db, repository]);
+  }, [session, db, store, repository]);
 
   // Reactively drains whenever a new local mutation is queued — the sync engine otherwise has no
   // way to learn "something changed" except a WebSocket event *from the server*, which is exactly

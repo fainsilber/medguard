@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock } from '@medguard/shared/testing';
-import type { MedGuardRepository } from '../../db/repository.js';
+import type { MedGuardRepository } from '@medguard/store';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import { ExportScreen } from './ExportScreen.js';
 

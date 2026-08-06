@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 const sharedSrc = fileURLToPath(new URL('../../packages/shared/src', import.meta.url));
+const storeSrc = fileURLToPath(new URL('../../packages/store/src', import.meta.url));
 
 /**
  * Scoped to plain TypeScript (runtime, alarm materialization) — no RN components. Per
@@ -14,6 +15,9 @@ export default defineConfig({
     alias: {
       '@medguard/shared/testing': `${sharedSrc}/testing.ts`,
       '@medguard/shared': `${sharedSrc}/index.ts`,
+      '@medguard/store/sqlite': `${storeSrc}/sqlite/index.ts`,
+      '@medguard/store/testing': `${storeSrc}/testing/index.ts`,
+      '@medguard/store': `${storeSrc}/index.ts`,
     },
   },
   test: {

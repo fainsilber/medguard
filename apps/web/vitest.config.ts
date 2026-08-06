@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 const sharedSrc = fileURLToPath(new URL('../../packages/shared/src', import.meta.url));
+const storeSrc = fileURLToPath(new URL('../../packages/store/src', import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
@@ -10,6 +11,8 @@ export default defineConfig({
     alias: {
       '@medguard/shared/testing': `${sharedSrc}/testing.ts`,
       '@medguard/shared': `${sharedSrc}/index.ts`,
+      '@medguard/store/dexie': `${storeSrc}/dexie/index.ts`,
+      '@medguard/store': `${storeSrc}/index.ts`,
     },
   },
   test: {

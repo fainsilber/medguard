@@ -17,6 +17,7 @@ export default defineConfig({
           include: ['src/**/*.test.ts'],
         },
       },
+      './packages/store/vitest.config.ts',
       './apps/web/vitest.config.ts',
       './apps/api/vitest.config.ts',
       './apps/android/vitest.config.ts',
@@ -30,7 +31,7 @@ export default defineConfig({
       // in all three environments.
       provider: 'istanbul',
       reporter: ['text', 'html', 'lcov'],
-      include: ['packages/shared/src/**/*.ts', 'apps/*/src/**/*.{ts,tsx}'],
+      include: ['packages/shared/src/**/*.ts', 'packages/store/src/**/*.ts', 'apps/*/src/**/*.{ts,tsx}'],
       exclude: [
         '**/*.test.{ts,tsx}',
         '**/*.d.ts',
@@ -48,6 +49,12 @@ export default defineConfig({
         'apps/android/src/runtime/**',
         'apps/android/index.ts',
         'apps/android/App.tsx',
+        // Barrel re-exports and the conformance-suite/fixture harness itself — no logic of their
+        // own, exercised entirely through the tests that import from them.
+        'packages/store/src/index.ts',
+        'packages/store/src/dexie/index.ts',
+        'packages/store/src/sqlite/index.ts',
+        'packages/store/src/testing/**',
       ],
       thresholds: {
         // Global floor.
@@ -69,6 +76,13 @@ export default defineConfig({
         'packages/shared/src/timezone.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
         'packages/shared/src/logs.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
         'packages/shared/src/sync.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+
+        // Sprint A1 (docs/android-client-plan.md, "Storage and the sync port"): the extracted
+        // outbox/transaction code and the LWW-vs-append-only merge dispatch carry the same
+        // safety invariant 7 (no log lost across an offline→online cycle, no retry ever
+        // double-applying) the rest of this list protects.
+        'packages/store/src/repository.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+        'packages/store/src/tableDispatch.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
       },
     },
   },
