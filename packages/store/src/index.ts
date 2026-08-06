@@ -6,3 +6,7 @@ export type { SyncApi, SyncApiResult, SyncEngineDeps, SyncLog, SyncPullResult, S
 export { getCursor, setCursor } from './cursor.js';
 export { applyPulledRecord, markSyncedLocally } from './tableDispatch.js';
 export type { PulledRecord } from './tableDispatch.js';
+export { LiveClient } from './liveClient.js';
+export type { LiveClientLog, LiveClientOptions, LiveClientStatus } from './liveClient.js';
+export { NotifyingStore } from './notifyingStore.js';
+export type { StoreChangeListener } from './notifyingStore.js';

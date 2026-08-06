@@ -1,5 +1,6 @@
-import { effectiveLogs } from '@medguard/shared';
-import type { IntakeLog, Occurrence } from '@medguard/shared';
+import { effectiveLogs } from './logs.js';
+import type { IntakeLog } from './types.js';
+import type { Occurrence } from './schedule.js';
 
 /**
  * The log recorded for a scheduled occurrence, if any.

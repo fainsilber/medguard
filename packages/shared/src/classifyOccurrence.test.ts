@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fromIso } from '@medguard/shared';
+import { fromIso } from './clock.js';
 import { DUE_NOW_WINDOW_MS, classifyOccurrence } from './classifyOccurrence.js';
 
 const DUE_AT = '2026-06-15T08:00:00.000Z';

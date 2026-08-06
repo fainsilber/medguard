@@ -73,10 +73,10 @@ export default tseslint.config(
     },
   },
 
-  // Metro and Babel require CommonJS config files, loaded by Node directly rather than bundled —
-  // the one place in this app that isn't ESM.
+  // Metro, Babel and Jest require CommonJS config files, loaded by Node directly rather than
+  // bundled — the one place in this app that isn't ESM.
   {
-    files: ['apps/android/metro.config.js', 'apps/android/babel.config.js'],
+    files: ['apps/android/metro.config.js', 'apps/android/babel.config.js', 'apps/android/jest.config.js'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
     },

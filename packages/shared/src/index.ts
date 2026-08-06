@@ -45,6 +45,13 @@ export {
   scheduleIsLiveOn,
 } from './schedule.js';
 export type { ExpansionRange, Occurrence, RevisionContext, ScheduleRevision } from './schedule.js';
+export { DAY_LABELS, describeSchedule } from './scheduleDisplay.js';
+
+// Today-view derivation (client-agnostic: web and Android both classify occurrences the same way)
+export { DUE_NOW_WINDOW_MS, classifyOccurrence } from './classifyOccurrence.js';
+export type { OccurrenceStatus } from './classifyOccurrence.js';
+export { findLogForOccurrence } from './matchOccurrenceLog.js';
+export { formatCountdown } from './formatCountdown.js';
 
 // PRN safety guards
 export {

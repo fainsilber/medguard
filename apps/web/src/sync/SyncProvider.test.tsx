@@ -9,7 +9,7 @@ import { DexieStore } from '@medguard/store/dexie';
 import { RepositoryProvider } from '../app/RepositoryContext.js';
 import { setHouseholdSession } from '../api/session.js';
 import { MedGuardDB } from '../db/schema.js';
-import { FakeWebSocket } from '../testUtils/FakeWebSocket.js';
+import { FakeWebSocket } from '@medguard/store/testing';
 import { renderWithRepository } from '../testUtils/renderWithRepository.js';
 import { SafetyWarningBanner } from './SafetyWarningBanner.js';
 import { SyncProvider } from './SyncProvider.js';

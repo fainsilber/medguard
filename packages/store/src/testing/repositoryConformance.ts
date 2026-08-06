@@ -290,6 +290,15 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         const { repository } = await freshRepository();
         await expect(repository.archiveMedicine('missing')).rejects.toThrow(/No such medicine/);
       });
+
+      it('allMedicines includes archived ones that activeMedicines excludes', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine(), 'CREATE');
+        await repository.archiveMedicine('medicine-1');
+
+        expect(await repository.activeMedicines()).toHaveLength(0);
+        expect(await repository.allMedicines()).toHaveLength(1);
+      });
     });
 
     describe('indexed history queries', () => {

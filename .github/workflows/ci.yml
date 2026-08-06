@@ -40,6 +40,12 @@ jobs:
       - name: Test with coverage
         run: npm run test:coverage
 
+      # RN screen tests, outside the Vitest projects list — jest-expo's preset provides the
+      # native-module mocks the actual RN renderer needs, which jsdom/node can't (docs/android-
+      # client-plan.md, test strategy table).
+      - name: Android RN component tests
+        run: npm run test:jest --workspace=@medguard/android
+
       - name: Install Playwright browser
         run: npx playwright install chromium --with-deps
 

@@ -1,22 +1,26 @@
-import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { LiveMessage, LiveSafetyWarningMessage } from '@medguard/shared';
 import { LiveClient, SyncEngine } from '@medguard/store';
 import type { LiveClientStatus } from '@medguard/store';
-import * as syncApi from '../api/syncApi.js';
 import { getApiBaseUrl } from '../api/config.js';
-import { getHouseholdSession, onHouseholdSessionChange } from '../api/session.js';
-import { useMedGuardDb, useRepository, useStore } from '../app/RepositoryContext.js';
+import * as syncApi from '../api/syncApi.js';
+import { useRepository, useStore } from '../app/RepositoryContext.js';
+import { getHouseholdSession, onHouseholdSessionChange } from '../identity/session.js';
+import type { HouseholdSession } from '../identity/session.js';
 import { appLog } from '../logging/appLog.js';
+import { useLiveQuery } from '../store/useLiveQuery.js';
 
 const log = appLog('sync');
 const liveLog = appLog('live');
 
 /**
  * Starts and stops the sync engine and live WebSocket as the household connection comes and
- * goes, and exposes a status every screen can show — safety invariant 6: sync state is never
- * silent, whether that's "synced", "3 changes waiting to upload", or "can't reach the server".
+ * goes, and exposes a status every screen can show — safety invariant 6. The Android equivalent
+ * of `apps/web/src/sync/SyncProvider.tsx`: same `SyncEngine`/`LiveClient` from `@medguard/store`,
+ * same state machine, but the household session is read asynchronously (`expo-secure-store`) and
+ * "a new local write happened" is detected via `useLiveQuery` over the `NotifyingStore` instead
+ * of Dexie's `useLiveQuery(() => db.syncOutbox.count(), [db])`.
  */
 
 export type SyncIndicatorStatus =
@@ -36,24 +40,42 @@ interface SyncContextValue {
 const SyncReactContext = createContext<SyncContextValue | null>(null);
 
 export function SyncProvider({ children }: { children: ReactNode }) {
-  const db = useMedGuardDb();
   const store = useStore();
   const repository = useRepository();
 
-  const [session, setSession] = useState(() => getHouseholdSession());
+  const [session, setSession] = useState<HouseholdSession | null | undefined>(undefined);
   const [connectionStatus, setConnectionStatus] = useState<LiveClientStatus>('closed');
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSafetyWarning, setLastSafetyWarning] = useState<LiveSafetyWarningMessage | null>(null);
 
-  useEffect(() => onHouseholdSessionChange(() => setSession(getHouseholdSession())), []);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void getHouseholdSession().then((value) => {
+        if (!cancelled) {
+          setSession(value);
+        }
+      });
+    };
+    refresh();
+    const unsubscribe = onHouseholdSessionChange(refresh);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   // Called from the outbox-watching effect below, so a caregiver's own new dose is pushed right
   // away rather than waiting for the next WebSocket event or reconnect to happen to trigger one.
   const runSyncRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
+    if (session === undefined) {
+      // Still loading the session from expo-secure-store — nothing to start yet.
+      return;
+    }
     if (!session) {
       setConnectionStatus('closed');
       setError(null);
@@ -131,15 +153,14 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       liveClient.stop();
       runSyncRef.current = async () => {};
     };
-    // db/store/repository are memoised per caregiver identity by RepositoryProvider and are not
-    // meaningfully "changing" for this effect's purpose — only a different household session
-    // should tear down and rebuild the connection.
-  }, [session, db, store, repository]);
+    // store/repository are stable for the lifetime of RepositoryProvider — only a different
+    // household session should tear down and rebuild the connection.
+  }, [session, store, repository]);
 
   // Reactively drains whenever a new local mutation is queued — the sync engine otherwise has no
   // way to learn "something changed" except a WebSocket event *from the server*, which is exactly
   // backwards for the device that just made the change itself.
-  const outboxCount = useLiveQuery(() => db.syncOutbox.count(), [db]);
+  const outboxCount = useLiveQuery(() => repository.pendingSyncCount(), ['syncOutbox']);
   const previousOutboxCount = useRef(0);
 
   useEffect(() => {

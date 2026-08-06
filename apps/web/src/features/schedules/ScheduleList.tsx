@@ -1,12 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
-import { formatLocalDate } from '@medguard/shared';
+import { describeSchedule, formatLocalDate } from '@medguard/shared';
 import type { Schedule } from '@medguard/shared';
 import { useClock, useMedGuardDb, useRepository } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { buttonClass } from '../../ui/primitives.js';
 import { ScheduleForm } from './ScheduleForm.js';
-import { describeSchedule } from './scheduleDisplay.js';
 
 /**
  * A medicine's schedule history: the live version plus every closed one, since a closed
