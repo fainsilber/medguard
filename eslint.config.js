@@ -66,9 +66,26 @@ export default tseslint.config(
       'apps/web/src/features/**/*.{ts,tsx}',
       'apps/web/src/sync/**/*.ts',
       'apps/api/src/**/*.ts',
+      'apps/android/src/**/*.{ts,tsx}',
     ],
     rules: {
       'no-restricted-syntax': ['error', ...noAmbientTimeOrIdentity],
+    },
+  },
+
+  // Metro and Babel require CommonJS config files, loaded by Node directly rather than bundled —
+  // the one place in this app that isn't ESM.
+  {
+    files: ['apps/android/metro.config.js', 'apps/android/babel.config.js'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+    languageOptions: {
+      globals: {
+        module: 'writable',
+        require: 'readonly',
+        __dirname: 'readonly',
+      },
     },
   },
 

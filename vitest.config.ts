@@ -19,6 +19,7 @@ export default defineConfig({
       },
       './apps/web/vitest.config.ts',
       './apps/api/vitest.config.ts',
+      './apps/android/vitest.config.ts',
     ],
 
     coverage: {
@@ -41,6 +42,12 @@ export default defineConfig({
         'apps/web/src/sw.ts',
         'packages/shared/src/runtime/**',
         'packages/shared/src/index.ts',
+        // Composition roots: wire real platform modules (expo-crypto, the native alarms
+        // module), no logic of their own. Proven on-device, not by unit coverage — same
+        // rationale as apps/web/src/main.tsx above.
+        'apps/android/src/runtime/**',
+        'apps/android/index.ts',
+        'apps/android/App.tsx',
       ],
       thresholds: {
         // Global floor.

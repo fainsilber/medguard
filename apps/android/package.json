@@ -1,0 +1,43 @@
+{
+  "name": "@medguard/android",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "prebuild": "expo prebuild --platform android --clean",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@medguard/shared": "*",
+    "expo": "~57.0.10",
+    "expo-application": "~57.0.2",
+    "expo-constants": "~57.0.9",
+    "expo-crypto": "~57.0.1",
+    "expo-device": "~57.0.1",
+    "expo-modules-core": "~57.0.9",
+    "expo-secure-store": "~57.0.1",
+    "expo-sqlite": "~57.0.1",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "~19.2.0",
+    "babel-preset-expo": "~57.0.5",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.0"
+  },
+  "expo": {
+    "autolinking": {
+      "searchPaths": [
+        "./modules"
+      ]
+    }
+  }
+}

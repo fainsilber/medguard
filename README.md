@@ -40,6 +40,9 @@ packages/shared/   Pure domain logic — no DOM, no Workers globals. Shared by t
                    server so a safety rule exists exactly once, and portable to a future native app.
 apps/web/          React 18 + Vite PWA. Dexie (IndexedDB) for local-first storage.
 apps/api/          Hono on Cloudflare Workers, with D1 and a SQLite-backed Durable Object.
+apps/android/      React Native + Expo native client (Sprint A0, scaffold stage) — the locked-
+                   phone dose alarm the PWA structurally cannot deliver. See
+                   apps/android/README.md and docs/android-client-plan.md.
 ```
 
 ## Getting started

@@ -1,0 +1,16 @@
+# Continuous native generation — expo prebuild writes this and it must never be committed
+# (docs/android-client-plan.md, "Framework and workspace").
+/android
+/ios
+
+.expo/
+dist/
+web-build/
+node_modules/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+.env*.local
