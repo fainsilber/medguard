@@ -125,31 +125,43 @@ adb shell dumpsys deviceidle whitelist | grep medguard # confirm battery-optimiz
 ## What hasn't been verified
 
 This sandbox has no Android SDK, no emulator, and no physical device, so none of the following
-has actually been run:
+has actually been run, since the environment that wrote this scaffold has no Android SDK, no
+emulator, and no physical device:
 
-- `npm install` has not been executed for this workspace (Expo/React Native installs are large;
-  doing it here wouldn't let anything build anyway with no SDK present). Package versions were
-  pinned against the real Expo SDK 57 registry metadata (`bundledNativeModules.json`), not
-  guessed, but a fresh `npm install` at the repo root is the first real step and may surface
-  version conflicts this review couldn't catch.
-- `expo prebuild` has never generated the native `android/` project from
-  `app.config.ts` + `plugins/withMedGuardAlarms.ts`, so the config plugin's manifest mutations are
-  unverified beyond a careful reading of the `@expo/config-plugins` API.
-- The Kotlin in `modules/medguard-alarms/android` has never been compiled. It's written to the
-  real Android/AndroidX APIs (`AlarmManager`, `NotificationCompat`, `MediaPlayer`,
-  `ContextCompat.startForegroundService`) as they're documented, but a real Gradle build is the
-  first thing that will actually type-check it.
-- **The A0 exit gate itself — the locked-phone chime — has not fired on a real device.** This is
-  the premise of the entire native client (docs/android-client-plan.md: "Failing it early costs a
-  week; failing it in A5 costs the project"). Don't treat this scaffold as proof the gate passes.
-
-Run, at minimum, before trusting any of this:
+- `npm install`, `npm run typecheck`, `npm run lint`, and the full Vitest suite (725/725 passing,
+  including `src/runtime/icuSpike.test.ts`) have been run and are green.
+- `npx expo prebuild --platform android --clean` has been run for real. It generates the native
+  `android/` project from `app.config.ts` + `plugins/withMedGuardAlarms.ts`; the resulting
+  `AndroidManifest.xml`, `data_extraction_rules.xml` and `backup_rules.xml` were inspected and
+  parsed with an XML parser to confirm they're well-formed, not just read for plausibility. (An
+  earlier revision of this scaffold shipped an XML comment with a bare `--` in it, which is
+  illegal inside an XML comment and broke `:app:parseDebugLocalResources` — caught only once
+  someone actually ran a real Gradle build. Fixed, and now checked this way instead of just by
+  reading the template string.)
+- `npx expo export --platform android` has been run for real — a full Metro bundle through Hermes
+  bytecode compilation, 683 modules, confirmed to actually contain `@medguard/shared`'s code (not
+  a stub). This is what caught a second real bug: Metro doesn't resolve the explicit `.js`
+  specifiers `packages/shared` uses in its relative imports (`from './clock.js'`, required for
+  real Node ESM/workerd resolution) the way Vite, workerd and Vitest's Node resolver do — it treats
+  the extension as literal instead of retrying against `.ts`. `metro.config.js` now carries a
+  custom `resolver.resolveRequest` that retries a `.js`-suffixed relative specifier against
+  `.ts`/`.tsx` before giving up. This is the concrete shape "Metro in a monorepo"
+  (docs/android-client-plan.md) turned out to take.
+- **What is still unverified: the Kotlin has never been compiled by a real Gradle/Android
+  toolchain, and the A0 exit gate itself — the locked-phone chime — has not fired on a real
+  device.** That's the premise of the entire native client
+  (docs/android-client-plan.md: "Failing it early costs a week; failing it in A5 costs the
+  project"). Everything above rules out the class of bug that's obvious from tooling output
+  (bad XML, unresolvable imports); it does not substitute for the device test in "Testing the
+  exit gate on a real device" above.
 
 ```bash
 npm install
-npm run typecheck --workspace=@medguard/android   # TS surface + config plugin
-npm run test --workspace=@medguard/android         # ICU/DST fixtures under Vitest (see caveat below)
-cd apps/android && npx expo prebuild --platform android --clean
+npm run typecheck --workspace=@medguard/android
+npm run test --workspace=@medguard/android
+cd apps/android
+npx expo prebuild --platform android --clean
+npx expo export --platform android --output-dir /tmp/medguard-export   # bundles without a device
 npx expo run:android   # needs an Android SDK / device / emulator
 ```
 

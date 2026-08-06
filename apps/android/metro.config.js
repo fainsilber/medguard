@@ -26,4 +26,25 @@ config.resolver.nodeModulesPaths = [
 // a single "main" field — required so Metro resolves it the same way Vite and workerd do.
 config.resolver.unstable_enablePackageExports = true;
 
+// packages/shared's package.json sets "type": "module", and real Node ESM requires an explicit
+// extension on every relative import — so every file in packages/shared writes
+// `from './clock.js'` etc. even though the file on disk is `clock.ts`. Vite, workerd and
+// vitest's Node resolver all understand that convention; Metro's resolver does not — it treats
+// an explicit extension as literal and never retries against sourceExts, so it fails to resolve
+// "./clock.js" with "None of these files exist". This is the specific shape "Metro in a
+// monorepo" (docs/android-client-plan.md) turned out to take once tried on a real device: retry
+// a ".js"-suffixed relative specifier against ".ts"/".tsx" before giving up.
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName.startsWith('.') && moduleName.endsWith('.js')) {
+    for (const ext of ['.ts', '.tsx']) {
+      try {
+        return context.resolveRequest(context, moduleName.replace(/\.js$/, ext), platform);
+      } catch {
+        // No sibling with this extension — try the next one, then fall through below.
+      }
+    }
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 module.exports = config;
