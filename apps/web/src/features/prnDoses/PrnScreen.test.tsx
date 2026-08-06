@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fromIso, toIso } from '@medguard/shared';
 import type { Clock } from '@medguard/shared';
-import type { MedGuardRepository } from '../../db/repository.js';
+import type { MedGuardRepository } from '@medguard/store';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import { PrnScreen } from './PrnScreen.js';
 

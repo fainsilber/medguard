@@ -26,7 +26,7 @@ import type {
   UserId,
   Uuid,
 } from '@medguard/shared';
-import type { MedGuardDB } from './schema.js';
+import type { Store, StoreTransaction } from './types.js';
 
 /**
  * The only way application code touches the database.
@@ -38,6 +38,11 @@ import type { MedGuardDB } from './schema.js';
  * callers are asked to remember.
  *
  * Time and identity are injected, never ambient — see packages/shared/src/clock.ts.
+ *
+ * Storage-agnostic since Sprint A1 (docs/android-client-plan.md, "Storage and the sync port"):
+ * this is the exact class `apps/web/src/db/repository.ts` used to be, now driven through the
+ * `Store` port so `apps/web` (Dexie) and `apps/android` (SQLite) share one implementation rather
+ * than two copies of the append-only-ledger rules.
  */
 
 export interface RepositoryContext {
@@ -47,9 +52,12 @@ export interface RepositoryContext {
   deviceId: DeviceId;
 }
 
+/** Sorts after every realistic ISO-8601 timestamp — the open upper bound for a "since X" range scan. */
+const RANGE_SENTINEL_MAX = '￿';
+
 export class MedGuardRepository {
   constructor(
-    private readonly db: MedGuardDB,
+    private readonly store: Store,
     private readonly context: RepositoryContext,
   ) {}
 
@@ -58,16 +66,17 @@ export class MedGuardRepository {
   // -------------------------------------------------------------------------
 
   /**
-   * Queues a mutation for upload. Must only ever be called from inside a transaction that also
-   * writes the mutation itself.
+   * Queues a mutation for upload. Must only ever be called with the `tx` of a transaction that
+   * also writes the mutation itself.
    */
   private enqueue(
+    tx: StoreTransaction,
     table: SyncableTable,
     entityId: string,
     action: SyncAction,
     payload: unknown,
   ): Promise<number> {
-    return this.db.syncOutbox.add({
+    return tx.append<SyncOutboxEntry>('syncOutbox', {
       table,
       entityId,
       action,
@@ -79,16 +88,18 @@ export class MedGuardRepository {
 
   /** Oldest first — the queue drains in the order changes were made. */
   pendingSync(): Promise<SyncOutboxEntry[]> {
-    return this.db.syncOutbox.orderBy('createdAt').toArray();
+    return this.store.transaction(['syncOutbox'], (tx) =>
+      tx.queryIndex<SyncOutboxEntry>('syncOutbox', { kind: 'all', orderBy: 'createdAt' }),
+    );
   }
 
   pendingSyncCount(): Promise<number> {
-    return this.db.syncOutbox.count();
+    return this.store.transaction(['syncOutbox'], (tx) => tx.count('syncOutbox'));
   }
 
   /** Called once the server has accepted an entry. */
   async markSynced(outboxId: number): Promise<void> {
-    await this.db.syncOutbox.delete(outboxId);
+    await this.store.transaction(['syncOutbox'], (tx) => tx.delete('syncOutbox', outboxId));
   }
 
   /**
@@ -98,14 +109,16 @@ export class MedGuardRepository {
    * retrying forever (safety invariant 6 — degradation is never invisible).
    */
   async markSyncFailed(outboxId: number, error: string): Promise<void> {
-    const entry = await this.db.syncOutbox.get(outboxId);
-    if (!entry) {
-      return;
-    }
-    await this.db.syncOutbox.update(outboxId, {
-      attempts: entry.attempts + 1,
-      lastError: error,
-      lastAttemptAt: this.context.clock.nowIso(),
+    await this.store.transaction(['syncOutbox'], async (tx) => {
+      const entry = await tx.get<SyncOutboxEntry>('syncOutbox', outboxId);
+      if (!entry) {
+        return;
+      }
+      await tx.update<SyncOutboxEntry>('syncOutbox', outboxId, {
+        attempts: entry.attempts + 1,
+        lastError: error,
+        lastAttemptAt: this.context.clock.nowIso(),
+      });
     });
   }
 
@@ -118,14 +131,16 @@ export class MedGuardRepository {
     action: SyncAction = 'UPDATE',
   ): Promise<void> {
     const stamped = this.stamp(settings);
-    await this.db.transaction('rw', this.db.householdSettings, this.db.syncOutbox, async () => {
-      await this.db.householdSettings.put(stamped);
-      await this.enqueue('householdSettings', stamped.id, action, stamped);
+    await this.store.transaction(['householdSettings', 'syncOutbox'], async (tx) => {
+      await tx.put('householdSettings', stamped);
+      await this.enqueue(tx, 'householdSettings', stamped.id, action, stamped);
     });
   }
 
   getHouseholdSettings(): Promise<HouseholdSettings | undefined> {
-    return this.db.householdSettings.get('household');
+    return this.store.transaction(['householdSettings'], (tx) =>
+      tx.get<HouseholdSettings>('householdSettings', 'household'),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -134,9 +149,9 @@ export class MedGuardRepository {
 
   async saveMedicine(medicine: Medicine, action: SyncAction = 'UPDATE'): Promise<void> {
     const stamped = this.stamp(medicine);
-    await this.db.transaction('rw', this.db.medicines, this.db.syncOutbox, async () => {
-      await this.db.medicines.put(stamped);
-      await this.enqueue('medicines', stamped.id, action, stamped);
+    await this.store.transaction(['medicines', 'syncOutbox'], async (tx) => {
+      await tx.put('medicines', stamped);
+      await this.enqueue(tx, 'medicines', stamped.id, action, stamped);
     });
   }
 
@@ -145,19 +160,20 @@ export class MedGuardRepository {
    * would orphan a patient's dosing history.
    */
   async archiveMedicine(medicineId: Uuid): Promise<void> {
-    const medicine = await this.db.medicines.get(medicineId);
+    const medicine = await this.getMedicine(medicineId);
     if (!medicine) {
       throw new Error(`No such medicine: ${medicineId}`);
     }
     await this.saveMedicine({ ...medicine, archived: true });
   }
 
-  activeMedicines(): Promise<Medicine[]> {
-    return this.db.medicines.filter((medicine) => !medicine.archived).toArray();
+  async activeMedicines(): Promise<Medicine[]> {
+    const all = await this.store.transaction(['medicines'], (tx) => tx.getAll<Medicine>('medicines'));
+    return all.filter((medicine) => !medicine.archived);
   }
 
   getMedicine(medicineId: Uuid): Promise<Medicine | undefined> {
-    return this.db.medicines.get(medicineId);
+    return this.store.transaction(['medicines'], (tx) => tx.get<Medicine>('medicines', medicineId));
   }
 
   // -------------------------------------------------------------------------
@@ -166,9 +182,9 @@ export class MedGuardRepository {
 
   async saveSchedule(schedule: Schedule, action: SyncAction = 'UPDATE'): Promise<void> {
     const stamped = this.stamp(schedule);
-    await this.db.transaction('rw', this.db.schedules, this.db.syncOutbox, async () => {
-      await this.db.schedules.put(stamped);
-      await this.enqueue('schedules', stamped.id, action, stamped);
+    await this.store.transaction(['schedules', 'syncOutbox'], async (tx) => {
+      await tx.put('schedules', stamped);
+      await this.enqueue(tx, 'schedules', stamped.id, action, stamped);
     });
   }
 
@@ -183,7 +199,7 @@ export class MedGuardRepository {
     changes: Parameters<typeof reviseSchedule>[1],
     effectiveFrom: LocalDate,
   ): Promise<ScheduleRevision> {
-    const existing = await this.db.schedules.get(scheduleId);
+    const existing = await this.store.transaction(['schedules'], (tx) => tx.get<Schedule>('schedules', scheduleId));
     if (!existing) {
       throw new Error(`No such schedule: ${scheduleId}`);
     }
@@ -194,10 +210,10 @@ export class MedGuardRepository {
       deviceId: this.context.deviceId,
     });
 
-    await this.db.transaction('rw', this.db.schedules, this.db.syncOutbox, async () => {
-      await this.db.schedules.bulkPut([revision.closed, revision.created]);
-      await this.enqueue('schedules', revision.closed.id, 'UPDATE', revision.closed);
-      await this.enqueue('schedules', revision.created.id, 'CREATE', revision.created);
+    await this.store.transaction(['schedules', 'syncOutbox'], async (tx) => {
+      await tx.bulkPut('schedules', [revision.closed, revision.created]);
+      await this.enqueue(tx, 'schedules', revision.closed.id, 'UPDATE', revision.closed);
+      await this.enqueue(tx, 'schedules', revision.created.id, 'CREATE', revision.created);
     });
 
     return revision;
@@ -205,7 +221,7 @@ export class MedGuardRepository {
 
   /** Stops a schedule with no replacement. */
   async closeSchedule(scheduleId: Uuid, effectiveFrom: LocalDate): Promise<Schedule> {
-    const existing = await this.db.schedules.get(scheduleId);
+    const existing = await this.store.transaction(['schedules'], (tx) => tx.get<Schedule>('schedules', scheduleId));
     if (!existing) {
       throw new Error(`No such schedule: ${scheduleId}`);
     }
@@ -220,11 +236,13 @@ export class MedGuardRepository {
   }
 
   schedulesForMedicine(medicineId: Uuid): Promise<Schedule[]> {
-    return this.db.schedules.where('medicineId').equals(medicineId).toArray();
+    return this.store.transaction(['schedules'], (tx) =>
+      tx.queryIndex<Schedule>('schedules', { kind: 'equals', fields: ['medicineId'], values: [medicineId] }),
+    );
   }
 
   allSchedules(): Promise<Schedule[]> {
-    return this.db.schedules.toArray();
+    return this.store.transaction(['schedules'], (tx) => tx.getAll<Schedule>('schedules'));
   }
 
   // -------------------------------------------------------------------------
@@ -247,21 +265,15 @@ export class MedGuardRepository {
     const adjustment =
       log.status === 'taken' ? buildDoseAdjustment(log, this.adjustmentContext()) : undefined;
 
-    await this.db.transaction(
-      'rw',
-      this.db.intakeLogs,
-      this.db.inventoryAdjustments,
-      this.db.syncOutbox,
-      async () => {
-        await this.db.intakeLogs.put(log);
-        await this.enqueue('intakeLogs', log.id, 'CREATE', log);
+    await this.store.transaction(['intakeLogs', 'inventoryAdjustments', 'syncOutbox'], async (tx) => {
+      await tx.put('intakeLogs', log);
+      await this.enqueue(tx, 'intakeLogs', log.id, 'CREATE', log);
 
-        if (adjustment) {
-          await this.db.inventoryAdjustments.put(adjustment);
-          await this.enqueue('inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
-        }
-      },
-    );
+      if (adjustment) {
+        await tx.put('inventoryAdjustments', adjustment);
+        await this.enqueue(tx, 'inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
+      }
+    });
 
     return { log, ...(adjustment ? { adjustment } : {}) };
   }
@@ -277,17 +289,23 @@ export class MedGuardRepository {
     originalLogId: Uuid,
     correction: Omit<IntakeLog, 'supersedesId'>,
   ): Promise<IntakeLog> {
-    const original = await this.db.intakeLogs.get(originalLogId);
+    const original = await this.store.transaction(['intakeLogs'], (tx) =>
+      tx.get<IntakeLog>('intakeLogs', originalLogId),
+    );
     if (!original) {
       throw new Error(`No such intake log: ${originalLogId}`);
     }
 
     const corrected: IntakeLog = { ...correction, supersedesId: originalLogId };
 
-    const originalAdjustment = adjustmentForLog(
-      await this.db.inventoryAdjustments.where('relatedLogId').equals(originalLogId).toArray(),
-      originalLogId,
+    const existingAdjustments = await this.store.transaction(['inventoryAdjustments'], (tx) =>
+      tx.queryIndex<InventoryAdjustment>('inventoryAdjustments', {
+        kind: 'equals',
+        fields: ['relatedLogId'],
+        values: [originalLogId],
+      }),
     );
+    const originalAdjustment = adjustmentForLog(existingAdjustments, originalLogId);
     const reversal = originalAdjustment
       ? buildReversalAdjustment(originalAdjustment, this.adjustmentContext())
       : undefined;
@@ -296,23 +314,17 @@ export class MedGuardRepository {
         ? buildDoseAdjustment(corrected, this.adjustmentContext())
         : undefined;
 
-    await this.db.transaction(
-      'rw',
-      this.db.intakeLogs,
-      this.db.inventoryAdjustments,
-      this.db.syncOutbox,
-      async () => {
-        await this.db.intakeLogs.put(corrected);
-        await this.enqueue('intakeLogs', corrected.id, 'CREATE', corrected);
+    await this.store.transaction(['intakeLogs', 'inventoryAdjustments', 'syncOutbox'], async (tx) => {
+      await tx.put('intakeLogs', corrected);
+      await this.enqueue(tx, 'intakeLogs', corrected.id, 'CREATE', corrected);
 
-        for (const entry of [reversal, replacement]) {
-          if (entry) {
-            await this.db.inventoryAdjustments.put(entry);
-            await this.enqueue('inventoryAdjustments', entry.id, 'CREATE', entry);
-          }
+      for (const entry of [reversal, replacement]) {
+        if (entry) {
+          await tx.put('inventoryAdjustments', entry);
+          await this.enqueue(tx, 'inventoryAdjustments', entry.id, 'CREATE', entry);
         }
-      },
-    );
+      }
+    });
 
     return corrected;
   }
@@ -322,21 +334,30 @@ export class MedGuardRepository {
    * rolling-cap check stays fast as history grows.
    */
   logsForMedicine(medicineId: Uuid, sinceIso?: string): Promise<IntakeLog[]> {
-    if (sinceIso === undefined) {
-      return this.db.intakeLogs.where('medicineId').equals(medicineId).toArray();
-    }
-    return this.db.intakeLogs
-      .where('[medicineId+actualTime]')
-      .between([medicineId, sinceIso], [medicineId, '￿'])
-      .toArray();
+    return this.store.transaction(['intakeLogs'], (tx) =>
+      sinceIso === undefined
+        ? tx.queryIndex<IntakeLog>('intakeLogs', { kind: 'equals', fields: ['medicineId'], values: [medicineId] })
+        : tx.queryIndex<IntakeLog>('intakeLogs', {
+            kind: 'range',
+            fields: ['medicineId', 'actualTime'],
+            prefix: [medicineId],
+            lower: sinceIso,
+            upper: RANGE_SENTINEL_MAX,
+          }),
+    );
   }
 
   /** The Today view's query, using the `[patientId+actualTime]` compound index. */
   logsForPatientBetween(patientId: Uuid, fromIso: string, toIso: string): Promise<IntakeLog[]> {
-    return this.db.intakeLogs
-      .where('[patientId+actualTime]')
-      .between([patientId, fromIso], [patientId, toIso])
-      .toArray();
+    return this.store.transaction(['intakeLogs'], (tx) =>
+      tx.queryIndex<IntakeLog>('intakeLogs', {
+        kind: 'range',
+        fields: ['patientId', 'actualTime'],
+        prefix: [patientId],
+        lower: fromIso,
+        upper: toIso,
+      }),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -346,16 +367,22 @@ export class MedGuardRepository {
   async adjustInventory(input: ManualAdjustmentInput): Promise<InventoryAdjustment> {
     const adjustment = buildManualAdjustment(input, this.adjustmentContext());
 
-    await this.db.transaction('rw', this.db.inventoryAdjustments, this.db.syncOutbox, async () => {
-      await this.db.inventoryAdjustments.put(adjustment);
-      await this.enqueue('inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
+    await this.store.transaction(['inventoryAdjustments', 'syncOutbox'], async (tx) => {
+      await tx.put('inventoryAdjustments', adjustment);
+      await this.enqueue(tx, 'inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
     });
 
     return adjustment;
   }
 
   adjustmentsForMedicine(medicineId: Uuid): Promise<InventoryAdjustment[]> {
-    return this.db.inventoryAdjustments.where('medicineId').equals(medicineId).toArray();
+    return this.store.transaction(['inventoryAdjustments'], (tx) =>
+      tx.queryIndex<InventoryAdjustment>('inventoryAdjustments', {
+        kind: 'equals',
+        fields: ['medicineId'],
+        values: [medicineId],
+      }),
+    );
   }
 
   /**
@@ -365,18 +392,25 @@ export class MedGuardRepository {
    */
   async saveInventoryItem(item: InventoryItem, action: SyncAction = 'UPDATE'): Promise<void> {
     const stamped = this.stamp(item);
-    await this.db.transaction('rw', this.db.inventoryItems, this.db.syncOutbox, async () => {
-      await this.db.inventoryItems.put(stamped);
-      await this.enqueue('inventoryItems', stamped.id, action, stamped);
+    await this.store.transaction(['inventoryItems', 'syncOutbox'], async (tx) => {
+      await tx.put('inventoryItems', stamped);
+      await this.enqueue(tx, 'inventoryItems', stamped.id, action, stamped);
     });
   }
 
-  getInventoryItem(medicineId: Uuid): Promise<InventoryItem | undefined> {
-    return this.db.inventoryItems.where('medicineId').equals(medicineId).first();
+  async getInventoryItem(medicineId: Uuid): Promise<InventoryItem | undefined> {
+    const matches = await this.store.transaction(['inventoryItems'], (tx) =>
+      tx.queryIndex<InventoryItem>('inventoryItems', {
+        kind: 'equals',
+        fields: ['medicineId'],
+        values: [medicineId],
+      }),
+    );
+    return matches[0];
   }
 
   allInventoryItems(): Promise<InventoryItem[]> {
-    return this.db.inventoryItems.toArray();
+    return this.store.transaction(['inventoryItems'], (tx) => tx.getAll<InventoryItem>('inventoryItems'));
   }
 
   // -------------------------------------------------------------------------
@@ -398,43 +432,33 @@ export class MedGuardRepository {
       'medicines' | 'schedules' | 'intakeLogs' | 'inventoryItems' | 'inventoryAdjustments'
     >,
   ): Promise<void> {
-    await this.db.transaction(
-      'rw',
-      [
-        this.db.medicines,
-        this.db.schedules,
-        this.db.intakeLogs,
-        this.db.inventoryItems,
-        this.db.inventoryAdjustments,
-        this.db.syncOutbox,
-      ],
-      async () => {
+    await this.store.transaction(
+      ['medicines', 'schedules', 'intakeLogs', 'inventoryItems', 'inventoryAdjustments', 'syncOutbox'],
+      async (tx) => {
         // Cast rather than remapped field-by-field: these arrays were already validated against
         // the exact same zod schemas the domain types are defined from — the only mismatch is
         // TypeScript's `exactOptionalPropertyTypes` being pickier about an explicit `undefined`
         // in an optional field's inferred type than the hand-written interfaces are.
-        await this.db.medicines.bulkPut(bundle.medicines as Medicine[]);
-        await this.db.schedules.bulkPut(bundle.schedules as Schedule[]);
-        await this.db.intakeLogs.bulkPut(bundle.intakeLogs as IntakeLog[]);
-        await this.db.inventoryItems.bulkPut(bundle.inventoryItems as InventoryItem[]);
-        await this.db.inventoryAdjustments.bulkPut(
-          bundle.inventoryAdjustments as InventoryAdjustment[],
-        );
+        await tx.bulkPut('medicines', bundle.medicines as Medicine[]);
+        await tx.bulkPut('schedules', bundle.schedules as Schedule[]);
+        await tx.bulkPut('intakeLogs', bundle.intakeLogs as IntakeLog[]);
+        await tx.bulkPut('inventoryItems', bundle.inventoryItems as InventoryItem[]);
+        await tx.bulkPut('inventoryAdjustments', bundle.inventoryAdjustments as InventoryAdjustment[]);
 
         for (const medicine of bundle.medicines) {
-          await this.enqueue('medicines', medicine.id, 'CREATE', medicine);
+          await this.enqueue(tx, 'medicines', medicine.id, 'CREATE', medicine);
         }
         for (const schedule of bundle.schedules) {
-          await this.enqueue('schedules', schedule.id, 'CREATE', schedule);
+          await this.enqueue(tx, 'schedules', schedule.id, 'CREATE', schedule);
         }
         for (const log of bundle.intakeLogs) {
-          await this.enqueue('intakeLogs', log.id, 'CREATE', log);
+          await this.enqueue(tx, 'intakeLogs', log.id, 'CREATE', log);
         }
         for (const item of bundle.inventoryItems) {
-          await this.enqueue('inventoryItems', item.id, 'CREATE', item);
+          await this.enqueue(tx, 'inventoryItems', item.id, 'CREATE', item);
         }
         for (const adjustment of bundle.inventoryAdjustments) {
-          await this.enqueue('inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
+          await this.enqueue(tx, 'inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
         }
       },
     );
@@ -450,31 +474,28 @@ export class MedGuardRepository {
    * way to affect — another caregiver's device.
    */
   async clearAllData(): Promise<void> {
-    await this.db.transaction(
-      'rw',
-      [
-        this.db.medicines,
-        this.db.schedules,
-        this.db.intakeLogs,
-        this.db.inventoryItems,
-        this.db.inventoryAdjustments,
-        this.db.syncOutbox,
-        this.db.syncMeta,
-      ],
-      async () => {
-        await this.db.medicines.clear();
-        await this.db.schedules.clear();
-        await this.db.intakeLogs.clear();
-        await this.db.inventoryItems.clear();
-        await this.db.inventoryAdjustments.clear();
-        await this.db.syncOutbox
-          .where('table')
-          .anyOf('medicines', 'schedules', 'intakeLogs', 'inventoryItems', 'inventoryAdjustments')
-          .delete();
+    await this.store.transaction(
+      ['medicines', 'schedules', 'intakeLogs', 'inventoryItems', 'inventoryAdjustments', 'syncOutbox', 'syncMeta'],
+      async (tx) => {
+        await tx.clear('medicines');
+        await tx.clear('schedules');
+        await tx.clear('intakeLogs');
+        await tx.clear('inventoryItems');
+        await tx.clear('inventoryAdjustments');
+
+        const staleOutbox = await tx.queryIndex<SyncOutboxEntry>('syncOutbox', {
+          kind: 'anyOf',
+          fields: ['table'],
+          values: ['medicines', 'schedules', 'intakeLogs', 'inventoryItems', 'inventoryAdjustments'],
+        });
+        for (const entry of staleOutbox) {
+          await tx.delete('syncOutbox', entry.id!);
+        }
+
         // The pull cursor belongs to whichever household this device was just connected to —
         // meaningless once that connection is gone, and actively wrong if a different household
         // is joined next (each has its own independent sequence).
-        await this.db.syncMeta.clear();
+        await tx.clear('syncMeta');
       },
     );
   }

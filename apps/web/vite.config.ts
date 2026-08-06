@@ -6,6 +6,7 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 const sharedSrc = fileURLToPath(new URL('../../packages/shared/src', import.meta.url));
+const storeSrc = fileURLToPath(new URL('../../packages/store/src', import.meta.url));
 
 /**
  * Baked into the bundle so a deployed page can be identified from the phone browser alone —
@@ -69,6 +70,8 @@ export default defineConfig({
     alias: {
       '@medguard/shared/testing': `${sharedSrc}/testing.ts`,
       '@medguard/shared': `${sharedSrc}/index.ts`,
+      '@medguard/store/dexie': `${storeSrc}/dexie/index.ts`,
+      '@medguard/store': `${storeSrc}/index.ts`,
     },
   },
   server: {

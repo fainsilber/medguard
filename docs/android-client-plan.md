@@ -2,8 +2,13 @@
 
 **Version:** 1.0
 **Basis:** `medguard-prd.md` v2.0, `medguard-sprint-plan.md` v2.0
-**Status:** proposed, not started (2026-08-05). The web track is at Sprint 4 complete; Sprint 5
-(alarms, push, escalation) is unstarted and this plan absorbs it.
+**Status:** signed off, in progress (updated 2026-08-06). A0's chime has fired on a real device
+once; the rest of its exit-gate checklist is code-reviewed but not yet re-confirmed on-device (see
+`apps/android/README.md`). A1 (`packages/store` extraction, the SQLite `Store`, the conformance
+suite) is code-complete against the exit gate below, modulo the derivation-helper move, which is
+deferred to A2 where there's a real caller for it — also see `apps/android/README.md`. The web
+track is at Sprint 4 complete; Sprint 5 (alarms, push, escalation) is unstarted and this plan
+absorbs it as A4.
 **Team model:** Claude builds; you guide, decide, review.
 
 ---

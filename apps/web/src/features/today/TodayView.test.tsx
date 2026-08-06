@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fixedClock } from '@medguard/shared/testing';
-import type { MedGuardRepository } from '../../db/repository.js';
+import type { MedGuardRepository } from '@medguard/store';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import { TodayView } from './TodayView.js';
 

@@ -4,9 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock, sequentialIds } from '@medguard/shared/testing';
 import { SINGLE_PATIENT_ID } from '@medguard/shared';
+import { MedGuardRepository } from '@medguard/store';
+import { DexieStore } from '@medguard/store/dexie';
 import { RepositoryProvider } from '../app/RepositoryContext.js';
 import { setHouseholdSession } from '../api/session.js';
-import { MedGuardRepository } from '../db/repository.js';
 import { MedGuardDB } from '../db/schema.js';
 import { FakeWebSocket } from '../testUtils/FakeWebSocket.js';
 import { renderWithRepository } from '../testUtils/renderWithRepository.js';
@@ -97,7 +98,7 @@ describe('SyncProvider', () => {
     // A local mutation on the same database the provider is watching — standing in for what a
     // caregiver adding a medicine or logging a dose through the UI actually does.
     const sideDb = new MedGuardDB(dbName);
-    const sideRepository = new MedGuardRepository(sideDb, {
+    const sideRepository = new MedGuardRepository(new DexieStore(sideDb), {
       clock: fixedClock('2026-08-03T12:00:00.000Z'),
       ids: sequentialIds('seed'),
       userId: 'u1',
@@ -120,6 +121,9 @@ describe('SyncProvider', () => {
     );
 
     await waitFor(() => expect(pushCalls.length).toBeGreaterThan(0));
+    // Let the rest of runOnce() (the pull half, and the pending-count refresh) settle before the
+    // test ends — otherwise that in-flight work keeps running into the next test's teardown.
+    await screen.findByText('Synced');
   });
 
   it('shows a live safety.warning broadcast with the medicine\'s name, dismissible', async () => {

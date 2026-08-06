@@ -5,9 +5,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   canScheduleExactAlarms,
   cancelDoseAlarm,
+  hasNotificationPermission,
+  hasNotificationPolicyAccess,
   isIgnoringBatteryOptimizations,
   playTestChime,
   requestIgnoreBatteryOptimizations,
+  requestNotificationPermission,
+  requestNotificationPolicyAccess,
   requestScheduleExactAlarm,
   scheduleDoseAlarm,
 } from '../../../modules/medguard-alarms/src';
@@ -25,12 +29,32 @@ const JERUSALEM = 'Asia/Jerusalem';
 export function SpikeScreen(): React.JSX.Element {
   const [exactAlarmsArmed, setExactAlarmsArmed] = useState<boolean | null>(null);
   const [batteryExempt, setBatteryExempt] = useState<boolean | null>(null);
+  const [notificationsGranted, setNotificationsGranted] = useState<boolean | null>(null);
+  const [dndBypassGranted, setDndBypassGranted] = useState<boolean | null>(null);
   const [armedOccurrenceKey, setArmedOccurrenceKey] = useState<string | null>(null);
   const [status, setStatus] = useState('');
 
   const refreshPermissionState = useCallback(() => {
     canScheduleExactAlarms().then(setExactAlarmsArmed);
     isIgnoringBatteryOptimizations().then(setBatteryExempt);
+    hasNotificationPermission().then(setNotificationsGranted);
+    hasNotificationPolicyAccess().then(setDndBypassGranted);
+  }, []);
+
+  // Android only ever shows the POST_NOTIFICATIONS system dialog once per install; a denial
+  // means every later call resolves `false` with no dialog. Re-checking on refresh (e.g. after
+  // returning from Settings) is what lets the row reflect a manual grant.
+  const onRequestNotificationPermission = useCallback(() => {
+    requestNotificationPermission().then((granted) => {
+      setNotificationsGranted(granted);
+      if (!granted) {
+        setStatus('Notifications denied — grant manually: Settings → Apps → MedGuard → Notifications.');
+      }
+    });
+  }, []);
+
+  const onRequestDndBypass = useCallback(() => {
+    requestNotificationPolicyAccess();
   }, []);
 
   useEffect(() => {
@@ -89,6 +113,22 @@ export function SpikeScreen(): React.JSX.Element {
         <Row label="Battery-optimization exempt" value={formatBool(batteryExempt)} warn={batteryExempt === false} />
         {batteryExempt === false ? (
           <Button label="Request battery exemption" onPress={() => requestIgnoreBatteryOptimizations()} />
+        ) : null}
+        <Row
+          label="Notifications permitted (POST_NOTIFICATIONS)"
+          value={formatBool(notificationsGranted)}
+          warn={notificationsGranted === false}
+        />
+        {notificationsGranted === false ? (
+          <Button label="Request notification permission" onPress={onRequestNotificationPermission} />
+        ) : null}
+        <Row
+          label="DND bypass granted (ACCESS_NOTIFICATION_POLICY)"
+          value={formatBool(dndBypassGranted)}
+          warn={dndBypassGranted === false}
+        />
+        {dndBypassGranted === false ? (
+          <Button label="Grant DND bypass access" onPress={onRequestDndBypass} />
         ) : null}
       </Section>
 

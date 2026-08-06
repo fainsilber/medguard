@@ -38,10 +38,13 @@ The full set of invariants is in the sprint plan.
 ```
 packages/shared/   Pure domain logic — no DOM, no Workers globals. Shared by the client and the
                    server so a safety rule exists exactly once, and portable to a future native app.
-apps/web/          React 18 + Vite PWA. Dexie (IndexedDB) for local-first storage.
+packages/store/    Storage-agnostic repository + sync engine (extracted from apps/web in Sprint A1),
+                   behind a narrow Store port. Dexie-backed for web, SQLite-backed for Android —
+                   one implementation of the append-only ledger and outbox rules, not two.
+apps/web/          React 18 + Vite PWA. Dexie (IndexedDB) for local-first storage via packages/store.
 apps/api/          Hono on Cloudflare Workers, with D1 and a SQLite-backed Durable Object.
-apps/android/      React Native + Expo native client (Sprint A0, scaffold stage) — the locked-
-                   phone dose alarm the PWA structurally cannot deliver. See
+apps/android/      React Native + Expo native client (Sprint A1: storage/sync port in progress) —
+                   the locked-phone dose alarm the PWA structurally cannot deliver. See
                    apps/android/README.md and docs/android-client-plan.md.
 ```
 

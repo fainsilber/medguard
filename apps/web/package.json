@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@medguard/shared": "*",
+    "@medguard/store": "*",
     "dexie": "^4.0.11",
     "dexie-react-hooks": "^4.4.0",
     "react": "^18.3.1",

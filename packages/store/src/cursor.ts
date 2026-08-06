@@ -1,7 +1,7 @@
-import type { MedGuardDB } from '../db/schema.js';
+import type { Store } from './types.js';
 
 /**
- * Where the sync engine resumes pulling from, persisted locally so a page reload doesn't force a
+ * Where the sync engine resumes pulling from, persisted locally so a restart doesn't force a
  * full re-bootstrap.
  *
  * Tagged with the household id it belongs to: each household has its own independent sequence
@@ -11,6 +11,7 @@ import type { MedGuardDB } from '../db/schema.js';
  * even if `clearAllData()` were ever skipped on the way out.
  */
 
+const SYNC_META_TABLE = 'syncMeta';
 const CURSOR_KEY = 'cursor';
 
 interface StoredCursor {
@@ -18,8 +19,10 @@ interface StoredCursor {
   cursor: number;
 }
 
-export async function getCursor(db: MedGuardDB, householdId: string): Promise<number | undefined> {
-  const row = await db.syncMeta.get(CURSOR_KEY);
+export async function getCursor(store: Store, householdId: string): Promise<number | undefined> {
+  const row = await store.transaction([SYNC_META_TABLE], (tx) =>
+    tx.get<{ key: string; value: unknown }>(SYNC_META_TABLE, CURSOR_KEY),
+  );
   if (!row) {
     return undefined;
   }
@@ -27,7 +30,9 @@ export async function getCursor(db: MedGuardDB, householdId: string): Promise<nu
   return stored.householdId === householdId ? stored.cursor : undefined;
 }
 
-export async function setCursor(db: MedGuardDB, householdId: string, cursor: number): Promise<void> {
+export async function setCursor(store: Store, householdId: string, cursor: number): Promise<void> {
   const stored: StoredCursor = { householdId, cursor };
-  await db.syncMeta.put({ key: CURSOR_KEY, value: stored });
+  await store.transaction([SYNC_META_TABLE], (tx) =>
+    tx.put(SYNC_META_TABLE, { key: CURSOR_KEY, value: stored }),
+  );
 }

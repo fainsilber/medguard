@@ -16,6 +16,14 @@ interface MedGuardAlarmsNativeModule {
   canScheduleExactAlarms(): Promise<boolean>;
   /** Opens `ACTION_REQUEST_SCHEDULE_EXACT_ALARM` (Android 12 only; 13+ grants at install). */
   requestScheduleExactAlarm(): Promise<void>;
+  /** Always `true` below Android 13 — the permission didn't exist yet. */
+  hasNotificationPermission(): Promise<boolean>;
+  /**
+   * The real runtime prompt (Android 13+ only); a no-op resolve(true) on older OS versions.
+   * Resolves the shape `expo-modules-core`'s `Permissions` interface always returns
+   * (`{granted, status, canAskAgain, expires}`), not a bare boolean.
+   */
+  requestNotificationPermission(): Promise<{ granted: boolean }>;
   canUseFullScreenIntent(): Promise<boolean>;
   isIgnoringBatteryOptimizations(): Promise<boolean>;
   requestIgnoreBatteryOptimizations(): Promise<void>;
@@ -44,6 +52,11 @@ export const playTestChime = (chimeDurationSeconds: number): Promise<void> =>
 export const canScheduleExactAlarms = (): Promise<boolean> => nativeModule.canScheduleExactAlarms();
 
 export const requestScheduleExactAlarm = (): Promise<void> => nativeModule.requestScheduleExactAlarm();
+
+export const hasNotificationPermission = (): Promise<boolean> => nativeModule.hasNotificationPermission();
+
+export const requestNotificationPermission = (): Promise<boolean> =>
+  nativeModule.requestNotificationPermission().then((result) => result.granted);
 
 export const canUseFullScreenIntent = (): Promise<boolean> => nativeModule.canUseFullScreenIntent();
 

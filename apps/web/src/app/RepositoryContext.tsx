@@ -2,8 +2,10 @@ import { createContext, useContext, useEffect, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { systemClock, uuidIdGenerator } from '@medguard/shared';
 import type { Clock, IdGenerator } from '@medguard/shared';
+import { MedGuardRepository } from '@medguard/store';
+import { DexieStore } from '@medguard/store/dexie';
+import type { Store } from '@medguard/store';
 import { requestPersistentStorage } from '../db/persist.js';
-import { MedGuardRepository } from '../db/repository.js';
 import { MedGuardDB } from '../db/schema.js';
 import { getOrCreateDeviceId } from '../identity/deviceId.js';
 
@@ -23,6 +25,7 @@ import { getOrCreateDeviceId } from '../identity/deviceId.js';
 
 interface RepositoryHandles {
   db: MedGuardDB;
+  store: Store;
   repository: MedGuardRepository;
   ids: IdGenerator;
   clock: Clock;
@@ -52,9 +55,10 @@ export function RepositoryProvider({
 }) {
   const handles = useMemo<RepositoryHandles>(() => {
     const db = new MedGuardDB(dbName);
+    const store = new DexieStore(db);
     const deviceId = getOrCreateDeviceId();
-    const repository = new MedGuardRepository(db, { clock, ids: uuidIdGenerator, userId, deviceId });
-    return { db, repository, ids: uuidIdGenerator, clock, userId, deviceId };
+    const repository = new MedGuardRepository(store, { clock, ids: uuidIdGenerator, userId, deviceId });
+    return { db, store, repository, ids: uuidIdGenerator, clock, userId, deviceId };
     // userId changing mid-session (a caregiver switching identity on a shared device) is rare
     // enough, and consequential enough, that re-deriving the whole database handle rather than
     // patching it in place is the safer choice — no risk of a write landing attributed to the
@@ -85,6 +89,11 @@ export function useRepository(): MedGuardRepository {
 /** For read-only live queries via dexie-react-hooks, which query the database directly. */
 export function useMedGuardDb(): MedGuardDB {
   return useHandles().db;
+}
+
+/** The storage-agnostic port the sync engine (and nothing else) writes through. */
+export function useStore(): Store {
+  return useHandles().store;
 }
 
 /** For generating the id of a new entity before its first save. */

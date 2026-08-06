@@ -8,7 +8,9 @@
     "types": ["vite/client", "vite-plugin-pwa/client", "@testing-library/jest-dom"],
     "paths": {
       "@medguard/shared": ["../../packages/shared/src/index.ts"],
-      "@medguard/shared/testing": ["../../packages/shared/src/testing.ts"]
+      "@medguard/shared/testing": ["../../packages/shared/src/testing.ts"],
+      "@medguard/store": ["../../packages/store/src/index.ts"],
+      "@medguard/store/dexie": ["../../packages/store/src/dexie/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx", "*.config.ts"]
