@@ -6,8 +6,10 @@ alarm-volume dose chime that fires on a **locked phone with the screen off**, au
 own, and requires zero touches to work.
 
 **Status: Sprint A0 — spike and scaffold.** Per the plan, "nothing else is built until it passes."
-This commit is the scaffold and the native alarm layer the gate depends on; the gate itself (a
-real chime, on a real locked phone) has **not** been run — see "What hasn't been verified" below.
+The chime has sounded on a real device (confirmed 2026-08-06). The full exit-gate checklist —
+alarm-volume audio through ringer-silent, screen staying off, the full 45 seconds, and a zero-touch
+auto-stop — hasn't been itemized item-by-item yet; see "Testing the exit gate on a real device"
+below to confirm the rest, and "What hasn't been verified" for what's still open.
 
 ## What's here
 
