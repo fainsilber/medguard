@@ -15,8 +15,22 @@ import type { SqlDriver, SqlRunResult } from '@medguard/store/sqlite';
  * the Expo runtime. `SQLiteRunResult`'s `lastInsertRowId`/`changes` fields and
  * `withTransactionAsync`'s rollback-on-throw behavior are taken from the package's own `.d.ts`
  * and doc comments, not confirmed empirically here.
+ *
+ * `expo-sqlite` opens exactly one native connection per `SQLiteDatabase`, and that connection has
+ * no queue of its own: a second `withTransactionAsync` call while one is still open fails outright
+ * ("cannot start a transaction within a transaction"), rather than waiting its turn the way a
+ * pooled/multi-connection driver would. This module is the single `SqlDriver` behind every
+ * `store.transaction()` call app-wide, though — the sync engine draining the outbox, a caregiver's
+ * own write, and every `useLiveQuery` re-running its read after `NotifyingStore` announces a write
+ * (fire-and-forget, not awaited by whatever write triggered it — see `notifyingStore.ts`) all go
+ * through it independently, with no shared awareness of each other. `withTransaction()` below is
+ * the one place that can see all of them, so it's the one place that can serialize them: each call
+ * is queued onto a private promise chain and only starts once every earlier one has fully settled,
+ * so two transactions from unrelated call sites can no longer race for the same connection.
  */
 export class ExpoSqliteDriver implements SqlDriver {
+  private queue: Promise<void> = Promise.resolve();
+
   constructor(private readonly db: SQLiteDatabase) {}
 
   // Every value flowing through `SqlDriver` is `unknown` by design (see `dexieStore.ts`'s
@@ -42,11 +56,23 @@ export class ExpoSqliteDriver implements SqlDriver {
     // result back out, so it's captured through this closure instead. A throw inside `fn` still
     // propagates out of `withTransactionAsync` and rolls the transaction back; nothing here
     // swallows it.
-    let result: T | undefined;
-    await this.db.withTransactionAsync(async () => {
-      result = await fn();
-    });
-    return result as T;
+    const run = async (): Promise<T> => {
+      let result: T | undefined;
+      await this.db.withTransactionAsync(async () => {
+        result = await fn();
+      });
+      return result as T;
+    };
+
+    // Chained onto the queue's *settlement*, not its value, so one transaction throwing never
+    // wedges every later one behind a permanently-rejected link — this only ever needs the prior
+    // slot to be free, not to have succeeded.
+    const runAfterQueued = this.queue.then(run, run);
+    this.queue = runAfterQueued.then(
+      () => undefined,
+      () => undefined,
+    );
+    return runAfterQueued;
   }
 }
 
