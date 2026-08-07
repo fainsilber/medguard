@@ -32,8 +32,13 @@ const config: ExpoConfig = {
   },
   plugins: ['./plugins/withMedGuardAlarms'],
   extra: {
-    // Overridden per-build (dev/staging/prod) via EAS build profiles in eas.json.
-    apiBaseUrl: process.env.MEDGUARD_API_BASE_URL ?? 'https://medguard-api.example.workers.dev',
+    // Overridden per-build (dev/staging/prod) via EAS build profiles in eas.json. Left `undefined`
+    // when unset (e.g. the plain-Gradle CI build, which sets no env vars at all) rather than
+    // hardcoding a fallback here — `src/api/config.ts`'s own `DEFAULT_API_BASE_URL` already
+    // falls back to the real deployed API, and duplicating that URL in two places is exactly how
+    // this drifted to a placeholder `*.example.workers.dev` host that doesn't resolve, silently
+    // breaking every network call in a build nobody had run on a real device yet.
+    apiBaseUrl: process.env.MEDGUARD_API_BASE_URL,
   },
 };
 

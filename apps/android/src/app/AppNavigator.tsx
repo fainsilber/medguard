@@ -1,7 +1,7 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { formatLocalDate } from '@medguard/shared';
 import type { Medicine, Schedule } from '@medguard/shared';
 import { DiagnosticsScreen } from '../features/diagnostics/DiagnosticsScreen.js';
@@ -141,16 +141,47 @@ type TabParamList = {
 
 const Tab = createBottomTabNavigator<TabParamList>();
 
+/**
+ * Emoji glyphs instead of an icon library: no `tabBarIcon` was ever wired up here, so
+ * `@react-navigation/bottom-tabs` fell back to its own placeholder (`MissingIcon`, a bare "⏷")
+ * on every tab. A real icon set (`@expo/vector-icons` et al.) is a real dependency to add and
+ * verify; a `Text` glyph needs nothing new and renders everywhere a font does — same reasoning
+ * `MedicineForm`'s Chip rows use to avoid a dropdown library.
+ */
+const TAB_ICONS: Record<keyof TabParamList, string> = {
+  Today: '📅',
+  Medicines: '💊',
+  'As needed': '⏱️',
+  Inventory: '📦',
+  Export: '📤',
+  Household: '🏠',
+  Diagnostics: '🛠️',
+};
+
+function makeTabBarIcon(tab: keyof TabParamList) {
+  return ({ size }: { color: string; size: number }) => (
+    <Text style={{ fontSize: size }}>{TAB_ICONS[tab]}</Text>
+  );
+}
+
 export function AppNavigator(): React.JSX.Element {
   return (
     <Tab.Navigator screenOptions={tabScreenOptions}>
-      <Tab.Screen name="Today" component={TodayView} />
-      <Tab.Screen name="Medicines" component={MedicinesStackScreen} options={{ headerShown: false }} />
-      <Tab.Screen name="As needed" component={PrnScreen} />
-      <Tab.Screen name="Inventory" component={InventoryScreen} />
-      <Tab.Screen name="Export" component={ExportScreen} />
-      <Tab.Screen name="Household" component={HouseholdScreen} />
-      <Tab.Screen name="Diagnostics" component={DiagnosticsScreen} />
+      <Tab.Screen name="Today" component={TodayView} options={{ tabBarIcon: makeTabBarIcon('Today') }} />
+      <Tab.Screen
+        name="Medicines"
+        component={MedicinesStackScreen}
+        options={{ headerShown: false, tabBarIcon: makeTabBarIcon('Medicines') }}
+      />
+      <Tab.Screen name="As needed" component={PrnScreen} options={{ tabBarIcon: makeTabBarIcon('As needed') }} />
+      <Tab.Screen name="Inventory" component={InventoryScreen} options={{ tabBarIcon: makeTabBarIcon('Inventory') }} />
+      <Tab.Screen name="Export" component={ExportScreen} options={{ tabBarIcon: makeTabBarIcon('Export') }} />
+      <Tab.Screen name="Household" component={HouseholdScreen} options={{ tabBarIcon: makeTabBarIcon('Household') }} />
+      <Tab.Screen
+        name="Diagnostics"
+        component={DiagnosticsScreen}
+        options={{ tabBarIcon: makeTabBarIcon('Diagnostics') }}
+      />
     </Tab.Navigator>
   );
 }
