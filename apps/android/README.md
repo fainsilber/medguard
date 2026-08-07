@@ -196,8 +196,8 @@ push-testing screen):
 
 ## Testing the exit gate on a real device
 
-Two ways to get an installable build onto a phone. Neither requires an Android SDK/Android Studio
-*and* a machine at hand simultaneously — pick whichever you have.
+Three ways to get an installable build onto a phone. None of them requires an Android
+SDK/Android Studio *and* a machine at hand simultaneously — pick whichever you have.
 
 ### Option A — EAS Build (no Android SDK needed on your machine at all)
 
@@ -296,6 +296,23 @@ adb logcat | grep -i medguard          # this app's log lines
 adb shell dumpsys alarm | grep -A5 com.medguard.app   # confirm the alarm is actually scheduled
 adb shell dumpsys deviceidle whitelist | grep medguard # confirm battery-optimization exemption
 ```
+
+### Option C — GitHub Actions (no Expo account, no local Android SDK needed)
+
+Builds on a GitHub-hosted runner via a plain `expo prebuild` + Gradle build — no Expo/EAS account,
+no secrets, nothing installed locally beyond a browser. Good default when you just want an APK to
+sideload and don't need EAS's remote build farm or OTA updates.
+
+1. In the repo on GitHub, go to **Actions → Build Android APK → Run workflow**, and run it on the
+   branch you want.
+2. When the run finishes, open it and download the **medguard-debug-apk** artifact (a zip
+   containing `app-debug.apk`).
+3. Transfer the unzipped `.apk` to the phone (e.g. download it directly on the phone's browser, or
+   `adb install app-debug.apk` over USB) and tap it to install — Android will prompt to allow
+   installs from that source the first time.
+
+This produces a debug-signed APK (same signing as `expo run:android` in Option B), suitable for
+sideloading/testing but not for a Play Store submission.
 
 ## What hasn't been verified
 
