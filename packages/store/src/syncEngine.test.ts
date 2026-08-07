@@ -325,4 +325,27 @@ describe('runOnce', () => {
     expect(calls[0]).toBe('push');
     expect(calls).toContain('pull');
   });
+
+  it('coalesces concurrent calls instead of letting their transactions race', async () => {
+    // Regression for the Android crash where mount, a new outbox entry, and the live socket's
+    // 'open' event all called runOnce() in the same tick: `expo-sqlite`'s single connection
+    // rejects a second `BEGIN` while one is already open. Any overlap here — not just a specific
+    // call count — is the bug, so this asserts on concurrency rather than on how many network
+    // calls happened.
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const trackedPull = async (): Promise<SyncApiResult<SyncPullResult>> => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      return ok({ cursor: 1, records: [], hasMore: false });
+    };
+    const api = fakeApi({ bootstrap: trackedPull, pull: trackedPull });
+    const { engine } = setup(api);
+
+    await Promise.all([engine.runOnce(), engine.runOnce(), engine.runOnce()]);
+
+    expect(maxInFlight).toBe(1);
+  });
 });
