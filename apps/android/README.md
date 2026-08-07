@@ -196,6 +196,34 @@ push-testing screen):
 
 ## Testing the exit gate on a real device
 
+Two ways to get an installable build onto a phone. Neither requires an Android SDK/Android Studio
+*and* a machine at hand simultaneously — pick whichever you have.
+
+### Option A — EAS Build (no Android SDK needed on your machine at all)
+
+Builds remotely on Expo's servers and hands back a QR code / download link for a plain APK —
+useful from a laptop with nothing but Node installed, or when you're away from your usual dev
+machine. `apps/android/eas.json`'s `internal` profile is already configured for this
+(`"buildType": "apk"`, `"distribution": "internal"`).
+
+```bash
+git clone <repo> && cd medguard && git checkout claude/a2-2whckn   # or main, once merged
+npm install -g eas-cli
+cd apps/android
+eas login              # free Expo account — https://expo.dev/signup if you don't have one
+eas build --platform android --profile internal
+```
+
+Takes roughly 10–20 minutes. When it finishes, `eas build` prints a QR code and a URL —
+scan the QR code with the phone's camera (opens the download directly) or open the URL on the
+phone's browser, then tap the downloaded `.apk` to install (Android will prompt to allow installs
+from that source the first time). **This cannot be run from inside a Claude Code sandbox session**
+— the outbound network policy in that environment blocks `expo.dev`/`api.expo.dev` at the gateway
+(confirmed: `CONNECT` to `api.expo.dev:443` returns a policy `403`), so this step needs a real
+machine with unrestricted internet access.
+
+### Option B — local build via Android Studio / the SDK command-line tools
+
 Prerequisites: a machine with Android Studio (SDK + platform-tools) or at minimum
 `adb`/`java 17`/the Android command-line tools, Node 20+, and either a physical Android phone with
 USB debugging enabled (Settings → About phone → tap Build number 7×, then Settings → Developer
@@ -204,7 +232,7 @@ point is a locked screen with no touch, and that's easiest to trust on real hard
 
 ```bash
 git clone <repo> && cd medguard
-git checkout claude/native-android-app-e34mia   # or main, once merged
+git checkout claude/a2-2whckn   # or main, once merged
 npm install
 
 cd apps/android
