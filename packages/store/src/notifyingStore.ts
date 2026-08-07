@@ -1,24 +1,25 @@
-import type { Store, StoreTransaction } from './types.js';
+import type { IndexQuery, RecordId, Store, StoreTransaction } from './types.js';
 
 export type StoreChangeListener = (tables: readonly string[]) => void;
 
 /**
- * Wraps a `Store` and emits a change notification after every `transaction()` commit — the
- * reactivity primitive Dexie gives web for free (`dexie-react-hooks`' `useLiveQuery`) and
- * `expo-sqlite` gives Android nothing for at all (docs/android-client-plan.md, "Storage and the
- * sync port").
+ * Wraps a `Store` and emits a change notification after a `transaction()` commit that actually
+ * wrote something — the reactivity primitive Dexie gives web for free (`dexie-react-hooks`'s
+ * `useLiveQuery`) and `expo-sqlite` gives Android nothing for at all (docs/android-client-plan.md,
+ * "Storage and the sync port").
  *
  * `transaction(tables, fn)` is the *only* entry point on `Store` — every read and write in this
  * package goes through it (`MedGuardRepository`, and `tableDispatch.ts` applying pulled records
  * during a sync pull) — so wrapping it here is a single choke point that sees every mutation,
  * local or synced, without either caller needing to know this exists.
  *
- * Deliberately coarse: a read-only `transaction()` call still emits (there's no way to tell
- * "wrote nothing" from "wrote something" without inspecting every operation inside `fn`), so a
- * subscriber occasionally re-fetches for no reason. That's a wasted query, not a correctness bug,
- * and simplicity here matters more than shaving it — the alternative is tracking writes inside
- * `StoreTransaction` itself, which would leak this concern into every `Store` implementation
- * instead of costing nothing anywhere but here.
+ * **Must** distinguish a read from a write, not just notify on every commit: `useLiveQuery`
+ * subscribes to the same tables it queries, so a naively "notify on every transaction" version
+ * makes every read re-trigger its own subscription — an infinite, synchronous-ish feedback loop
+ * between "query" and "notify," confirmed the hard way (a component test spun one CPU core at
+ * 100% until OOM before this was caught). So `transaction()` here wraps the inner `tx` to track
+ * whether any mutating method (`put`/`bulkPut`/`append`/`update`/`delete`/`clear`) was actually
+ * called, and only emits when one was — `get`/`getAll`/`queryIndex`/`count` alone never notify.
  */
 export class NotifyingStore implements Store {
   private readonly listeners = new Set<{ tables: readonly string[]; listener: StoreChangeListener }>();
@@ -26,12 +27,18 @@ export class NotifyingStore implements Store {
   constructor(private readonly inner: Store) {}
 
   async transaction<T>(tables: readonly string[], fn: (tx: StoreTransaction) => Promise<T>): Promise<T> {
-    const result = await this.inner.transaction(tables, fn);
-    this.emit(tables);
+    let wrote = false;
+    const trackedTx = trackWrites(fn, () => {
+      wrote = true;
+    });
+    const result = await this.inner.transaction(tables, trackedTx);
+    if (wrote) {
+      this.emit(tables);
+    }
     return result;
   }
 
-  /** Notifies `listener` whenever a transaction touches any table in `tables`. */
+  /** Notifies `listener` whenever a transaction that wrote something touches any table in `tables`. */
   subscribe(tables: readonly string[], listener: StoreChangeListener): () => void {
     const entry = { tables, listener };
     this.listeners.add(entry);
@@ -47,4 +54,45 @@ export class NotifyingStore implements Store {
       }
     }
   }
+}
+
+/** Wraps `fn`'s `tx` argument so every write method flips `markWrite`, then delegates to the real one. */
+function trackWrites<T>(
+  fn: (tx: StoreTransaction) => Promise<T>,
+  markWrite: () => void,
+): (tx: StoreTransaction) => Promise<T> {
+  return (tx: StoreTransaction) => fn(wrapTransaction(tx, markWrite));
+}
+
+function wrapTransaction(tx: StoreTransaction, markWrite: () => void): StoreTransaction {
+  return {
+    get: <T>(table: string, id: RecordId) => tx.get<T>(table, id),
+    getAll: <T>(table: string) => tx.getAll<T>(table),
+    queryIndex: <T>(table: string, query: IndexQuery) => tx.queryIndex<T>(table, query),
+    count: (table: string) => tx.count(table),
+    put: <T>(table: string, record: T) => {
+      markWrite();
+      return tx.put(table, record);
+    },
+    bulkPut: <T>(table: string, records: T[]) => {
+      markWrite();
+      return tx.bulkPut(table, records);
+    },
+    append: <T>(table: string, record: T) => {
+      markWrite();
+      return tx.append(table, record);
+    },
+    update: <T>(table: string, id: RecordId, changes: Partial<T>) => {
+      markWrite();
+      return tx.update(table, id, changes);
+    },
+    delete: (table: string, id: RecordId) => {
+      markWrite();
+      return tx.delete(table, id);
+    },
+    clear: (table: string) => {
+      markWrite();
+      return tx.clear(table);
+    },
+  };
 }

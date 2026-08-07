@@ -55,14 +55,16 @@ function wrap(db: Database.Database): FakeSQLiteDatabase {
       return db.prepare(sql).all(...asParamsArray(params)) as T[];
     },
     async withTransactionAsync(task: () => Promise<void>) {
-      db.exec('BEGIN');
-      try {
-        await task();
-        db.exec('COMMIT');
-      } catch (err) {
-        db.exec('ROLLBACK');
-        throw err;
-      }
+      // Deliberately not a real BEGIN/COMMIT: this database is shared (keyed by dbName) across
+      // every concurrently in-flight `store.transaction()` call a rendered screen makes, and
+      // `task` is async — it can yield (an `await` inside it) while other queries interleave on
+      // the same connection, and better-sqlite3 has no nested-BEGIN support, so a literal
+      // BEGIN/COMMIT here throws "cannot start a transaction within a transaction" under any
+      // realistic component test. Each statement inside `task` already runs synchronously and
+      // atomically on its own; real cross-statement transactional atomicity is proven separately,
+      // synchronously, against `BetterSqliteDriver` in packages/store's own conformance suite —
+      // this mock only needs to make component rendering work, not re-prove that.
+      await task();
     },
   };
 }

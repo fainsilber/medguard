@@ -2,10 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Store, StoreTransaction } from './types.js';
 import { NotifyingStore } from './notifyingStore.js';
 
-/** A minimal fake `Store` that just runs `fn` against a stub transaction, recording calls. */
+/** A minimal fake `Store` with real (no-op) transaction methods, so write calls can be exercised. */
 function makeFakeStore(): { store: Store; calls: string[][] } {
   const calls: string[][] = [];
-  const tx = {} as StoreTransaction;
+  const tx: StoreTransaction = {
+    get: async () => undefined,
+    getAll: async () => [],
+    queryIndex: async () => [],
+    count: async () => 0,
+    put: async () => {},
+    bulkPut: async () => {},
+    append: async () => 1,
+    update: async () => {},
+    delete: async () => {},
+    clear: async () => {},
+  };
   const store: Store = {
     async transaction(tables, fn) {
       calls.push([...tables]);
@@ -25,13 +36,15 @@ describe('NotifyingStore', () => {
     expect(result).toBe('ok');
   });
 
-  it('notifies a subscriber watching a table touched by the transaction', async () => {
+  it('notifies a subscriber watching a table touched by a transaction that wrote', async () => {
     const { store } = makeFakeStore();
     const notifying = new NotifyingStore(store);
     const listener = vi.fn();
     notifying.subscribe(['medicines'], listener);
 
-    await notifying.transaction(['medicines', 'syncOutbox'], async () => undefined);
+    await notifying.transaction(['medicines', 'syncOutbox'], async (tx) => {
+      await tx.put('medicines', { id: 'm1' });
+    });
 
     expect(listener).toHaveBeenCalledWith(['medicines', 'syncOutbox']);
   });
@@ -42,7 +55,9 @@ describe('NotifyingStore', () => {
     const listener = vi.fn();
     notifying.subscribe(['schedules'], listener);
 
-    await notifying.transaction(['medicines'], async () => undefined);
+    await notifying.transaction(['medicines'], async (tx) => {
+      await tx.put('medicines', { id: 'm1' });
+    });
 
     expect(listener).not.toHaveBeenCalled();
   });
@@ -57,23 +72,75 @@ describe('NotifyingStore', () => {
     notifying.subscribe(['syncOutbox'], outboxListener);
     notifying.subscribe(['schedules'], scheduleListener);
 
-    await notifying.transaction(['medicines', 'syncOutbox'], async () => undefined);
+    await notifying.transaction(['medicines', 'syncOutbox'], async (tx) => {
+      await tx.put('medicines', { id: 'm1' });
+    });
 
     expect(medicinesListener).toHaveBeenCalledTimes(1);
     expect(outboxListener).toHaveBeenCalledTimes(1);
     expect(scheduleListener).not.toHaveBeenCalled();
   });
 
-  it('still notifies for a read-only transaction — deliberately coarse', async () => {
+  it('does NOT notify for a read-only transaction', async () => {
     const { store } = makeFakeStore();
     const notifying = new NotifyingStore(store);
     const listener = vi.fn();
     notifying.subscribe(['medicines'], listener);
 
-    await notifying.transaction(['medicines'], async (tx) => tx);
+    await notifying.transaction(['medicines'], async (tx) => tx.getAll('medicines'));
 
-    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).not.toHaveBeenCalled();
   });
+
+  it('does not notify when fn touches tx.get/getAll/queryIndex/count only', async () => {
+    const { store } = makeFakeStore();
+    const notifying = new NotifyingStore(store);
+    const listener = vi.fn();
+    notifying.subscribe(['medicines'], listener);
+
+    await notifying.transaction(['medicines'], async (tx) => {
+      await tx.get('medicines', 'm1');
+      await tx.queryIndex('medicines', { kind: 'all', orderBy: 'id' });
+      await tx.count('medicines');
+    });
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it.each(['put', 'bulkPut', 'append', 'update', 'delete', 'clear'] as const)(
+    'notifies when the transaction calls tx.%s',
+    async (method) => {
+      const { store } = makeFakeStore();
+      const notifying = new NotifyingStore(store);
+      const listener = vi.fn();
+      notifying.subscribe(['medicines'], listener);
+
+      await notifying.transaction(['medicines'], async (tx) => {
+        switch (method) {
+          case 'put':
+            await tx.put('medicines', { id: 'm1' });
+            break;
+          case 'bulkPut':
+            await tx.bulkPut('medicines', [{ id: 'm1' }]);
+            break;
+          case 'append':
+            await tx.append('medicines', { id: 'm1' });
+            break;
+          case 'update':
+            await tx.update('medicines', 'm1', {});
+            break;
+          case 'delete':
+            await tx.delete('medicines', 'm1');
+            break;
+          case 'clear':
+            await tx.clear('medicines');
+            break;
+        }
+      });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('unsubscribe stops further notifications', async () => {
     const { store } = makeFakeStore();
@@ -81,9 +148,9 @@ describe('NotifyingStore', () => {
     const listener = vi.fn();
     const unsubscribe = notifying.subscribe(['medicines'], listener);
 
-    await notifying.transaction(['medicines'], async () => undefined);
+    await notifying.transaction(['medicines'], async (tx) => tx.put('medicines', { id: 'm1' }));
     unsubscribe();
-    await notifying.transaction(['medicines'], async () => undefined);
+    await notifying.transaction(['medicines'], async (tx) => tx.put('medicines', { id: 'm1' }));
 
     expect(listener).toHaveBeenCalledTimes(1);
   });
@@ -94,7 +161,9 @@ describe('NotifyingStore', () => {
     const listener = vi.fn();
     notifying.subscribe(['medicines', 'schedules'], listener);
 
-    await notifying.transaction(['medicines', 'schedules', 'syncOutbox'], async () => undefined);
+    await notifying.transaction(['medicines', 'schedules', 'syncOutbox'], async (tx) => {
+      await tx.put('medicines', { id: 'm1' });
+    });
 
     expect(listener).toHaveBeenCalledTimes(1);
   });
@@ -107,7 +176,9 @@ describe('NotifyingStore', () => {
     const listener = vi.fn();
     notifying.subscribe(['medicines'], listener);
 
-    await expect(notifying.transaction(['medicines'], async () => undefined)).rejects.toThrow('boom');
+    await expect(
+      notifying.transaction(['medicines'], async (tx) => tx.put('medicines', { id: 'm1' })),
+    ).rejects.toThrow('boom');
     expect(listener).not.toHaveBeenCalled();
   });
 });
