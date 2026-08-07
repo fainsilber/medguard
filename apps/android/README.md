@@ -315,21 +315,39 @@ is blocked there — see above).
    branch you want. (From a Claude Code session with GitHub MCP tools, trigger it directly via
    `mcp__github__actions_run_trigger` with `method: run_workflow`, `workflow_id: android-apk.yml`
    — no need to open the UI.)
-2. When the run finishes, open it and download the **medguard-debug-apk** artifact (a zip
-   containing `app-debug.apk`).
+2. When the run finishes, open it and download the **medguard-release-apk** artifact (a zip
+   containing `app-release.apk`).
 3. Transfer the unzipped `.apk` to the phone (e.g. download it directly on the phone's browser, or
-   `adb install app-debug.apk` over USB) and tap it to install — Android will prompt to allow
+   `adb install app-release.apk` over USB) and tap it to install — Android will prompt to allow
    installs from that source the first time.
 
-This produces a debug-signed APK (same signing as `expo run:android` in Option B), suitable for
-sideloading/testing but not for a Play Store submission.
+This produces a `release`-variant APK, still debug-*signed* (same signing as `expo run:android` in
+Option B — no real keystore is configured, so the RN template's `release` signingConfig falls back
+to the debug key), suitable for sideloading/testing but not for a Play Store submission.
 
-**Verified working end-to-end 2026-08-07**: [run #1](https://github.com/fainsilber/medguard/actions/runs/31153170066)
-off `main`, completed in ~11 minutes, produced a 57 MB `medguard-debug-apk` artifact. Nobody has
-yet installed that artifact on a physical phone and confirmed it launches — that's the next
-concrete step, not a re-run of the build itself. Note: `workflow_dispatch` workflows are only
-dispatchable once the workflow file exists on the repo's **default branch** — a PR adding/changing
-this file must be merged to `main` before it (or changes to it) can be triggered.
+**The first real-device install (2026-08-07) surfaced two bugs the CI run alone couldn't catch,
+both now fixed:**
+
+- **"Unable to load script"/red screen on launch, every time, including after Reload.** The
+  workflow built `assembleDebug`. A `debug`-variant APK never embeds the JS bundle — it expects a
+  Metro dev server reachable over `localhost:8081`/the LAN, which a sideloaded APK with no attached
+  computer never has. Switched to `assembleRelease`, which runs Gradle's
+  `bundleReleaseJsAndAssets` and embeds `index.android.bundle` into the APK's assets, so the app
+  runs standalone. (This is also why "run #1" below, from before the fix, should not be treated as
+  a working build — it launched, produced an artifact, and installed, but the app itself never
+  actually started.)
+- **Launcher icon was the stock Android/Expo default, not the Star of Life mark.** `app.config.ts`
+  had no `icon`/`android.adaptiveIcon` entries, so `expo prebuild` fell back to Expo's template
+  icon. Added `apps/android/assets/icon.png` and `adaptive-icon.png` (the same Star of Life PNGs
+  `apps/web/public/icons/icon-512*.png` already uses) and wired them into `app.config.ts`.
+
+**Verified working end-to-end (build+upload) 2026-08-07**: [run #1](https://github.com/fainsilber/medguard/actions/runs/31153170066)
+off `main`, completed in ~11 minutes, produced a 57 MB `medguard-debug-apk` artifact — but per the
+bugs above, the app inside it never actually launched. A rerun of the fixed workflow, followed by
+an actual install-and-open on a physical phone, is the still-open next step. Note:
+`workflow_dispatch` workflows are only dispatchable once the workflow file exists on the repo's
+**default branch** — a PR changing this file must be merged to `main` before the change can be
+triggered.
 
 ## What hasn't been verified
 

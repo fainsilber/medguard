@@ -15,6 +15,9 @@ const config: ExpoConfig = {
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   platforms: ['android'],
+  // Same Star of Life mark as apps/web/public/icons (icon-512*.png) — without this,
+  // `expo prebuild` falls back to the stock Expo/Android launcher icon.
+  icon: './assets/icon.png',
   android: {
     package: 'com.medguard.app',
     // Android's auto-backup would otherwise copy the on-device dosing history into the
@@ -22,6 +25,10 @@ const config: ExpoConfig = {
     // requirements"; docs/data-handling.md). The plugin also sets explicit
     // dataExtractionRules so this can't be silently re-enabled by a template update.
     allowBackup: false,
+    adaptiveIcon: {
+      foregroundImage: './assets/adaptive-icon.png',
+      backgroundColor: '#0a0e17',
+    },
   },
   plugins: ['./plugins/withMedGuardAlarms'],
   extra: {

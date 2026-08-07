@@ -13,11 +13,13 @@ Jest + `@testing-library/react-native` suite covering the safety-critical flows 
 real device. The web track is at Sprint 4 complete; Sprint 5 (alarms, push, escalation) is
 unstarted and this plan absorbs it as A4. **A6's "installable build without a local Android SDK"
 need is partly pulled forward and done**: `.github/workflows/android-apk.yml` (merged 2026-08-07,
-`main`) builds a sideloadable debug APK on a GitHub-hosted runner via plain `expo prebuild` +
-Gradle — no Expo/EAS account, confirmed working with a real successful run (see
-`apps/android/README.md` "Option C"). This is a Gradle build, not EAS build/submit — the Play
-Console / EAS-submit half of A6 is still fully unstarted, and nobody has installed the resulting
-APK on a physical phone yet.
+`main`) builds a sideloadable APK on a GitHub-hosted runner via plain `expo prebuild` + Gradle — no
+Expo/EAS account. The first real-device install (2026-08-07) found the workflow's original
+`assembleDebug` build never actually launched (no bundled JS, needs a Metro server) and the app had
+no launcher icon wired up; both fixed same day (`assembleRelease` + `app.config.ts` icon entries,
+see `apps/android/README.md` "Option C"). This is a Gradle build, not EAS build/submit — the Play
+Console / EAS-submit half of A6 is still fully unstarted, and the fixed build still needs a fresh
+on-device confirm.
 **Team model:** Claude builds; you guide, decide, review.
 
 ---
