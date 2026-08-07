@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Schedule } from '@medguard/shared';
+import type { Schedule } from './types.js';
 import { describeSchedule } from './scheduleDisplay.js';
 
 function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {

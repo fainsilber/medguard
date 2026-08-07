@@ -55,7 +55,12 @@ export async function sendPush(
         ttl: String(options.ttlSeconds ?? 60),
         urgency: options.urgency ?? 'high',
       },
-      body,
+      // TS 5.7 made Uint8Array generic (Uint8Array<ArrayBufferLike>); the workerd fetch types
+      // bundled by @cloudflare/vitest-pool-workers predate that change, so BodyInit's overloads
+      // no longer structurally match it even though a Uint8Array has always been a valid fetch
+      // body at runtime. A types-version mismatch, not a real type error — same class of gap
+      // apps/android/src/store/expoSqliteDriver.ts documents with its own narrow `as never`.
+      body: body as BodyInit,
     });
   } catch (cause) {
     return {

@@ -1,4 +1,4 @@
-import type { Schedule } from '@medguard/shared';
+import type { Schedule } from './types.js';
 
 /** `daysOfWeek` is `0 = Sunday … 6 = Saturday`, matching `packages/shared/src/types.ts`. */
 export const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

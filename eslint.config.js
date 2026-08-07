@@ -73,10 +73,21 @@ export default tseslint.config(
     },
   },
 
-  // Metro and Babel require CommonJS config files, loaded by Node directly rather than bundled —
-  // the one place in this app that isn't ESM.
+  // The clock-tampering guard's whole job is comparing the real wall clock against a monotonic
+  // one — the exact ambient `Date.now()` the rule above forbids elsewhere is what this file
+  // exists to read. Web's equivalent (apps/web/src/clock/localClockGuard.ts) is exempt the same
+  // way, simply by not being listed in that block's `files`.
   {
-    files: ['apps/android/metro.config.js', 'apps/android/babel.config.js'],
+    files: ['apps/android/src/clock/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': 'off',
+    },
+  },
+
+  // Metro, Babel and Jest require CommonJS config files, loaded by Node directly rather than
+  // bundled — the one place in this app that isn't ESM.
+  {
+    files: ['apps/android/metro.config.js', 'apps/android/babel.config.js', 'apps/android/jest.config.js'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
     },

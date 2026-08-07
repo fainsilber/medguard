@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { IntakeLog, Occurrence } from '@medguard/shared';
+import type { IntakeLog } from './types.js';
+import type { Occurrence } from './schedule.js';
 import { findLogForOccurrence } from './matchOccurrenceLog.js';
 
 function makeOccurrence(overrides: Partial<Occurrence> = {}): Occurrence {

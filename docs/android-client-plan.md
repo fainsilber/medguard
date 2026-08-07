@@ -2,13 +2,16 @@
 
 **Version:** 1.0
 **Basis:** `medguard-prd.md` v2.0, `medguard-sprint-plan.md` v2.0
-**Status:** signed off, in progress (updated 2026-08-06). A0's chime has fired on a real device
+**Status:** signed off, in progress (updated 2026-08-07). A0's chime has fired on a real device
 once; the rest of its exit-gate checklist is code-reviewed but not yet re-confirmed on-device (see
 `apps/android/README.md`). A1 (`packages/store` extraction, the SQLite `Store`, the conformance
-suite) is code-complete against the exit gate below, modulo the derivation-helper move, which is
-deferred to A2 where there's a real caller for it — also see `apps/android/README.md`. The web
-track is at Sprint 4 complete; Sprint 5 (alarms, push, escalation) is unstarted and this plan
-absorbs it as A4.
+suite) is code-complete against the exit gate below, including the derivation-helper move (finished
+in A2, once a real Android caller existed). **A2 (feature parity) is code-complete**: every screen
+exists, wired into a real `@react-navigation` shell against a real repository/SQLite store, with a
+Jest + `@testing-library/react-native` suite covering the safety-critical flows — see
+`apps/android/README.md`'s "Sprint A2 — feature parity" for what's verified and what still needs a
+real device. The web track is at Sprint 4 complete; Sprint 5 (alarms, push, escalation) is
+unstarted and this plan absorbs it as A4.
 **Team model:** Claude builds; you guide, decide, review.
 
 ---
@@ -453,6 +456,18 @@ sync status indicator and the safety warning banner.
 
 **Exit gate:** the parity checklist is complete; a two-device join works from a real Android phone,
 and cross-device propagation is inside the PRD's 1.5-second budget.
+
+**Status: code-complete, not device-confirmed.** Every screen in scope is built and wired into a
+real `@react-navigation` shell against the real repository/SQLite store from A1 — see
+`apps/android/README.md`, "Sprint A2 — feature parity", for the exact list of deviations from web
+(Diagnostics is not a port of web's push-testing screen; no time/date-picker or dropdown library
+was added, so those fields are validated text input; `window.print()` has no Android equivalent, so
+"Print summary" is dropped in favor of the share sheet; PRN's clock-trust check is local-only,
+without web's server round-trip) and what's actually been verified (typecheck, lint, the full
+Vitest suite, a new Jest + `@testing-library/react-native` suite covering the safety-critical flows,
+and a real `expo export` bundle) versus what a device would still need to confirm (the two-device
+join + 1.5s propagation half of this exit gate, and everything about how it actually looks/feels on
+a phone).
 
 ### A3 — The local alarm engine
 

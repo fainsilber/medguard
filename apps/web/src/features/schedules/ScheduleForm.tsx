@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { SINGLE_PATIENT_ID } from '@medguard/shared';
+import { DAY_LABELS, SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { FrequencyType, LocalDate, Schedule } from '@medguard/shared';
 import { useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
 import { buttonClass, inputClass, labelClass, primaryButtonClass } from '../../ui/primitives.js';
-import { DAY_LABELS } from './scheduleDisplay.js';
 
 /**
  * Create a new schedule, or revise an existing one.

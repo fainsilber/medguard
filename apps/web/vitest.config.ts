@@ -12,6 +12,7 @@ export default defineConfig({
       '@medguard/shared/testing': `${sharedSrc}/testing.ts`,
       '@medguard/shared': `${sharedSrc}/index.ts`,
       '@medguard/store/dexie': `${storeSrc}/dexie/index.ts`,
+      '@medguard/store/testing': `${storeSrc}/testing/index.ts`,
       '@medguard/store': `${storeSrc}/index.ts`,
     },
   },

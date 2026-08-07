@@ -168,8 +168,13 @@ export class MedGuardRepository {
   }
 
   async activeMedicines(): Promise<Medicine[]> {
-    const all = await this.store.transaction(['medicines'], (tx) => tx.getAll<Medicine>('medicines'));
+    const all = await this.allMedicines();
     return all.filter((medicine) => !medicine.archived);
+  }
+
+  /** Every medicine, archived or not — for a "show archived" toggle over `activeMedicines()`. */
+  allMedicines(): Promise<Medicine[]> {
+    return this.store.transaction(['medicines'], (tx) => tx.getAll<Medicine>('medicines'));
   }
 
   getMedicine(medicineId: Uuid): Promise<Medicine | undefined> {
@@ -344,6 +349,19 @@ export class MedGuardRepository {
             lower: sinceIso,
             upper: RANGE_SENTINEL_MAX,
           }),
+    );
+  }
+
+  /**
+   * Every log for one patient, unfiltered by time. `findLogForOccurrence` (`@medguard/shared`)
+   * matches a scheduled occurrence to its log by `(scheduleId, scheduledTime)`, not by
+   * `actualTime` — a correction can carry an `actualTime` far outside the day it corrects, so a
+   * Today-style view needs the full set, not an `actualTime`-bounded slice like
+   * `logsForPatientBetween`.
+   */
+  logsForPatient(patientId: Uuid): Promise<IntakeLog[]> {
+    return this.store.transaction(['intakeLogs'], (tx) =>
+      tx.queryIndex<IntakeLog>('intakeLogs', { kind: 'equals', fields: ['patientId'], values: [patientId] }),
     );
   }
 

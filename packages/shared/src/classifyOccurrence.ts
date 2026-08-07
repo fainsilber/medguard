@@ -1,5 +1,5 @@
-import { fromIso } from '@medguard/shared';
-import type { EpochMs, IsoInstant } from '@medguard/shared';
+import { fromIso } from './clock.js';
+import type { EpochMs, IsoInstant } from './clock.js';
 
 /**
  * Which bucket a scheduled occurrence falls into on the Today view.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FakeWebSocket } from '../testUtils/FakeWebSocket.js';
+import { FakeWebSocket } from './testing/FakeWebSocket.js';
 import { LiveClient } from './liveClient.js';
 
 /**

@@ -2,16 +2,16 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { LiveMessage, LiveSafetyWarningMessage } from '@medguard/shared';
-import { SyncEngine } from '@medguard/store';
+import { LiveClient, SyncEngine } from '@medguard/store';
+import type { LiveClientStatus } from '@medguard/store';
 import * as syncApi from '../api/syncApi.js';
 import { getApiBaseUrl } from '../api/config.js';
 import { getHouseholdSession, onHouseholdSessionChange } from '../api/session.js';
 import { useMedGuardDb, useRepository, useStore } from '../app/RepositoryContext.js';
 import { appLog } from '../logging/appLog.js';
-import { LiveClient } from './liveClient.js';
-import type { LiveClientStatus } from './liveClient.js';
 
 const log = appLog('sync');
+const liveLog = appLog('live');
 
 /**
  * Starts and stops the sync engine and live WebSocket as the household connection comes and
@@ -121,6 +121,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         }
       },
       onMessage: handleMessage,
+      log: liveLog,
     });
     liveClient.start();
     void runSync();

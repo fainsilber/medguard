@@ -290,6 +290,15 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         const { repository } = await freshRepository();
         await expect(repository.archiveMedicine('missing')).rejects.toThrow(/No such medicine/);
       });
+
+      it('allMedicines includes archived ones that activeMedicines excludes', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine(), 'CREATE');
+        await repository.archiveMedicine('medicine-1');
+
+        expect(await repository.activeMedicines()).toHaveLength(0);
+        expect(await repository.allMedicines()).toHaveLength(1);
+      });
     });
 
     describe('indexed history queries', () => {
@@ -321,6 +330,15 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
           '2026-06-16T00:00:00.000Z',
         );
         expect(today.map((log) => log.id)).toEqual(['today']);
+      });
+
+      it('finds a patient\'s full log history regardless of actualTime, for occurrence matching', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordDose(makeLog({ id: 'old', actualTime: '2026-01-01T08:00:00.000Z' }));
+        await repository.recordDose(makeLog({ id: 'recent', actualTime: '2026-12-31T08:00:00.000Z' }));
+
+        const all = await repository.logsForPatient('patient-1');
+        expect(all.map((log) => log.id).sort()).toEqual(['old', 'recent']);
       });
 
       it('finds inventory adjustments by the log that produced them', async () => {
