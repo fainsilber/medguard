@@ -121,21 +121,37 @@ function CorrectionForm({
           value={quantity}
           editable={status !== 'skipped' && !saving}
           onChangeText={setQuantity}
+          accessibilityLabel="Quantity"
         />
       </View>
       <View style={ui.row}>
         <View style={{ flex: 1 }}>
           <Text style={ui.label}>Date (YYYY-MM-DD)</Text>
-          <TextInput style={ui.input} value={date} editable={!saving} onChangeText={setDate} placeholder="2026-06-15" />
+          <TextInput
+            style={ui.input}
+            value={date}
+            editable={!saving}
+            onChangeText={setDate}
+            placeholder="2026-06-15"
+            accessibilityLabel="Date"
+          />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={ui.label}>Time (HH:MM)</Text>
-          <TextInput style={ui.input} value={time} editable={!saving} onChangeText={setTime} placeholder="08:00" />
+          <TextInput
+            style={ui.input}
+            value={time}
+            editable={!saving}
+            onChangeText={setTime}
+            placeholder="08:00"
+            accessibilityLabel="Time"
+          />
         </View>
       </View>
       <View>
         <Text style={ui.label}>What was wrong?</Text>
         <TextInput
+          accessibilityLabel="What was wrong?"
           style={[ui.input, { minHeight: 60 }]}
           multiline
           value={note}

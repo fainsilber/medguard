@@ -18,16 +18,14 @@ import {
   useRepository,
 } from '../../app/RepositoryContext.js';
 import { getLocalClockTrust } from '../../clock/localClockGuard.js';
+import { DoseCorrection } from '../logs/DoseCorrection.js';
 import { Badge, Button, Card, colors, styles as sharedStyles } from '../../ui/primitives.js';
 import type { BadgeTone } from '../../ui/primitives.js';
 
 /**
  * RN port of `apps/web/src/features/prnDoses/PrnCard.tsx`. Behavior is a direct port — see that
- * file for the full rationale on the two-step override flow. The one deliberate omission: web
- * also renders `<DoseCorrection>` under the "last given" line. That component belongs to another
- * engineer's Sprint A2 slice (Today/DoseCorrection) and has no Android port yet, so this card
- * shows the same "last given by" summary line without a correction affordance. Nothing else about
- * dose-safety behavior is changed by that omission.
+ * file for the full rationale on the two-step override flow, including `<DoseCorrection>` under
+ * the "last given" line, exactly as web does.
  */
 
 const STATE_BORDER_COLOR: Record<DoseSafety['state'], string> = {
@@ -149,10 +147,13 @@ export function PrnCard({
       </View>
 
       {lastLog && (
-        <Text style={cardStyles.muted}>
-          Last given by {lastLog.loggedByUserId} at {formatLocalTime(timeZone, fromIso(lastLog.actualTime))} (
-          {lastLog.quantityTaken})
-        </Text>
+        <>
+          <Text style={cardStyles.muted}>
+            Last given by {lastLog.loggedByUserId} at {formatLocalTime(timeZone, fromIso(lastLog.actualTime))} (
+            {lastLog.quantityTaken})
+          </Text>
+          <DoseCorrection allLogs={logs} tipLog={lastLog} timeZone={timeZone} />
+        </>
       )}
 
       {safety.state === 'cooldown' && (
