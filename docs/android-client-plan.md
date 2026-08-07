@@ -11,7 +11,13 @@ exists, wired into a real `@react-navigation` shell against a real repository/SQ
 Jest + `@testing-library/react-native` suite covering the safety-critical flows — see
 `apps/android/README.md`'s "Sprint A2 — feature parity" for what's verified and what still needs a
 real device. The web track is at Sprint 4 complete; Sprint 5 (alarms, push, escalation) is
-unstarted and this plan absorbs it as A4.
+unstarted and this plan absorbs it as A4. **A6's "installable build without a local Android SDK"
+need is partly pulled forward and done**: `.github/workflows/android-apk.yml` (merged 2026-08-07,
+`main`) builds a sideloadable debug APK on a GitHub-hosted runner via plain `expo prebuild` +
+Gradle — no Expo/EAS account, confirmed working with a real successful run (see
+`apps/android/README.md` "Option C"). This is a Gradle build, not EAS build/submit — the Play
+Console / EAS-submit half of A6 is still fully unstarted, and nobody has installed the resulting
+APK on a physical phone yet.
 **Team model:** Claude builds; you guide, decide, review.
 
 ---
@@ -506,8 +512,11 @@ with zero touches and no escalation emitted.
 
 **Scope:** Play Console restricted-permission declarations with demo videos (`USE_EXACT_ALARM`,
 `USE_FULL_SCREEN_INTENT`, the `mediaPlayback` foreground service); EAS build and submit wired into
-`.github/workflows/ci.yml`; accessibility and font-scaling pass (Android's system font scale needs
-deliberate `allowFontScaling` handling in React Native, and the 3 AM ergonomics requirement makes it
+CI — ~~`.github/workflows/ci.yml`~~ done differently: a separate `.github/workflows/android-apk.yml`
+(plain Gradle build, no EAS, `workflow_dispatch` only, landed 2026-08-07 — see status note above);
+EAS build/submit specifically (for Play Store release, as opposed to a sideloadable debug APK) is
+still unstarted; accessibility and font-scaling pass (Android's system font scale needs deliberate
+`allowFontScaling` handling in React Native, and the 3 AM ergonomics requirement makes it
 non-optional); performance with 12 months of logs; `docs/runbook.md` additions for Android-specific
 failure modes.
 

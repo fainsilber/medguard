@@ -12,7 +12,12 @@ The chime has sounded on a real device once before (confirmed 2026-08-06). **Thi
 Android SDK, emulator, or physical device (confirmed: no `adb` on `$PATH`)**, so nothing below has
 been watched running on an actual phone this session — every claim here is backed by a passing
 typecheck, a passing lint, a passing Vitest/Jest test suite, or a successful Metro bundle, each
-cited specifically, never by "should work."
+cited specifically, never by "should work." As of 2026-08-07, getting an installable build no
+longer requires any of that hardware either: `.github/workflows/android-apk.yml` on `main` builds
+a sideloadable debug APK on a GitHub-hosted runner (see "Option C" below) — confirmed working
+end-to-end (a real successful run + artifact), but the resulting APK has not yet been installed
+and launched on a physical phone. That install-and-confirm-it-launches step is the next concrete
+gap, not another CI run.
 
 ### Sprint A2 — feature parity
 
@@ -207,7 +212,7 @@ machine. `apps/android/eas.json`'s `internal` profile is already configured for 
 (`"buildType": "apk"`, `"distribution": "internal"`).
 
 ```bash
-git clone <repo> && cd medguard && git checkout claude/a2-2whckn   # or main, once merged
+git clone <repo> && cd medguard   # main already has A0-A2 and the CI APK workflow
 npm install -g eas-cli
 cd apps/android
 eas login              # free Expo account — https://expo.dev/signup if you don't have one
@@ -220,7 +225,9 @@ phone's browser, then tap the downloaded `.apk` to install (Android will prompt 
 from that source the first time). **This cannot be run from inside a Claude Code sandbox session**
 — the outbound network policy in that environment blocks `expo.dev`/`api.expo.dev` at the gateway
 (confirmed: `CONNECT` to `api.expo.dev:443` returns a policy `403`), so this step needs a real
-machine with unrestricted internet access.
+machine with unrestricted internet access. **Option C below is the sandbox-compatible equivalent**
+— it can be triggered and monitored entirely through the GitHub API/MCP tools, no local machine or
+Expo account needed.
 
 ### Option B — local build via Android Studio / the SDK command-line tools
 
@@ -231,8 +238,7 @@ options → USB debugging) or an emulator. **A physical phone is strongly prefer
 point is a locked screen with no touch, and that's easiest to trust on real hardware.
 
 ```bash
-git clone <repo> && cd medguard
-git checkout claude/a2-2whckn   # or main, once merged
+git clone <repo> && cd medguard   # main already has A0-A2 and the CI APK workflow
 npm install
 
 cd apps/android
@@ -299,12 +305,16 @@ adb shell dumpsys deviceidle whitelist | grep medguard # confirm battery-optimiz
 
 ### Option C — GitHub Actions (no Expo account, no local Android SDK needed)
 
-Builds on a GitHub-hosted runner via a plain `expo prebuild` + Gradle build — no Expo/EAS account,
-no secrets, nothing installed locally beyond a browser. Good default when you just want an APK to
-sideload and don't need EAS's remote build farm or OTA updates.
+Builds on a GitHub-hosted runner via a plain `expo prebuild` + Gradle build (`.github/workflows/android-apk.yml`,
+`workflow_dispatch` only) — no Expo/EAS account, no secrets, nothing installed locally beyond a
+browser. Good default when you just want an APK to sideload and don't need EAS's remote build farm
+or OTA updates, and the only option that works from inside a Claude Code sandbox session (Option A
+is blocked there — see above).
 
 1. In the repo on GitHub, go to **Actions → Build Android APK → Run workflow**, and run it on the
-   branch you want.
+   branch you want. (From a Claude Code session with GitHub MCP tools, trigger it directly via
+   `mcp__github__actions_run_trigger` with `method: run_workflow`, `workflow_id: android-apk.yml`
+   — no need to open the UI.)
 2. When the run finishes, open it and download the **medguard-debug-apk** artifact (a zip
    containing `app-debug.apk`).
 3. Transfer the unzipped `.apk` to the phone (e.g. download it directly on the phone's browser, or
@@ -313,6 +323,13 @@ sideload and don't need EAS's remote build farm or OTA updates.
 
 This produces a debug-signed APK (same signing as `expo run:android` in Option B), suitable for
 sideloading/testing but not for a Play Store submission.
+
+**Verified working end-to-end 2026-08-07**: [run #1](https://github.com/fainsilber/medguard/actions/runs/31153170066)
+off `main`, completed in ~11 minutes, produced a 57 MB `medguard-debug-apk` artifact. Nobody has
+yet installed that artifact on a physical phone and confirmed it launches — that's the next
+concrete step, not a re-run of the build itself. Note: `workflow_dispatch` workflows are only
+dispatchable once the workflow file exists on the repo's **default branch** — a PR adding/changing
+this file must be merged to `main` before it (or changes to it) can be triggered.
 
 ## What hasn't been verified
 
