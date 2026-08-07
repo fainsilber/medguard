@@ -69,6 +69,8 @@ const PUSH_BATCH_SIZE = 200;
 
 export class SyncEngine {
   private readonly log: SyncLog;
+  private inFlight: Promise<void> | null = null;
+  private rerunRequested = false;
 
   constructor(private readonly deps: SyncEngineDeps) {
     this.log = deps.log ?? noopLog;
@@ -176,8 +178,34 @@ export class SyncEngine {
     }
   }
 
-  /** Push first, then pull — so this device's own just-applied changes don't round-trip as if remote. */
+  /**
+   * Push first, then pull — so this device's own just-applied changes don't round-trip as if remote.
+   *
+   * Both `SyncProvider`s call this from several independent triggers that can land in the same
+   * tick — mount, a new outbox entry, and the live socket reaching `'open'` — so concurrent calls
+   * are coalesced onto a single underlying run rather than allowed to overlap. Overlapping runs
+   * both open a transaction via `store.transaction()`; Dexie/IndexedDB on web tolerates that, but
+   * `apps/android`'s single `expo-sqlite` connection rejects a second `BEGIN` while one is already
+   * open ("cannot start a transaction within a transaction"), which crashed sync outright. A call
+   * that arrives while a run is already in flight doesn't just get dropped: it schedules exactly
+   * one more run after the current one finishes, so a trigger that lands mid-run still gets served.
+   */
   async runOnce(): Promise<void> {
+    if (this.inFlight) {
+      this.rerunRequested = true;
+      return this.inFlight;
+    }
+    this.inFlight = this.runOnceExclusive().finally(() => {
+      this.inFlight = null;
+      if (this.rerunRequested) {
+        this.rerunRequested = false;
+        void this.runOnce();
+      }
+    });
+    return this.inFlight;
+  }
+
+  private async runOnceExclusive(): Promise<void> {
     this.log.debug('sync run starting');
     await this.drainOutbox();
     await this.pull();
