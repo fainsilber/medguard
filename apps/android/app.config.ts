@@ -15,6 +15,9 @@ const config: ExpoConfig = {
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   platforms: ['android'],
+  // Same Star of Life mark as apps/web/public/icons (icon-512*.png) — without this,
+  // `expo prebuild` falls back to the stock Expo/Android launcher icon.
+  icon: './assets/icon.png',
   android: {
     package: 'com.medguard.app',
     // Android's auto-backup would otherwise copy the on-device dosing history into the
@@ -22,11 +25,20 @@ const config: ExpoConfig = {
     // requirements"; docs/data-handling.md). The plugin also sets explicit
     // dataExtractionRules so this can't be silently re-enabled by a template update.
     allowBackup: false,
+    adaptiveIcon: {
+      foregroundImage: './assets/adaptive-icon.png',
+      backgroundColor: '#0a0e17',
+    },
   },
   plugins: ['./plugins/withMedGuardAlarms'],
   extra: {
-    // Overridden per-build (dev/staging/prod) via EAS build profiles in eas.json.
-    apiBaseUrl: process.env.MEDGUARD_API_BASE_URL ?? 'https://medguard-api.example.workers.dev',
+    // Overridden per-build (dev/staging/prod) via EAS build profiles in eas.json. Left `undefined`
+    // when unset (e.g. the plain-Gradle CI build, which sets no env vars at all) rather than
+    // hardcoding a fallback here — `src/api/config.ts`'s own `DEFAULT_API_BASE_URL` already
+    // falls back to the real deployed API, and duplicating that URL in two places is exactly how
+    // this drifted to a placeholder `*.example.workers.dev` host that doesn't resolve, silently
+    // breaking every network call in a build nobody had run on a real device yet.
+    apiBaseUrl: process.env.MEDGUARD_API_BASE_URL,
   },
 };
 
