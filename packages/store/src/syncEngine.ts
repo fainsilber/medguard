@@ -69,6 +69,8 @@ const PUSH_BATCH_SIZE = 200;
 
 export class SyncEngine {
   private readonly log: SyncLog;
+  private inFlight: Promise<void> | null = null;
+  private queued: Promise<void> | null = null;
 
   constructor(private readonly deps: SyncEngineDeps) {
     this.log = deps.log ?? noopLog;
@@ -176,8 +178,37 @@ export class SyncEngine {
     }
   }
 
-  /** Push first, then pull — so this device's own just-applied changes don't round-trip as if remote. */
+  /**
+   * Push first, then pull — so this device's own just-applied changes don't round-trip as if remote.
+   *
+   * Both `SyncProvider`s call this from several independent triggers that can land in the same
+   * tick — mount, a new outbox entry, and the live socket reaching `'open'` — so concurrent calls
+   * are coalesced onto a single underlying run rather than allowed to overlap. Overlapping runs
+   * both open a transaction via `store.transaction()`; Dexie/IndexedDB on web tolerates that, but
+   * `apps/android`'s single `expo-sqlite` connection rejects a second `BEGIN` while one is already
+   * open ("cannot start a transaction within a transaction"), which crashed sync outright.
+   *
+   * A call that arrives while a run is already in flight doesn't just join that run's promise —
+   * the run in progress started before this call's trigger (e.g. a just-queued outbox entry)
+   * existed, so it can't be trusted to have picked it up. Every such call instead joins one shared
+   * "queued" rerun that starts right after the current run finishes, and only settles once that
+   * rerun does — at most one extra run per busy period, however many callers arrived during it.
+   */
   async runOnce(): Promise<void> {
+    if (this.inFlight) {
+      this.queued ??= this.inFlight.catch(() => {}).then(() => {
+        this.queued = null;
+        return this.runOnce();
+      });
+      return this.queued;
+    }
+    this.inFlight = this.runOnceExclusive().finally(() => {
+      this.inFlight = null;
+    });
+    return this.inFlight;
+  }
+
+  private async runOnceExclusive(): Promise<void> {
     this.log.debug('sync run starting');
     await this.drainOutbox();
     await this.pull();

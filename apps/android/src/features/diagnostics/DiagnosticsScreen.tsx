@@ -1,6 +1,6 @@
 import { resolveLocal, toIso } from '@medguard/shared';
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, Share, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 
 import {
   canScheduleExactAlarms,
@@ -22,6 +22,7 @@ import {
   getAppLogEntries,
   onAppLogChange,
 } from '../../logging/appLog.js';
+import { shareTextFile } from '../export/shareTextFile.js';
 import { deviceClock, deviceIdGenerator } from '../../runtime/deviceRuntime.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
 import { useSyncStatus } from '../../sync/SyncProvider.js';
@@ -107,7 +108,19 @@ export function DiagnosticsScreen(): React.JSX.Element {
   useEffect(() => onAppLogChange(() => setLogEntryCount(getAppLogEntries().length)), []);
 
   const onShareLog = useCallback(() => {
-    void Share.share({ message: exportAppLogText() || 'MedGuard app log is empty.' });
+    // A generic `Share.share({ message })` text share leaves the OS to invent a filename (the
+    // save-to-file targets in the share sheet fall back to something like "log08071452.txt", no
+    // help when a caregiver is comparing a report to a bug that happened hours ago). Writing to a
+    // real file first, the same way the CSV/backup exports already do via `shareTextFile`, lets
+    // this name it explicitly — with the timestamp the moment it was shared, not when it's opened.
+    const timestamp = deviceClock.nowIso().replace(/[:.]/g, '-');
+    void shareTextFile(
+      exportAppLogText() || 'MedGuard app log is empty.',
+      `medguard-app-log-${timestamp}.txt`,
+      'text/plain',
+    ).catch((err) => {
+      setStatusMessage(err instanceof Error ? err.message : 'Could not share the log file.');
+    });
   }, []);
 
   return (
