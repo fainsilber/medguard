@@ -64,7 +64,7 @@ export function PrnScreen({ clockTrust }: { clockTrust?: ClockTrust }): React.JS
           medicine={medicine}
           logs={data.logsByMedicine.get(medicine.id) ?? []}
           timeZone={householdSettings.timeZone}
-          clockTrust={clockTrust}
+          {...(clockTrust ? { clockTrust } : {})}
         />
       ))}
     </ScrollView>
