@@ -6,18 +6,19 @@ alarm-volume dose chime that fires on a **locked phone with the screen off**, au
 own, and requires zero touches to work.
 
 **Status: Sprint A2 (feature parity) code-complete — every screen exists and is wired into a real
-navigator, backed by a real repository/SQLite store.** A0's exit gate is code-reviewed, not
-re-confirmed on a real device this session; A1 (storage/sync port) and A2 are both code-complete.
-The chime has sounded on a real device once before (confirmed 2026-08-06). **This sandbox has no
-Android SDK, emulator, or physical device (confirmed: no `adb` on `$PATH`)**, so nothing below has
-been watched running on an actual phone this session — every claim here is backed by a passing
-typecheck, a passing lint, a passing Vitest/Jest test suite, or a successful Metro bundle, each
-cited specifically, never by "should work." As of 2026-08-07, getting an installable build no
-longer requires any of that hardware either: `.github/workflows/android-apk.yml` on `main` builds
-a sideloadable debug APK on a GitHub-hosted runner (see "Option C" below) — confirmed working
-end-to-end (a real successful run + artifact), but the resulting APK has not yet been installed
-and launched on a physical phone. That install-and-confirm-it-launches step is the next concrete
-gap, not another CI run.
+navigator, backed by a real repository/SQLite store.** A0's exit gate is code-reviewed; the chime
+itself (the "Play test chime now" button) is confirmed firing on a real device (2026-08-06, and
+again 2026-08-07's household-sync testing below) — the "Arm alarm in 15s" locked-phone path is
+still not re-confirmed this session. A1 (storage/sync port) and A2 are both code-complete. **This
+sandbox has no Android SDK, emulator, or physical device (confirmed: no `adb` on `$PATH`)**, so
+nothing below has been watched running on an actual phone from inside a Claude Code session —
+every claim made from in here is backed by a passing typecheck, a passing lint, a passing
+Vitest/Jest test suite, or a successful Metro bundle, each cited specifically, never by "should
+work." Real-device testing itself happens on the caregiver's own phone, off a sideloaded APK (see
+"Option C" below), with findings reported back and fixed in the next session — that's exactly what
+happened 2026-08-07: a caregiver installed the build, joined a household, and hit a real sync bug
+(see "Sync and household join" below) that no amount of in-sandbox testing could have caught, since
+it only reproduces against `expo-sqlite`'s real native connection.
 
 ### Sprint A2 — feature parity
 
@@ -131,12 +132,14 @@ against both backends — the proof that the extraction is behavior-preserving i
 a claim. `packages/store/src/repository.ts` and `tableDispatch.ts` joined the 100%-branch coverage
 gate in the root `vitest.config.ts`, same bar as `packages/shared`'s safety modules.
 
-**Unverified on-device, same caveat as A0:** `ExpoSqliteDriver` has been reviewed against
-`expo-sqlite`'s installed type declarations and typechecks cleanly, but has never actually run
-against real SQLite through the Expo runtime — this sandbox has no Android SDK, emulator, or
-device. `src/store/offlineFlow.test.ts` proves the flow against `SqliteStore` driven by
-`better-sqlite3` instead (the same substitution `icuSpike.test.ts` makes for Hermes), which is real
-coverage of the SQL and merge logic but not a substitute for an on-device run.
+**Now run against real SQLite through the Expo runtime, not just reviewed against types:** a
+caregiver's device surfaced a real bug in `ExpoSqliteDriver` on 2026-08-07 — see "Sync and
+household join" below. `src/store/offlineFlow.test.ts` still proves the create/schedule/log/
+decrement flow against `SqliteStore` driven by `better-sqlite3` (the same substitution
+`icuSpike.test.ts` makes for Hermes), which remains real coverage of the SQL and merge logic, but
+it's no longer the only evidence this driver has ever touched a real device — `expoSqliteDriver.test.ts`
+now also regression-tests the on-device failure mode directly, against a fake that models
+`expo-sqlite`'s actual rejection behavior rather than `better-sqlite3`'s.
 
 **Not done in this pass:** the pure derivation helpers the plan also calls for moving into
 `packages/shared` (`classifyOccurrence.ts`, `matchOccurrenceLog.ts`, `formatCountdown.ts`,
@@ -357,11 +360,48 @@ now fixed:**
 **Verified working end-to-end (build+upload) 2026-08-07**: [run #1](https://github.com/fainsilber/medguard/actions/runs/31153170066)
 off `main`, completed in ~11 minutes, produced a 57 MB `medguard-debug-apk` artifact — but per the
 bugs above, the app inside it never actually launched, and even a rebuilt release APK would have
-hit the dead API host next. A rerun of the fixed workflow, followed by an actual install-and-open
-on a physical phone — including adding a medicine while offline — is the still-open next step.
+hit the dead API host next. A later, fixed build was installed and opened on a physical phone the
+same day — see "Sync and household join" below for what that surfaced.
 Note: `workflow_dispatch` workflows are only dispatchable once the workflow file exists on the
 repo's **default branch** — a PR changing this file must be merged to `main` before the change can
 be triggered.
+
+### Sync and household join (real-device findings, 2026-08-07)
+
+A caregiver installed the fixed build (above) and joined a household by code. The app log's own
+share-sheet export (`DiagnosticsScreen`'s "Share log", now named `medguard-app-log-<timestamp>.txt`
+instead of whatever generic name Android's plain-text share invented) showed sync failing on every
+attempt with `NativeDatabase.execAsync` rejections — `cannot start a transaction within a
+transaction` / `cannot rollback - no transaction is active`. Playing the test chime worked
+throughout, and revoking a household member worked (that action doesn't touch local SQLite the same
+way). Two distinct causes, found and fixed across two rounds against real device logs:
+
+- **`SyncEngine.runOnce()` could be entered concurrently.** `SyncProvider` calls it from three
+  independent triggers — mount, a new outbox entry, and the live socket reaching `'open'` — that
+  can land in the same tick. Dexie/IndexedDB (web) tolerates the resulting overlapping
+  `store.transaction()` calls; `expo-sqlite`'s single connection does not. Fixed by having
+  `runOnce()` coalesce concurrent callers onto one run, with a caller that arrives mid-run waiting
+  for a fresh rerun afterward rather than a stale one already in flight (`packages/store/src/syncEngine.ts`,
+  `packages/store/src/syncEngine.test.ts`).
+- **That alone didn't fix it — a second device log still showed the same error from a single,
+  non-overlapping sync run.** Real cause: `NotifyingStore` fires every subscribed `useLiveQuery`
+  refetch synchronously, but fire-and-forget, right after a write's transaction settles.
+  `SyncProvider` and `DiagnosticsScreen` both watch `syncOutbox` — the exact table `drainOutbox()`
+  writes on every synced entry — so that refetch's own `store.transaction()` call races the sync
+  engine's *next* write on `expo-sqlite`'s single, unqueued native connection. Fixed at the driver
+  level: `ExpoSqliteDriver.withTransaction()` (`src/store/expoSqliteDriver.ts`) now queues every
+  transaction onto a private promise chain, so any two calls to `store.transaction()` from any call
+  site — sync engine, a live query, a direct repository write — run strictly one at a time. This is
+  the general fix; the `SyncEngine` coalescing above is a smaller, complementary win (fewer
+  redundant sync rounds), not what actually stopped the crash. `expoSqliteDriver.test.ts` is the
+  regression test, built against a fake `SQLiteDatabase` that models the real rejection behavior
+  rather than `better-sqlite3`'s (which has no concept of it — see `sqliteTestDouble.ts`'s own
+  comment on this, written before the bug was ever hit on a real device).
+
+**Not yet re-confirmed**: the fixed driver has passing typecheck/lint/Vitest coverage (this
+session's tooling) but, like everything else in this file, hasn't been watched syncing successfully
+on the caregiver's actual phone yet — that needs a fresh build installed over the one that produced
+the logs above.
 
 ## What hasn't been verified
 
@@ -401,13 +441,15 @@ emulator, and no physical device:
   functions, confirmed by reading the installed `expo-modules-core` sources
   (`node_modules/expo-modules-core/android/src/main/java/expo/modules/interfaces/permissions/Permissions.java`)
   rather than assumed from memory. Still unbuilt by Gradle, same caveat as everything else here.
-- **What is still unverified: the Kotlin has never been compiled by a real Gradle/Android
-  toolchain, and the A0 exit gate itself — the locked-phone chime — has not fired on a real
-  device.** That's the premise of the entire native client
+- **What is still unverified: the full locked-phone A0 exit gate — "Arm alarm in 15s," screen off,
+  zero touches, auto-stop — has not been confirmed firing on a real device this way.** The Kotlin
+  *has* now been compiled by a real Gradle/Android toolchain (Option C's CI workflow, `assembleRelease`)
+  and installed and launched on a physical phone (2026-08-07, "Sync and household join" above), and
+  the "Play test chime now" button on that install did play alarm-stream audio on the device — but
+  that's the always-visible, phone-unlocked sanity check, not the locked-phone gate itself. That's
+  still the premise of the entire native client
   (docs/android-client-plan.md: "Failing it early costs a week; failing it in A5 costs the
-  project"). Everything above rules out the class of bug that's obvious from tooling output
-  (bad XML, unresolvable imports); it does not substitute for the device test in "Testing the
-  exit gate on a real device" above.
+  project") and still needs its own confirm — "Testing the exit gate on a real device" above.
 
 ```bash
 npm install

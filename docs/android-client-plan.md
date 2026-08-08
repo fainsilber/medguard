@@ -2,13 +2,14 @@
 
 **Version:** 1.0
 **Basis:** `medguard-prd.md` v2.0, `medguard-sprint-plan.md` v2.0
-**Status:** signed off, in progress (updated 2026-08-07). A0's chime has fired on a real device
-once; the rest of its exit-gate checklist is code-reviewed but not yet re-confirmed on-device (see
-`apps/android/README.md`). A1 (`packages/store` extraction, the SQLite `Store`, the conformance
-suite) is code-complete against the exit gate below, including the derivation-helper move (finished
-in A2, once a real Android caller existed). **A2 (feature parity) is code-complete**: every screen
-exists, wired into a real `@react-navigation` shell against a real repository/SQLite store, with a
-Jest + `@testing-library/react-native` suite covering the safety-critical flows — see
+**Status:** signed off, in progress (updated 2026-08-07). A0's test chime has fired on a real device
+(2026-08-06, and again 2026-08-07); the full locked-phone exit-gate checklist ("Arm alarm in 15s",
+screen off, zero touches, auto-stop) is code-reviewed but not yet re-confirmed on-device that way
+(see `apps/android/README.md`). A1 (`packages/store` extraction, the SQLite `Store`, the
+conformance suite) is code-complete against the exit gate below, including the derivation-helper
+move (finished in A2, once a real Android caller existed). **A2 (feature parity) is code-complete**:
+every screen exists, wired into a real `@react-navigation` shell against a real repository/SQLite
+store, with a Jest + `@testing-library/react-native` suite covering the safety-critical flows — see
 `apps/android/README.md`'s "Sprint A2 — feature parity" for what's verified and what still needs a
 real device. The web track is at Sprint 4 complete; Sprint 5 (alarms, push, escalation) is
 unstarted and this plan absorbs it as A4. **A6's "installable build without a local Android SDK"
@@ -20,9 +21,14 @@ launcher icon wired up, `app.config.ts` shipped a dead placeholder API host that
 network call, and the bottom tab bar had no icons wired up at all (React Navigation's own
 placeholder glyph on every tab) — all fixed same day (`assembleRelease`, `app.config.ts` icon
 entries, `apiBaseUrl` fallback removed in favor of `src/api/config.ts`'s real one, `tabBarIcon` per
-tab; see `apps/android/README.md` "Option C"). This is a Gradle build, not EAS build/submit — the
-Play Console / EAS-submit half of A6 is still fully unstarted, and the fixed build still needs a
-fresh on-device confirm, including adding a medicine while offline.
+tab; see `apps/android/README.md` "Option C"). A follow-up install of that fixed build, same day,
+joined a household successfully but found sync itself broken on-device — `expo-sqlite`'s single
+native connection has no built-in queue, so the sync engine's own writes and `useLiveQuery`'s
+fire-and-forget refetches could race for it and throw "cannot start a transaction within a
+transaction"; both concurrency sources are now fixed at the `SyncEngine`/`ExpoSqliteDriver` level
+(see `apps/android/README.md`'s "Sync and household join"), still needing a fresh on-device confirm
+of its own. This is a Gradle build, not EAS build/submit — the Play Console / EAS-submit half of A6
+is still fully unstarted.
 **Team model:** Claude builds; you guide, decide, review.
 
 ---
@@ -214,9 +220,16 @@ only exempt edge, mirroring `packages/shared/src/runtime/`.
 
 ### Storage and the sync port
 
-**`expo-sqlite`**, for its synchronous API, change listeners (the equivalent of the `useLiveQuery`
-reactivity the whole web UI is built on) and clean CNG integration. `op-sqlite` is the escape hatch
-if throughput bites at 12 months of logs.
+**`expo-sqlite`**, for its async API and clean CNG integration. It turned out to have no
+change-notification API of its own — unlike this section originally assumed, nothing analogous to
+Dexie's `useLiveQuery` reactivity ships with it — so A2 built `NotifyingStore`
+(`packages/store/src/notifyingStore.ts`) on top to supply that, and `src/store/useLiveQuery.ts` is
+its RN-side hook (see `apps/android/README.md`'s "Sprint A2 — feature parity"). It also turned out
+to open exactly one native connection with no queue of its own: two independent callers'
+transactions (the sync engine and a live-query refetch, say) can race for it and one gets rejected
+outright rather than waiting its turn — a real bug a caregiver's device hit 2026-08-07, fixed by
+adding that queue in `ExpoSqliteDriver` (`apps/android/README.md`'s "Sync and household join").
+`op-sqlite` is the escape hatch if throughput bites at 12 months of logs.
 
 The harder question is the sync engine. `apps/web/src/sync/engine.ts` is already a framework-free
 class, but it is Dexie-typed, and it carries safety invariant 7 — no log lost across an
