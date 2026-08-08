@@ -104,7 +104,7 @@ tracking whether a transaction's `tx` argument actually called a write method
 | Alarm-volume audio through ringer-silent | Code confirms the mechanism | `DoseAlarmService.startChime()` builds `AudioAttributes.USAGE_ALARM` + `CONTENT_TYPE_SONIFICATION` and plays on `MediaPlayer`, which routes to the alarm stream regardless of ringer mode — this is the one Android API contract that makes "sounds through silent" true, not something to infer from a device test alone. |
 | Screen stays off, zero touches | Code confirms the mechanism | Nothing in `modules/medguard-alarms/android/**` acquires a `PowerManager.WakeLock`, sets `FLAG_TURN_SCREEN_ON`/`FLAG_KEEP_SCREEN_ON`/`setShowWhenLocked`, or calls `setTurnScreenOn` (grepped, zero matches). The ordinary dose path never builds a `PendingIntent.getActivity` at all — only escalation does, gated by `canUseFullScreenIntent()`. |
 | Full 45 seconds | Code confirms the mechanism | `chimeDurationSeconds` (PRD default 45, `DiagnosticsScreen.tsx`'s `onScheduleLockedPhoneAlarm`/`onPlayTestChime` both pass `45`) drives `stopHandler.postDelayed(runnable, durationSeconds * 1000L)` — the chime plays until that callback fires, not until some shorter internal timeout. |
-| Auto-stop, no lingering audio/notification | Code confirms the mechanism | The delayed `stopChimeAndSelf()` calls `mediaPlayer.stop()` + `release()`, `stopForeground(STOP_FOREGROUND_REMOVE)`, then `stopSelf()` — no user action is on that path. |
+| Auto-stop, no lingering audio | Code confirms the mechanism | The delayed `stopChimeAndSelf()` calls `mediaPlayer.stop()` + `release()`, then `stopForeground(STOP_FOREGROUND_DETACH)`/`stopSelf()` — no user action is on that path. The **notification** deliberately does not disappear with it — see below. |
 
 Each row is a claim about what the code does, verified by reading it, not a claim about what fired
 on a phone. The actual device test — "does it audibly wake someone at 3 AM, does the screen
@@ -403,7 +403,37 @@ session's tooling) but, like everything else in this file, hasn't been watched s
 on the caregiver's actual phone yet — that needs a fresh build installed over the one that produced
 the logs above.
 
-## What hasn't been verified
+### Locked-phone alarm, real-device findings (2026-08-08)
+
+A caregiver ran the full A0 exit gate for real: sync confirmed clean (no transaction errors), the
+alarm fired correctly through a locked, silenced phone. Two more findings:
+
+- **The notification disappeared once the 45s chime auto-stopped, instead of staying available for
+  Taken/Snooze.** Confirmed in `DoseAlarmService.kt`: `stopChimeAndSelf()` called
+  `stopForeground(STOP_FOREGROUND_REMOVE)`, which deletes the foreground notification the instant
+  the service stops — contradicting this very file's own manual-test script (step 6 above), which
+  expects the notification to still be there afterward. Fixed: the notification is now re-posted as
+  a plain, dismissible one (`setOngoing(false)`) immediately before `stopForeground(STOP_FOREGROUND_DETACH)`
+  — the chime and foreground service still stop exactly as before, but Taken/Snooze survive for a
+  caregiver who reaches the phone after the chime has already ended. Kotlin, so — same caveat as the
+  rest of `modules/medguard-alarms/` — not compiled or run this session; code-reviewed only.
+- **PRN "Clock unverified" gets stuck after any period the phone was actually locked.** Root cause
+  traced into React Native itself: `performance.now()` (what `src/clock/localClockGuard.ts` uses as
+  its tamper-proof monotonic reference) is backed by `std::chrono::steady_clock`
+  (`ReactCommon/react/timing/primitives.h`), which on Android maps to `CLOCK_MONOTONIC` — a clock
+  that **stops advancing during real device sleep** (screen off, Doze), unlike `Date.now()`, which
+  keeps advancing in real time. So any normal lock/unlock cycle longer than
+  `CLOCK_SKEW_TOLERANCE_MS` (2 minutes) makes the wall clock look like it's raced ahead of the
+  "monotonic" one — indistinguishable, by this guard's own math, from a caregiver winding the clock
+  forward — and since the guard deliberately never re-anchors mid-session (by design, so tampering
+  can't just be waited out), once tripped it stays tripped for the rest of the session. This makes
+  every guarded PRN medicine effectively unusable without an override on a phone that's ever been
+  locked, which given this app's job description ("locked phone, screen off") is close to always.
+  Not yet fixed — the correct fix needs a monotonic clock source that *does* count sleep time
+  (`android.os.SystemClock.elapsedRealtime()`, unaffected by tampering the same way `performance.now()`
+  is, but not frozen by sleep) piped through a new native `medguard-alarms` export, which is a
+  bigger, safety-critical change this sandbox can't verify on-device — see the open question raised
+  with the person who reported this.
 
 This sandbox has no Android SDK, no emulator, and no physical device, so none of the following
 has actually been run, since the environment that wrote this scaffold has no Android SDK, no

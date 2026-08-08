@@ -29,6 +29,7 @@ class DoseAlarmService : Service() {
     private var mediaPlayer: MediaPlayer? = null
     private val stopHandler = Handler(Looper.getMainLooper())
     private var stopRunnable: Runnable? = null
+    private var currentPayload: AlarmPayload? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -41,6 +42,7 @@ class DoseAlarmService : Service() {
             return START_NOT_STICKY
         }
 
+        currentPayload = payload
         startForeground(notificationId(payload.occurrenceKey), buildNotification(payload))
         startChime(payload.chimeDurationSeconds)
 
@@ -75,7 +77,18 @@ class DoseAlarmService : Service() {
             it.release()
         }
         mediaPlayer = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
+
+        // The chime auto-stopping must not also delete the caregiver's chance to respond: a
+        // caregiver who doesn't reach the phone within the chime's window still needs Taken/Snooze
+        // available afterward (durably captured via `NotificationActionReceiver` even with the app
+        // dead — AD2). `STOP_FOREGROUND_REMOVE` would delete the notification outright the instant
+        // the chime ends; re-posting it first as a plain (non-`ongoing`) notification, then
+        // detaching rather than removing, keeps it visible and dismissible with its actions intact.
+        currentPayload?.let { payload ->
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.notify(notificationId(payload.occurrenceKey), buildNotification(payload, ongoing = false))
+        }
+        stopForeground(STOP_FOREGROUND_DETACH)
         stopSelf()
     }
 
@@ -88,7 +101,7 @@ class DoseAlarmService : Service() {
 
     private fun notificationId(occurrenceKey: String): Int = occurrenceKey.hashCode()
 
-    private fun buildNotification(payload: AlarmPayload): android.app.Notification {
+    private fun buildNotification(payload: AlarmPayload, ongoing: Boolean = true): android.app.Notification {
         val builder =
             NotificationCompat.Builder(this, payload.channelId)
                 .setContentTitle(payload.title)
@@ -96,7 +109,7 @@ class DoseAlarmService : Service() {
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setOngoing(true)
+                .setOngoing(ongoing)
                 .setOnlyAlertOnce(true)
 
         // D5 / AD3: the Shabbat channel carries no actions at all.

@@ -2,10 +2,13 @@
 
 **Version:** 1.0
 **Basis:** `medguard-prd.md` v2.0, `medguard-sprint-plan.md` v2.0
-**Status:** signed off, in progress (updated 2026-08-07). A0's test chime has fired on a real device
-(2026-08-06, and again 2026-08-07); the full locked-phone exit-gate checklist ("Arm alarm in 15s",
-screen off, zero touches, auto-stop) is code-reviewed but not yet re-confirmed on-device that way
-(see `apps/android/README.md`). A1 (`packages/store` extraction, the SQLite `Store`, the
+**Status:** signed off, in progress (updated 2026-08-08). A0's full locked-phone exit-gate checklist
+("Arm alarm in 15s", screen off, zero touches, auto-stop) fired correctly on a real device
+2026-08-08, closing out the one thing A0 was still waiting on — see
+`apps/android/README.md`'s "Locked-phone alarm, real-device findings" for the two smaller bugs that
+same test found (a notification-lifecycle bug, fixed; a PRN clock-trust false-positive after any
+real device sleep, diagnosed but not yet fixed — needs a native monotonic-clock fix pending a
+decision on how to scope it safely). A1 (`packages/store` extraction, the SQLite `Store`, the
 conformance suite) is code-complete against the exit gate below, including the derivation-helper
 move (finished in A2, once a real Android caller existed). **A2 (feature parity) is code-complete**:
 every screen exists, wired into a real `@react-navigation` shell against a real repository/SQLite
