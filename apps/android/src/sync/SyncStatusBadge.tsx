@@ -34,5 +34,7 @@ function describe(status: Exclude<SyncIndicatorStatus, { kind: 'disconnected' }>
       return { label: 'Offline', tone: 'neutral' };
     case 'error':
       return { label: 'Sync error', tone: 'locked' };
+    case 'revoked':
+      return { label: 'Removed', tone: 'locked' };
   }
 }

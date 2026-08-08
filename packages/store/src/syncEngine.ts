@@ -18,8 +18,28 @@ import type { Store } from './types.js';
  */
 
 /** Mirrors `apps/web/src/api/householdApi.ts`'s `ApiResult<T>` shape exactly, so the real
- * `syncApi.ts` module can be passed as a `SyncApi` with no adapter code. */
-export type SyncApiResult<T> = { ok: true; value: T } | { ok: false; error: string };
+ * `syncApi.ts` module can be passed as a `SyncApi` with no adapter code.
+ *
+ * `code` is the raw, untranslated server error code (`apps/api/src/auth/middleware.ts`'s
+ * `'unauthorized'`, say) alongside `error`'s already-user-facing message — optional and additive,
+ * so an existing `SyncApi` that only ever set `error` still satisfies this type unchanged. It
+ * exists so a caller like `SyncProvider` can react to *which* failure this was (a revoked device
+ * needs a fundamentally different response than a dropped network call) without parsing a
+ * human-readable string that only happens to still contain the word "unauthorized" today. */
+export type SyncApiResult<T> = { ok: true; value: T } | { ok: false; error: string; code?: string };
+
+/** Thrown by `drainOutbox()`/`pull()` on a failed `SyncApi` call — a plain `Error` with `.code`
+ * attached so `SyncApiResult`'s `code` survives past the `throw`, for the same reason `code`
+ * exists on `SyncApiResult` above. */
+export class SyncApiError extends Error {
+  readonly code: string | undefined;
+
+  constructor(message: string, code: string | undefined) {
+    super(message);
+    this.name = 'SyncApiError';
+    this.code = code;
+  }
+}
 
 export interface SyncPushResult {
   results: Array<{ id: string }>;
@@ -104,11 +124,11 @@ export class SyncEngine {
       if (!result.ok) {
         // A network/server failure, not a verdict on any individual record — every entry in this
         // batch stays queued for the next attempt.
-        this.log.error('push failed', { error: result.error, batchSize: batch.length });
+        this.log.error('push failed', { error: result.error, code: result.code, batchSize: batch.length });
         for (const entry of batch) {
           await repository.markSyncFailed(entry.id!, result.error);
         }
-        throw new Error(result.error);
+        throw new SyncApiError(result.error, result.code);
       }
 
       for (const entry of batch) {
@@ -159,8 +179,8 @@ export class SyncEngine {
         : await api.pull(apiBaseUrl, deviceToken, cursor);
 
     if (!result.ok) {
-      this.log.error('pull failed', { error: result.error, cursor });
-      throw new Error(result.error);
+      this.log.error('pull failed', { error: result.error, code: result.code, cursor });
+      throw new SyncApiError(result.error, result.code);
     }
 
     for (const record of result.value.records) {

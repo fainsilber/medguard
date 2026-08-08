@@ -418,22 +418,57 @@ alarm fired correctly through a locked, silenced phone. Two more findings:
   caregiver who reaches the phone after the chime has already ended. Kotlin, so — same caveat as the
   rest of `modules/medguard-alarms/` — not compiled or run this session; code-reviewed only.
 - **PRN "Clock unverified" gets stuck after any period the phone was actually locked.** Root cause
-  traced into React Native itself: `performance.now()` (what `src/clock/localClockGuard.ts` uses as
+  traced into React Native itself: `performance.now()` (what `src/clock/localClockGuard.ts` used as
   its tamper-proof monotonic reference) is backed by `std::chrono::steady_clock`
   (`ReactCommon/react/timing/primitives.h`), which on Android maps to `CLOCK_MONOTONIC` — a clock
   that **stops advancing during real device sleep** (screen off, Doze), unlike `Date.now()`, which
   keeps advancing in real time. So any normal lock/unlock cycle longer than
-  `CLOCK_SKEW_TOLERANCE_MS` (2 minutes) makes the wall clock look like it's raced ahead of the
-  "monotonic" one — indistinguishable, by this guard's own math, from a caregiver winding the clock
-  forward — and since the guard deliberately never re-anchors mid-session (by design, so tampering
-  can't just be waited out), once tripped it stays tripped for the rest of the session. This makes
-  every guarded PRN medicine effectively unusable without an override on a phone that's ever been
-  locked, which given this app's job description ("locked phone, screen off") is close to always.
-  Not yet fixed — the correct fix needs a monotonic clock source that *does* count sleep time
-  (`android.os.SystemClock.elapsedRealtime()`, unaffected by tampering the same way `performance.now()`
-  is, but not frozen by sleep) piped through a new native `medguard-alarms` export, which is a
-  bigger, safety-critical change this sandbox can't verify on-device — see the open question raised
-  with the person who reported this.
+  `CLOCK_SKEW_TOLERANCE_MS` (2 minutes) made the wall clock look like it had raced ahead of the
+  "monotonic" one — indistinguishable, by the guard's own math, from a caregiver winding the clock
+  forward — and since the guard deliberately never re-anchored mid-session (by design, so tampering
+  couldn't just be waited out), once tripped it stayed tripped for the rest of the session. This
+  made every guarded PRN medicine effectively unusable without an override on a phone that had ever
+  been locked, which given this app's job description ("locked phone, screen off") is close to
+  always. **Fixed**, with sign-off to implement given explicitly since this touches safety-critical
+  dose-gating logic: a new native `elapsedRealtimeMs` export (`MedGuardAlarmsModule.kt`, backed by
+  `SystemClock.elapsedRealtime()`) counts sleep time the same as `Date.now()` does, *and* — unlike
+  `performance.now()` — can't be moved by a caregiver changing the system clock, since it isn't the
+  system clock. `localClockGuard.ts` was reworked around it: a background refresh loop
+  (`startLocalClockGuard()`, started once by `PrnScreen`) samples it on an interval and on every
+  foreground resume, and — safely, only because this new clock source can't be spoofed the way
+  `performance.now()` could — re-anchors after every reading, so normal sleep never accumulates into
+  a false positive. `elapsedRealtimeMs` is mocked in `testUtils/mockMedguardAlarms.ts` for Jest; the
+  Kotlin side is still unbuilt/unrun from this sandbox, same caveat as everything native here.
+
+### Revoked-device data retention (real-device finding, 2026-08-08)
+
+The same caregiver revoked one of their own devices from `HouseholdScreen`'s device list to test
+the flow. It worked — the revoked device stopped syncing — but its local medical data (medicines,
+schedules, logs) stayed on it indefinitely, since `deviceRoutes.delete('/:deviceId')`
+(`apps/api/src/routes/devices.ts`) deletes only the server-side device row; nothing tells the
+revoked device to clear anything, and it has no way to be told anything once its own token stops
+working. Deliberately not auto-wiped on the first failed sync round — a caregiver's dosing history
+disappearing without a confirmed action is its own kind of harm, and a 401 could in principle be
+transient or misconfigured rather than a genuine revoke. Instead:
+
+- `SyncApiResult`/`ApiResult` (`packages/store/src/syncEngine.ts`, `src/api/householdApi.ts`) now
+  carry an optional raw server `code` alongside the existing translated `error` message, and
+  `SyncEngine` throws a new `SyncApiError` (message + `code`) on a failed bootstrap/pull/push
+  instead of a plain `Error` — so a caller can react to *which* failure this was instead of
+  string-matching a human-facing message. Purely additive; web's `SyncApi` is unaffected.
+  `syncEngine.test.ts` covers the `code` surviving the throw for both `drainOutbox()` and `pull()`.
+- `SyncProvider` now has a distinct `'revoked'` status (`SyncStatusBadge` shows "Removed") when a
+  sync round fails with `code: 'unauthorized'`, separate from the generic `'error'` status a
+  transient failure gets — and a new `RevokedDeviceBanner`, rendered alongside
+  `SafetyWarningBanner`, explains what happened and offers a two-step "Clear local data" confirm
+  (mirroring `PrnCard`'s override flow's care around a destructive action) that wipes local data
+  and forgets the session, the same effect as `HouseholdScreen`'s "Leave" but usable when this
+  device's own token no longer works well enough to call `leaveHousehold()` first.
+
+Not yet re-confirmed on an actual revoked device — the sync half of this (`SyncApiError`) has
+passing Vitest coverage; the Android-side banner/status wiring passed typecheck, lint, and the
+existing Jest suite unchanged, but has no dedicated component test yet and hasn't been watched
+firing on a real 401 from a real revoked token.
 
 This sandbox has no Android SDK, no emulator, and no physical device, so none of the following
 has actually been run, since the environment that wrote this scaffold has no Android SDK, no

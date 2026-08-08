@@ -6,9 +6,14 @@
 ("Arm alarm in 15s", screen off, zero touches, auto-stop) fired correctly on a real device
 2026-08-08, closing out the one thing A0 was still waiting on — see
 `apps/android/README.md`'s "Locked-phone alarm, real-device findings" for the two smaller bugs that
-same test found (a notification-lifecycle bug, fixed; a PRN clock-trust false-positive after any
-real device sleep, diagnosed but not yet fixed — needs a native monotonic-clock fix pending a
-decision on how to scope it safely). A1 (`packages/store` extraction, the SQLite `Store`, the
+same test found and fixed (a notification-lifecycle bug; a PRN clock-trust false-positive after any
+real device sleep, fixed with an explicit go-ahead since it touches safety-critical dose gating —
+new native `elapsedRealtimeMs`/`SystemClock.elapsedRealtime()` export replacing the
+sleep-sensitive `performance.now()` reference). The same session's device-revoke test found local
+data stays on a revoked device indefinitely (server-side only deletes the device row) — see
+`apps/android/README.md`'s "Revoked-device data retention" for the fix: a distinct `'revoked'` sync
+status plus a manual, two-step "Clear local data" confirm, not an automatic wipe. A1
+(`packages/store` extraction, the SQLite `Store`, the
 conformance suite) is code-complete against the exit gate below, including the derivation-helper
 move (finished in A2, once a real Android caller existed). **A2 (feature parity) is code-complete**:
 every screen exists, wired into a real `@react-navigation` shell against a real repository/SQLite

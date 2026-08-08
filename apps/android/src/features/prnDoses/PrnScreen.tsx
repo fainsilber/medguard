@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import { ScrollView, Text } from 'react-native';
 import type { ClockTrust, IntakeLog, Medicine } from '@medguard/shared';
 import { useRepository } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useTick } from '../../app/useTick.js';
+import { startLocalClockGuard } from '../../clock/localClockGuard.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
 import { Card, styles as sharedStyles } from '../../ui/primitives.js';
 import { PrnCard } from './PrnCard.js';
@@ -25,6 +27,12 @@ export function PrnScreen({ clockTrust }: { clockTrust?: ClockTrust }): React.JS
   // built as of this sprint) — `clockTrust` is either injected by a caller (tests, and future
   // wiring once the server check lands) or left undefined, in which case each `PrnCard` falls
   // back to the local guard itself. See `apps/android/src/clock/localClockGuard.ts`.
+  //
+  // The guard's background refresh loop is started here, not at the module's own load time: it
+  // needs `AppState` and a live interval, both real resource use that should track this screen's
+  // lifetime rather than run for the whole app session regardless of whether PRN is ever opened.
+  useEffect(() => (clockTrust ? undefined : startLocalClockGuard()), [clockTrust]);
+
   useTick(COUNTDOWN_TICK_MS);
 
   const data = useLiveQuery<PrnData>(async () => {

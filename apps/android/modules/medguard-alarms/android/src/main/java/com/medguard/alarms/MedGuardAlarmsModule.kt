@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import expo.modules.interfaces.permissions.Permissions
@@ -160,6 +161,16 @@ class MedGuardAlarmsModule : Module() {
                         "tappedAtMs" to entry.tappedAtMs,
                     )
                 }
+            }
+
+            // `src/clock/localClockGuard.ts`'s tamper-detection reference: milliseconds since
+            // boot, *including* time spent in deep sleep — unlike React Native's own
+            // `performance.now()` (`CLOCK_MONOTONIC` on Android, which halts across real device
+            // sleep), so a normal phone-locked period no longer looks identical to a caregiver
+            // winding the wall clock forward. Still immune to that tampering itself: this reads a
+            // kernel timer, not the user-settable system clock `Date.now()` reads.
+            AsyncFunction("elapsedRealtimeMs") {
+                SystemClock.elapsedRealtime()
             }
         }
 }

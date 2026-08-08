@@ -7,7 +7,7 @@ import { fixedClock, sequentialIds } from '@medguard/shared/testing';
 import { DexieStore } from './dexie/dexieStore.js';
 import { MedGuardRepository } from './repository.js';
 import { getCursor, setCursor } from './cursor.js';
-import { SyncEngine } from './syncEngine.js';
+import { SyncApiError, SyncEngine } from './syncEngine.js';
 import type { SyncApi, SyncApiResult, SyncPullResult, SyncPushResult } from './syncEngine.js';
 
 /**
@@ -160,6 +160,25 @@ describe('drainOutbox', () => {
     await expect(engine.drainOutbox()).rejects.toThrow();
     expect(await repository.pendingSyncCount()).toBe(1);
   });
+
+  it('throws a SyncApiError carrying the server code, so a caller can tell a revoked device apart from any other failure', async () => {
+    const api = fakeApi({
+      pushChanges: async (): Promise<SyncApiResult<SyncPushResult>> => ({
+        ok: false,
+        error: 'This device is no longer signed in to a household.',
+        code: 'unauthorized',
+      }),
+    });
+    const { repository, engine } = setup(api);
+    await repository.saveMedicine(medicine(), 'CREATE');
+
+    const rejection = engine.drainOutbox();
+    await expect(rejection).rejects.toBeInstanceOf(SyncApiError);
+    await rejection.catch((err: unknown) => {
+      expect(err).toBeInstanceOf(SyncApiError);
+      expect((err as SyncApiError).code).toBe('unauthorized');
+    });
+  });
 });
 
 describe('pull', () => {
@@ -301,6 +320,23 @@ describe('pull', () => {
     await engine.pull();
 
     expect(await db.table('intakeLogs').count()).toBe(1);
+  });
+
+  it('throws a SyncApiError carrying the server code on a failed bootstrap/pull, same as drainOutbox', async () => {
+    const api = fakeApi({
+      bootstrap: async (): Promise<SyncApiResult<SyncPullResult>> => ({
+        ok: false,
+        error: 'This device is no longer signed in to a household.',
+        code: 'unauthorized',
+      }),
+    });
+    const { engine } = setup(api);
+
+    const rejection = engine.pull();
+    await expect(rejection).rejects.toBeInstanceOf(SyncApiError);
+    await rejection.catch((err: unknown) => {
+      expect((err as SyncApiError).code).toBe('unauthorized');
+    });
   });
 });
 

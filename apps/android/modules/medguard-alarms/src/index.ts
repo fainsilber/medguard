@@ -36,6 +36,13 @@ interface MedGuardAlarmsNativeModule {
    * never writes an intake log itself.
    */
   drainPendingActions(): Promise<PendingActionEvent[]>;
+  /**
+   * Milliseconds since boot, including time spent in deep sleep (`SystemClock.elapsedRealtime()`)
+   * — unlike `performance.now()`, which halts across real device sleep on Android. The monotonic
+   * reference `src/clock/localClockGuard.ts` needs so a normal phone-locked period doesn't look
+   * identical to a caregiver winding the wall clock forward.
+   */
+  elapsedRealtimeMs(): Promise<number>;
 }
 
 const nativeModule = requireNativeModule<MedGuardAlarmsNativeModule>('MedGuardAlarms');
@@ -72,5 +79,7 @@ export const requestNotificationPolicyAccess = (): Promise<void> =>
   nativeModule.requestNotificationPolicyAccess();
 
 export const drainPendingActions = (): Promise<PendingActionEvent[]> => nativeModule.drainPendingActions();
+
+export const elapsedRealtimeMs = (): Promise<number> => nativeModule.elapsedRealtimeMs();
 
 export type { MedGuardAlarmsModuleEvents };
