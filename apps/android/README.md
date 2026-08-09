@@ -125,6 +125,49 @@ every one auto-stops, none repeats, zero touches — plus the lock-screen-tap-wi
 path, a reboot and a timezone change mid-schedule, and the three-snooze bound exercised from the
 notification itself rather than from `TodayView`.
 
+### A3 real-device findings (2026-08-09)
+
+First on-device install of the A3 build (`77b9db0`) found two real bugs in the same session, both
+via Diagnostics' "Arm alarm in 15s" test button — the A0 mechanism demo that arms with a bare
+device-generated UUID as its `occurrenceKey`, deliberately not a real one, since the button exists
+to prove the chime fires, not to be acted on with Taken/Snooze.
+
+- **A garbage `occurrenceKey` reaching `Snooze` wrote an unrecoverable outbox entry.** The 'taken'
+  path in `AlarmEngine.applyOne()` already refused to log against a key that doesn't resolve to a
+  real occurrence (`resolveOccurrence`, logged as "no occurrence for a captured action" — visible,
+  harmless, exactly as designed). `recordSnoozeFor` had no equivalent guard: it wrote a `DoseSnooze`
+  with whatever string it was given straight to the repository. The server's `pushSchema` validates
+  the outer request shape (including `table`) before ever reaching the per-table `doseSnoozeSchema`
+  that would normally catch a malformed `occurrenceId` and report it back as one `rejected` entry
+  — but a request shape failure 400s the *entire batch* as `invalid_request`, which is exactly what
+  the device showed ("Sync error", "Please check the details and try again", 2 pending outbox
+  entries, retried identically forever with no way to clear them from the UI). Fixed by validating
+  with the same `parseOccurrenceKey` check `resolveOccurrence` already uses, before writing —
+  `recordSnoozeFor` now refuses and logs cleanly, mirroring 'taken'.
+- **`applyPendingActions()` had no coalescing, unlike `reconcile()`.** The same app-log capture
+  showed the identical "no occurrence" line twice, ~30ms apart, and two separate "alarms reconciled"
+  passes — a cold launch triggered by tapping a notification fires the mount-time
+  `applyPendingActions()` call and the resulting foreground `AppState` transition within
+  milliseconds of each other, and nothing stopped both from reading the same not-yet-acked entries.
+  Harmless here (both concurrent reads hit the same unresolvable key and produced the same clean
+  refusal), but for a *real* 'taken' action the existing-log dedupe only closes the race if the
+  first call's write commits before the second call's read — not guaranteed under concurrency.
+  Fixed by giving `applyPendingActions()` the same `inFlight`-coalescing `reconcile()` already had.
+
+Neither bug affected a real scheduled dose in this session — both were triggered exclusively by the
+A0 test button's non-real `occurrenceKey`, and `AlarmEngine.test.ts` gained regression coverage for
+both (a malformed-key snooze refusal that still acks the tap; a coalescing test asserting
+`readPendingActions` is called once for two concurrent invocations). **Operationally load-bearing:**
+this also reconfirmed the deployment-ordering warning in "Decisions taken for this plan" above —
+`doseSnoozes` support has to be live on the API before an A3 build reaches a phone, or every snooze
+push 400s. A pre-existing, un-touched-by-A3 gap this surfaced but did not fix: `SyncEngine.drainOutbox()`
+treats a server-`rejected` record (one that will *never* succeed, no matter how many times retried)
+the same as a transient failure — `markSyncFailed`, indefinite retry — rather than resolving it
+like a `blocked` one. That is what leaves a genuinely invalid record (from any table, any sprint)
+stuck showing "Sync error" forever with no self-healing path; worth a deliberate decision before
+Sprint 5, since it's shared, already-deployed sync-engine behavior that both clients rely on, not
+something to change unilaterally alongside an unrelated fix.
+
 ### Sprint A2 — feature parity
 
 Per `docs/android-client-plan.md`: "every screen — Today ..., Medicines and nested Schedules ...,

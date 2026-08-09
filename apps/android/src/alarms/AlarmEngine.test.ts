@@ -426,6 +426,51 @@ describe('applyPendingActions — a lock-screen tap becomes a dose', () => {
     expect(context.native.ackPendingActions).not.toHaveBeenCalled();
   });
 
+  it('refuses to snooze against a key that isn’t a real occurrenceKey, and still acks the tap', async () => {
+    // Regression: Diagnostics' "Arm alarm in 15s" test button (A0) arms with a bare
+    // device-generated UUID, deliberately not a real occurrenceKey, since it's a mechanism demo,
+    // not meant to be acted on. A caregiver tapping Snooze on that notification used to write a
+    // DoseSnooze with that UUID as `occurrenceId` straight through — passing the outer sync
+    // request shape but never able to pass the server's per-table schema, so the push kept
+    // failing identically on every retry with no way to clear it. Confirmed on a real device
+    // 2026-08-09 (a stuck 'invalid_request'/'Please check the details and try again' sync error,
+    // "no occurrence for a captured action" in the app log for the paired 'taken' notification on
+    // the same fake alarm — the 'taken' path already had this guard; 'snooze' did not).
+    const context = await withSchedule(await setup());
+    context.native.setPending([
+      takenAction({ id: 'bogus-snooze', action: 'snooze', occurrenceKey: '8b6cb702-0a85-499d-99eb-35a7e6ff6798' }),
+    ]);
+
+    const applied = await context.engine.applyPendingActions();
+
+    expect(applied).toBe(1);
+    expect(context.native.ackPendingActions).toHaveBeenCalledWith(['bogus-snooze']);
+    const outbox = await context.repository.pendingSync();
+    expect(outbox.some((entry) => entry.table === 'doseSnoozes')).toBe(false);
+  });
+
+  it('coalesces concurrent calls, so a tap landing during an in-flight apply is not read twice', async () => {
+    // Real-device evidence (app log, 2026-08-09): a cold launch triggered by tapping a
+    // notification fires the mount-time applyPendingActions() call and the resulting foreground
+    // AppState transition together, milliseconds apart — the same identical "no occurrence"
+    // error logged twice for the same captured action. For 'taken', the existing-log check only
+    // closes that race if the first call's write commits before the second call's read, which
+    // concurrency does not guarantee.
+    const context = await withSchedule(await setup());
+    context.native.setPending([takenAction()]);
+
+    const [firstCount, secondCount] = await Promise.all([
+      context.engine.applyPendingActions(),
+      context.engine.applyPendingActions(),
+    ]);
+
+    // Both calls share the one coalesced run, so both resolve to its result, not one each.
+    expect(firstCount).toBe(1);
+    expect(secondCount).toBe(1);
+    expect(context.native.readPendingActions).toHaveBeenCalledTimes(1);
+    expect(await context.repository.logsForPatient(SINGLE_PATIENT_ID)).toHaveLength(1);
+  });
+
   it('re-arms after applying, so a snoozed dose gets its new alarm', async () => {
     const context = await withSchedule(await setup());
     await context.engine.reconcile();

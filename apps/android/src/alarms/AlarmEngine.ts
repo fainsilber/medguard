@@ -88,6 +88,7 @@ const SNOOZE_LOOKBACK_MS = MS_PER_DAY;
 export class AlarmEngine {
   private readonly log: AlarmEngineLog;
   private inFlight: Promise<AlarmEngineState> | null = null;
+  private applyInFlight: Promise<number> | null = null;
 
   constructor(private readonly deps: AlarmEngineDeps) {
     this.log = deps.log ?? noopLog;
@@ -193,7 +194,22 @@ export class AlarmEngine {
    *    second call for the same occurrence would mint a second inventory adjustment and
    *    double-decrement stock — and property 1 makes repeated reads normal, not exceptional.
    */
-  async applyPendingActions(): Promise<number> {
+  applyPendingActions(): Promise<number> {
+    // Coalesced for the same reason `reconcile()` is: `AlarmProvider` calls this from several
+    // independent triggers (mount, `AppState` -> 'active', the native `onPendingAction` event)
+    // that can land within milliseconds of each other on a real device — a cold launch triggered
+    // by tapping a notification fires the launch-time call and the resulting foreground/event
+    // triggers together. Uncoalesced, both calls read the same not-yet-acked entries and process
+    // them twice; for 'taken' that race is closed by `applyOne`'s existing-log check, but only if
+    // the first call's write commits before the second call's read — not guaranteed under
+    // concurrency, so this closes the race at the source instead of relying on that ordering.
+    this.applyInFlight ??= this.applyPendingActionsExclusive().finally(() => {
+      this.applyInFlight = null;
+    });
+    return this.applyInFlight;
+  }
+
+  private async applyPendingActionsExclusive(): Promise<number> {
     const { native } = this.deps;
 
     const pending = await native.readPendingActions();
@@ -281,6 +297,23 @@ export class AlarmEngine {
   }
 
   private async recordSnoozeFor(key: string, atMs: number): Promise<DoseSnooze | undefined> {
+    // Same well-formedness check the server's `occurrenceKeySchema` enforces on `doseSnoozes`
+    // pushes — deliberately just "parses as scheduleId:dueAt", not "the schedule still exists"
+    // (unlike `resolveOccurrence`), since a snooze recorded a moment before a schedule was edited
+    // is still a legitimate historical fact. Without this, a garbage key — the A0 Diagnostics
+    // "Arm alarm in 15s" test button arms with a bare device-generated UUID, never a real
+    // occurrenceKey, precisely because it isn't meant to be actioned — reaches `recordSnooze()`
+    // unchecked, and the resulting record fails the server's schema forever: `pushSchema` only
+    // returns a per-record `rejected` entry for a *table-schema* failure, but a malformed
+    // `occurrenceId` here still passes the outer request shape, so it lands in the outbox and
+    // then the whole batch keeps re-failing in `SyncEngine.drainOutbox()` on every retry. The
+    // 'taken' path in `applyOne` already refuses the same class of bad key via `resolveOccurrence`;
+    // this mirrors that for 'snooze', which had no equivalent guard.
+    if (parseOccurrenceKey(key) === undefined) {
+      this.log.error('refusing to snooze — not a real occurrence key', { occurrenceKey: key });
+      return undefined;
+    }
+
     const { repository, clock, ids, userId, deviceId } = this.deps;
 
     const settings = await repository.getHouseholdSettings();
