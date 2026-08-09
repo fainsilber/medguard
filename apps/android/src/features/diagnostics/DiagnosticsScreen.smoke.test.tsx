@@ -28,6 +28,7 @@ describe('DiagnosticsScreen', () => {
       expect(queryByText('Diagnostics')).toBeTruthy();
     });
 
+    expect(getByText('Build')).toBeTruthy();
     expect(getByText('AD1 — Hermes ICU')).toBeTruthy();
     expect(getByText('Sync status')).toBeTruthy();
     expect(getByText('App log')).toBeTruthy();

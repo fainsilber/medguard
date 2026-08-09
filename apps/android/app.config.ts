@@ -1,4 +1,20 @@
+import { execSync } from 'node:child_process';
 import type { ExpoConfig } from 'expo/config';
+
+/**
+ * Baked into `extra` so an installed build can be identified from the device alone — same reason
+ * and same fallback-on-failure as apps/web/vite.config.ts's `gitShortSha`. This matters most for
+ * the plain-Gradle CI build (.github/workflows/android-apk.yml), which has no EAS remote-version
+ * tracking (eas.json's `appVersionSource: "remote"` only applies to EAS builds) and no other way
+ * to tell two sideloaded APKs apart.
+ */
+function gitShortSha(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return 'unknown';
+  }
+}
 
 /**
  * Continuous native generation: no committed `android/` directory. Every manifest entry the
@@ -39,6 +55,8 @@ const config: ExpoConfig = {
     // this drifted to a placeholder `*.example.workers.dev` host that doesn't resolve, silently
     // breaking every network call in a build nobody had run on a real device yet.
     apiBaseUrl: process.env.MEDGUARD_API_BASE_URL,
+    gitSha: gitShortSha(),
+    buildTimestamp: new Date().toISOString(),
   },
 };
 
