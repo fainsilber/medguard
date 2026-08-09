@@ -1,4 +1,5 @@
 import {
+  doseSnoozeSchema,
   householdSettingsSchema,
   intakeLogSchema,
   inventoryAdjustmentSchema,
@@ -139,6 +140,23 @@ export const TABLES: Record<SyncableTable, TableConfig> = {
       delta: r.delta,
       reason: r.reason,
       related_log_id: optional(r.relatedLogId),
+      created_at: r.createdAt,
+      created_by_user_id: r.createdByUserId,
+      created_by_device_id: r.createdByDeviceId,
+    }),
+  },
+
+  // Delta AD5. Append-only for the same reason the ledgers above are: concurrent snoozes of the
+  // same dose by two caregivers must both survive, and the "at most three" bound is a row count.
+  doseSnoozes: {
+    table: 'doseSnoozes',
+    sqlTable: 'dose_snoozes',
+    writeRule: 'append_only',
+    schema: doseSnoozeSchema as never,
+    columns: (r: any) => ({
+      occurrence_id: r.occurrenceId,
+      minutes: r.minutes,
+      count: r.count,
       created_at: r.createdAt,
       created_by_user_id: r.createdByUserId,
       created_by_device_id: r.createdByDeviceId,

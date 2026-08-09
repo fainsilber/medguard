@@ -2,19 +2,8 @@ import { resolveLocal, toIso } from '@medguard/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 
-import {
-  canScheduleExactAlarms,
-  cancelDoseAlarm,
-  hasNotificationPermission,
-  hasNotificationPolicyAccess,
-  isIgnoringBatteryOptimizations,
-  playTestChime,
-  requestIgnoreBatteryOptimizations,
-  requestNotificationPermission,
-  requestNotificationPolicyAccess,
-  requestScheduleExactAlarm,
-  scheduleDoseAlarm,
-} from '../../../modules/medguard-alarms/src';
+import { cancelDoseAlarm, playTestChime, scheduleDoseAlarm } from '../../../modules/medguard-alarms/src';
+import { AlarmSetupChecklist } from '../../alarms/AlarmSetupChecklist.js';
 import { useRepository } from '../../app/RepositoryContext.js';
 import {
   clearAppLog,
@@ -46,32 +35,8 @@ export function DiagnosticsScreen(): React.JSX.Element {
   const { status } = useSyncStatus();
   const pendingCount = useLiveQuery(() => repository.pendingSyncCount(), ['syncOutbox']);
 
-  const [exactAlarmsArmed, setExactAlarmsArmed] = useState<boolean | null>(null);
-  const [batteryExempt, setBatteryExempt] = useState<boolean | null>(null);
-  const [notificationsGranted, setNotificationsGranted] = useState<boolean | null>(null);
-  const [dndBypassGranted, setDndBypassGranted] = useState<boolean | null>(null);
   const [armedOccurrenceKey, setArmedOccurrenceKey] = useState<string | null>(null);
   const [status_, setStatusMessage] = useState('');
-
-  const refreshPermissionState = useCallback(() => {
-    canScheduleExactAlarms().then(setExactAlarmsArmed);
-    isIgnoringBatteryOptimizations().then(setBatteryExempt);
-    hasNotificationPermission().then(setNotificationsGranted);
-    hasNotificationPolicyAccess().then(setDndBypassGranted);
-  }, []);
-
-  const onRequestNotificationPermission = useCallback(() => {
-    requestNotificationPermission().then((granted) => {
-      setNotificationsGranted(granted);
-      if (!granted) {
-        setStatusMessage('Notifications denied — grant manually: Settings → Apps → MedGuard → Notifications.');
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    refreshPermissionState();
-  }, [refreshPermissionState]);
 
   const jerusalemDoseCheck = resolveLocal(JERUSALEM, '2026-01-15', '08:00');
   const jerusalemDoseIso = jerusalemDoseCheck.kind === 'exact' ? toIso(jerusalemDoseCheck.instantMs) : null;
@@ -155,26 +120,7 @@ export function DiagnosticsScreen(): React.JSX.Element {
 
       <Card>
         <Text style={sectionTitle}>Alarm permissions</Text>
-        <Row label="Exact alarms armed" value={formatBool(exactAlarmsArmed)} warn={exactAlarmsArmed === false} />
-        {exactAlarmsArmed === false ? (
-          <Button label="Grant exact-alarm permission" onPress={() => requestScheduleExactAlarm()} />
-        ) : null}
-        <Row label="Battery-optimization exempt" value={formatBool(batteryExempt)} warn={batteryExempt === false} />
-        {batteryExempt === false ? (
-          <Button label="Request battery exemption" onPress={() => requestIgnoreBatteryOptimizations()} />
-        ) : null}
-        <Row
-          label="Notifications permitted"
-          value={formatBool(notificationsGranted)}
-          warn={notificationsGranted === false}
-        />
-        {notificationsGranted === false ? (
-          <Button label="Request notification permission" onPress={onRequestNotificationPermission} />
-        ) : null}
-        <Row label="DND bypass granted" value={formatBool(dndBypassGranted)} warn={dndBypassGranted === false} />
-        {dndBypassGranted === false ? (
-          <Button label="Grant DND bypass access" onPress={() => requestNotificationPolicyAccess()} />
-        ) : null}
+        <AlarmSetupChecklist />
       </Card>
 
       <Card>
@@ -204,11 +150,6 @@ export function DiagnosticsScreen(): React.JSX.Element {
       {status_ ? <Text style={{ fontSize: 13, color: colors.primary }}>{status_}</Text> : null}
     </ScrollView>
   );
-}
-
-function formatBool(value: boolean | null): string {
-  if (value === null) return 'checking…';
-  return value ? 'yes' : 'no';
 }
 
 function Row({ label, value, warn }: { label: string; value: string; warn?: boolean }): React.JSX.Element {

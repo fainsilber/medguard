@@ -22,6 +22,7 @@ class ConformanceTestDB extends Dexie {
         'id, patientId, medicineId, scheduleId, status, type, actualTime, syncStatus, supersedesId, [medicineId+actualTime], [patientId+actualTime]',
       inventoryItems: 'id, medicineId, syncStatus, updatedAt',
       inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
+      doseSnoozes: 'id, occurrenceId, createdAt, syncStatus',
       shabbatConfig: 'id, patientId',
       syncOutbox: '++id, table, entityId, action, createdAt',
       syncMeta: 'key',

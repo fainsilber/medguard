@@ -85,6 +85,11 @@ export default defineConfig({
         'packages/shared/src/timezone.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
         'packages/shared/src/logs.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
         'packages/shared/src/sync.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+        // Sprint A3 (delta AD5): a bug here either leaves an alarm armed that a caregiver
+        // dismissed, or — worse — lets a dose be deferred past the point where it should have
+        // escalated. Both clients and, from A4, the Durable Object all decide from this one
+        // function, so it is held to the same bar as the rest of the alarm-critical path.
+        'packages/shared/src/snooze.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
 
         // Sprint A1 (docs/android-client-plan.md, "Storage and the sync port"): the extracted
         // outbox/transaction code and the LWW-vs-append-only merge dispatch carry the same

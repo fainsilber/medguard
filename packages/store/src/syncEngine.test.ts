@@ -6,7 +6,7 @@ import type { Medicine } from '@medguard/shared';
 import { fixedClock, sequentialIds } from '@medguard/shared/testing';
 import { DexieStore } from './dexie/dexieStore.js';
 import { MedGuardRepository } from './repository.js';
-import { getCursor, setCursor } from './cursor.js';
+import { getCursor, getLastSyncedAt, setCursor } from './cursor.js';
 import { SyncApiError, SyncEngine } from './syncEngine.js';
 import type { SyncApi, SyncApiResult, SyncPullResult, SyncPushResult } from './syncEngine.js';
 
@@ -197,6 +197,32 @@ describe('pull', () => {
     const stored = await db.table('medicines').get(MEDICINE_ID);
     expect(stored).toMatchObject({ name: 'Ondansetron', syncStatus: 'synced' });
     expect(await getCursor(store, HOUSEHOLD_ID)).toBe(3);
+  });
+
+  it('records when the pull succeeded, even when it returned nothing', async () => {
+    // "Nothing changed" is still contact with the household, and contact is what tells this
+    // device its local data is fresh enough to keep arming alarms from (safety invariant 6).
+    const api = fakeApi({
+      bootstrap: async (): Promise<SyncApiResult<SyncPullResult>> => ok({ cursor: 1, records: [] }),
+    });
+    const { store, engine } = setup(api);
+
+    expect(await getLastSyncedAt(store)).toBeUndefined();
+    await engine.pull();
+
+    expect(await getLastSyncedAt(store)).toBe('2026-08-03T12:00:00.000Z');
+  });
+
+  it('leaves the last-synced instant untouched when the pull fails', async () => {
+    // A device that cannot reach the server must not look freshly synced — that is precisely the
+    // state the staleness warning exists to make visible.
+    const api = fakeApi({
+      bootstrap: async (): Promise<SyncApiResult<SyncPullResult>> => ({ ok: false, error: 'offline' }),
+    });
+    const { store, engine } = setup(api);
+
+    await expect(engine.pull()).rejects.toThrow('offline');
+    expect(await getLastSyncedAt(store)).toBeUndefined();
   });
 
   it('pulls by cursor once one is already stored, not by bootstrapping again', async () => {

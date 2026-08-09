@@ -6,6 +6,7 @@ import {
   expandSchedule,
   expandSchedules,
   occurrenceKey,
+  parseOccurrenceKey,
   reviseSchedule,
   scheduleAppliesOn,
 } from './schedule.js';
@@ -430,5 +431,51 @@ describe('occurrenceKey', () => {
 
     expect(occurrenceKey(a!)).not.toBe(occurrenceKey(b!));
     expect(occurrenceKey(a!)).toBe(occurrenceKey(a!));
+  });
+});
+
+describe('parseOccurrenceKey', () => {
+  it('round-trips every key occurrenceKey produces', () => {
+    // Over a DST-transition day specifically: those are the occurrences whose `dueAt` is not the
+    // naive mapping of their wall time, so a parser that reconstructed the instant from the local
+    // date instead of reading it back would disagree here and nowhere else.
+    const occurrences = expandSchedules(
+      [makeSchedule({ timesOfDay: ['00:30', '02:30', '08:00'] })],
+      dayRange('2026-03-27'),
+      JERUSALEM,
+    );
+
+    expect(occurrences.length).toBeGreaterThan(0);
+    for (const occurrence of occurrences) {
+      expect(parseOccurrenceKey(occurrenceKey(occurrence))).toEqual({
+        scheduleId: occurrence.scheduleId,
+        dueAt: occurrence.dueAt,
+      });
+    }
+  });
+
+  it('splits on the first colon, so the instant keeps its own', () => {
+    expect(parseOccurrenceKey('schedule-1:2026-06-15T08:00:00.000Z')).toEqual({
+      scheduleId: 'schedule-1',
+      dueAt: '2026-06-15T08:00:00.000Z',
+    });
+  });
+
+  // A notification extra is attacker-adjacent input in the sense that matters here: it survives
+  // an app upgrade, a downgrade and a reboot, and it arrives on a path whose whole job is to
+  // convert a caregiver's tap into a dose record. Every malformed shape must degrade to "ignore",
+  // never to a throw that loses the drain, and never to a plausible-but-wrong instant.
+  it.each([
+    ['no separator', 'schedule-1'],
+    ['empty', ''],
+    ['leading separator', ':2026-06-15T08:00:00.000Z'],
+    ['no instant', 'schedule-1:'],
+    ['not an instant', 'schedule-1:tomorrow'],
+    ['impossible month', 'schedule-1:2026-13-15T08:00:00.000Z'],
+    ['impossible day', 'schedule-1:2026-02-30T08:00:00.000Z'],
+    ['not normalised — no milliseconds', 'schedule-1:2026-06-15T08:00:00Z'],
+    ['not normalised — offset instead of Z', 'schedule-1:2026-06-15T11:00:00.000+03:00'],
+  ])('rejects %s', (_label, key) => {
+    expect(parseOccurrenceKey(key)).toBeUndefined();
   });
 });

@@ -27,8 +27,25 @@ export interface ScheduleDoseAlarmInput {
 export interface PendingActionEvent {
   occurrenceKey: string;
   action: 'taken' | 'snooze';
-  /** Epoch milliseconds at the instant the user tapped — not the instant JS drains it (AD2). */
+  /** Epoch milliseconds at the instant the user tapped — not the instant JS applies it (AD2). */
   tappedAtMs: number;
+}
+
+/**
+ * A captured tap as it sits in native storage, with the id the acknowledgement is keyed by.
+ *
+ * The id exists because reading and acknowledging are separate calls: JS acks only after the
+ * resulting `IntakeLog`/`DoseSnooze` has actually committed, so an app killed mid-apply repeats
+ * a read instead of losing a dose (safety invariant 7).
+ */
+export interface PendingActionRecord extends PendingActionEvent {
+  id: string;
+}
+
+/** One armed alarm as Android currently holds it — the reconcile pass's source of truth. */
+export interface ArmedAlarm {
+  occurrenceKey: string;
+  triggerAtMs: number;
 }
 
 export interface MedGuardAlarmsModuleEvents {

@@ -40,6 +40,7 @@ export {
   expandSchedule,
   expandSchedules,
   occurrenceKey,
+  parseOccurrenceKey,
   reviseSchedule,
   scheduleAppliesOn,
   scheduleIsLiveOn,
@@ -52,6 +53,13 @@ export { DUE_NOW_WINDOW_MS, classifyOccurrence } from './classifyOccurrence.js';
 export type { OccurrenceStatus } from './classifyOccurrence.js';
 export { findLogForOccurrence } from './matchOccurrenceLog.js';
 export { formatCountdown } from './formatCountdown.js';
+
+// Snooze (delta AD5): bounded, append-only deferral of a scheduled dose
+export { MAX_SNOOZE_COUNT, buildDoseSnooze, deriveSnoozeState } from './snooze.js';
+export type { SnoozeContext, SnoozeState } from './snooze.js';
+
+// Household setting defaults, shared so two clients cannot bootstrap different safety windows
+export { DEFAULT_ESCALATION_MINUTES, DEFAULT_SNOOZE_MINUTES } from './settings.js';
 
 // PRN safety guards
 export {

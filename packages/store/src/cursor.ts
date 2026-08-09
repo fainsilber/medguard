@@ -1,3 +1,4 @@
+import type { IsoInstant } from '@medguard/shared';
 import type { Store } from './types.js';
 
 /**
@@ -13,6 +14,7 @@ import type { Store } from './types.js';
 
 const SYNC_META_TABLE = 'syncMeta';
 const CURSOR_KEY = 'cursor';
+const LAST_SYNCED_AT_KEY = 'lastSyncedAt';
 
 interface StoredCursor {
   householdId: string;
@@ -34,5 +36,30 @@ export async function setCursor(store: Store, householdId: string, cursor: numbe
   const stored: StoredCursor = { householdId, cursor };
   await store.transaction([SYNC_META_TABLE], (tx) =>
     tx.put(SYNC_META_TABLE, { key: CURSOR_KEY, value: stored }),
+  );
+}
+
+/**
+ * When this device last completed a pull.
+ *
+ * Distinct from the cursor, and needed for a different reason: the cursor says *where* we resumed
+ * from, never *when*. "The socket is closed right now" (which the sync status already knows) and
+ * "this device has not heard from the household in a day" are different problems — the first is
+ * routine, the second means the alarms this device is arming may be built from a schedule someone
+ * changed yesterday. Safety invariant 6 requires the second be visible, and nothing recorded it.
+ *
+ * Deliberately not household-tagged, unlike the cursor: `clearAllData()` wipes `syncMeta` on the
+ * way out of a household, so a stale value cannot survive into a different one.
+ */
+export async function getLastSyncedAt(store: Store): Promise<IsoInstant | undefined> {
+  const row = await store.transaction([SYNC_META_TABLE], (tx) =>
+    tx.get<{ key: string; value: unknown }>(SYNC_META_TABLE, LAST_SYNCED_AT_KEY),
+  );
+  return row === undefined ? undefined : (row.value as IsoInstant);
+}
+
+export async function setLastSyncedAt(store: Store, iso: IsoInstant): Promise<void> {
+  await store.transaction([SYNC_META_TABLE], (tx) =>
+    tx.put(SYNC_META_TABLE, { key: LAST_SYNCED_AT_KEY, value: iso }),
   );
 }

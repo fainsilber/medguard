@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import {
+  MAX_SNOOZE_COUNT,
+  MS_PER_DAY,
   SINGLE_PATIENT_ID,
   addLocalDays,
   classifyOccurrence,
+  deriveSnoozeState,
   expandSchedules,
   findLogForOccurrence,
   formatLocalDate,
@@ -11,8 +14,10 @@ import {
   fromIso,
   occurrenceKey,
   resolveLocal,
+  toIso,
 } from '@medguard/shared';
 import type { Occurrence, OccurrenceStatus } from '@medguard/shared';
+import { useAlarmHealth } from '../../alarms/AlarmProvider.js';
 import {
   useClock,
   useCurrentDeviceId,
@@ -27,7 +32,6 @@ import { Button, Card, KeyboardAvoidingScreen, colors, styles as ui } from '../.
 import { DoseCorrection } from '../logs/DoseCorrection.js';
 import { TakenTimePrompt } from './TakenTimePrompt.js';
 
-const SNOOZE_MINUTES = 15;
 /** Frequent enough that overdue/due-now buckets feel live, cheap enough not to matter. */
 const REFRESH_INTERVAL_MS = 30_000;
 
@@ -60,7 +64,7 @@ export function TodayView(): React.JSX.Element {
   const userId = useCurrentUserId();
   const deviceId = useCurrentDeviceId();
   const householdSettings = useHouseholdSettings();
-  const [snoozedUntil, setSnoozedUntil] = useState<Map<string, number>>(new Map());
+  const { snooze } = useAlarmHealth();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [promptingKey, setPromptingKey] = useState<string | null>(null);
 
@@ -74,8 +78,16 @@ export function TodayView(): React.JSX.Element {
   const timeZone = householdSettings?.timeZone;
   const today = timeZone ? formatLocalDate(timeZone, nowMs) : undefined;
 
+  // Bounded by `nowMs` alone, deliberately not by `today`/`timeZone`: those load asynchronously
+  // from `householdSettings`, and `useLiveQuery` only re-runs its query on a table write, never
+  // because a closure it captured changed — a bound gated on the not-yet-loaded timezone would
+  // permanently cache an empty result from the one query that ran before settings arrived. A
+  // day's lookback comfortably covers every occurrence shown today, the same margin
+  // `AlarmEngine`'s reconcile pass uses.
+  const snoozes = useLiveQuery(() => repository.recentSnoozes(toIso(nowMs - MS_PER_DAY)), ['doseSnoozes']);
+
   const rows = useMemo(() => {
-    if (!schedules || !logs || !timeZone || !today) {
+    if (!schedules || !logs || !timeZone || !today || !snoozes) {
       return undefined;
     }
 
@@ -88,10 +100,11 @@ export function TodayView(): React.JSX.Element {
     return expandSchedules(schedules, range, timeZone).map((occurrence) => {
       const key = occurrenceKey(occurrence);
       const log = findLogForOccurrence(logs, occurrence);
-      const status = classifyOccurrence(occurrence.dueAt, nowMs, log !== undefined, snoozedUntil.get(key));
-      return { occurrence, log, status, key };
+      const snoozeState = deriveSnoozeState(snoozes, key);
+      const status = classifyOccurrence(occurrence.dueAt, nowMs, log !== undefined, snoozeState.untilMs);
+      return { occurrence, log, status, key, snoozeState };
     });
-  }, [schedules, logs, timeZone, today, nowMs, snoozedUntil]);
+  }, [schedules, logs, timeZone, today, nowMs, snoozes]);
 
   const medicineNames = useMemo(() => {
     if (!medicines) return undefined;
@@ -156,18 +169,16 @@ export function TodayView(): React.JSX.Element {
   };
 
   /**
-   * Local display state only, not persisted — a real alarm re-ring is Sprint A3. This just moves
-   * the occurrence out of the urgent buckets for a while; reloading the app clears it.
+   * Persisted and bounded (Sprint A3, delta AD5) — an append-only `DoseSnooze` through the same
+   * `AlarmEngine` a notification-action snooze uses, so a reload no longer clears it and the
+   * local alarm re-arms to the new deadline. `AlarmEngine.snooze` itself enforces the bound; the
+   * button here just stops offering it once `snoozeState.canSnooze` says no.
    */
   const handleSnooze = (key: string) => {
-    setSnoozedUntil((current) => {
-      const next = new Map(current);
-      next.set(key, nowMs + SNOOZE_MINUTES * 60_000);
-      return next;
-    });
+    void snooze(key);
   };
 
-  if (!rows || !medicineNames || !timeZone) {
+  if (!rows || !medicineNames || !timeZone || !householdSettings) {
     return (
       <ScrollView style={ui.screen} contentContainerStyle={ui.content}>
         <Card>
@@ -195,7 +206,7 @@ export function TodayView(): React.JSX.Element {
                 {STATUS_LABEL[status]}
               </Text>
               <View style={{ gap: 8 }}>
-                {inSection.map(({ occurrence, log, key }) => (
+                {inSection.map(({ occurrence, log, key, snoozeState }) => (
                   <Card key={key}>
                     <View style={[ui.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
                       <View style={{ flex: 1, gap: 2 }}>
@@ -233,8 +244,17 @@ export function TodayView(): React.JSX.Element {
                             onPress={() => void handleSkipped(occurrence, key)}
                             disabled={busyKey === key}
                           />
-                          {status !== 'snoozed' ? (
-                            <Button label="Snooze 15m" onPress={() => handleSnooze(key)} disabled={busyKey === key} />
+                          {status !== 'snoozed' && snoozeState.canSnooze ? (
+                            <Button
+                              label={`Snooze ${householdSettings.snoozeMinutes}m`}
+                              onPress={() => handleSnooze(key)}
+                              disabled={busyKey === key}
+                            />
+                          ) : null}
+                          {!snoozeState.canSnooze ? (
+                            <Text style={{ fontSize: 12, color: colors.textMuted, alignSelf: 'center' }}>
+                              Snoozed {snoozeState.count}/{MAX_SNOOZE_COUNT}
+                            </Text>
                           ) : null}
                         </View>
                       ) : null}

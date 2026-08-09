@@ -87,6 +87,23 @@ function medicine(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const SNOOZE_ID = '44444444-4444-4444-8444-444444444444';
+const OCCURRENCE_ID = `${MEDICINE_ID}:2026-08-03T10:00:00.000Z`;
+
+function doseSnooze(overrides: Record<string, unknown> = {}) {
+  return {
+    id: SNOOZE_ID,
+    occurrenceId: OCCURRENCE_ID,
+    minutes: 20,
+    count: 1,
+    createdAt: '2026-08-03T10:05:00.000Z',
+    createdByUserId: 'Mom',
+    createdByDeviceId: 'device-a',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
 function intakeLog(overrides: Record<string, unknown> = {}) {
   return {
     id: LOG_ID,
@@ -107,6 +124,7 @@ beforeEach(async () => {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM intake_logs'),
     env.DB.prepare('DELETE FROM inventory_adjustments'),
+    env.DB.prepare('DELETE FROM dose_snoozes'),
     env.DB.prepare('DELETE FROM medicines'),
     env.DB.prepare('DELETE FROM join_attempts'),
     env.DB.prepare('DELETE FROM join_codes'),
@@ -222,6 +240,62 @@ describe('idempotent replay — the difference between a resent request and a se
       .bind(LOG_ID)
       .first<{ quantity_taken: number }>();
     expect(row?.quantity_taken).toBe(1);
+  });
+
+  it('applies a replayed snooze once, so a retry cannot consume a caregiver’s snooze budget', async () => {
+    // The bound is "three snoozes per dose", counted as rows. A dropped response retried by the
+    // outbox must therefore not land as a second row, or a flaky connection would silently spend
+    // a caregiver's deferrals for them.
+    const session = await createHousehold();
+    const batch = [{ table: 'doseSnoozes', record: doseSnooze() }];
+
+    const first = await push(session, batch);
+    const second = await push(session, batch);
+
+    expect(first.body.results[0]!).toMatchObject({ outcome: 'applied' });
+    expect(second.body.results[0]!).toMatchObject({ outcome: 'duplicate' });
+
+    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM dose_snoozes').first<{ n: number }>();
+    expect(count?.n).toBe(1);
+  });
+
+  it('keeps two caregivers’ concurrent snoozes of the same dose, discarding neither', async () => {
+    // The reason this table is append-only rather than last-write-wins: under LWW the second
+    // device's snooze would overwrite the first, and the household would have spent two
+    // deferrals while the count showed one.
+    const session = await createHousehold();
+
+    await push(session, [{ table: 'doseSnoozes', record: doseSnooze({ id: SNOOZE_ID, createdByDeviceId: 'device-a' }) }]);
+    await push(session, [
+      {
+        table: 'doseSnoozes',
+        record: doseSnooze({
+          id: '55555555-5555-4555-8555-555555555555',
+          count: 2,
+          createdByDeviceId: 'device-b',
+        }),
+      },
+    ]);
+
+    const count = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM dose_snoozes WHERE occurrence_id = ?',
+    )
+      .bind(OCCURRENCE_ID)
+      .first<{ n: number }>();
+    expect(count?.n).toBe(2);
+  });
+
+  it('never lets a replayed snooze overwrite the stored one, even if the resend differs', async () => {
+    const session = await createHousehold();
+
+    await push(session, [{ table: 'doseSnoozes', record: doseSnooze({ minutes: 20 }) }]);
+    // A buggy or tampered resend claiming a far longer deferral under the same id.
+    await push(session, [{ table: 'doseSnoozes', record: doseSnooze({ minutes: 600 }) }]);
+
+    const row = await env.DB.prepare('SELECT minutes FROM dose_snoozes WHERE id = ?')
+      .bind(SNOOZE_ID)
+      .first<{ minutes: number }>();
+    expect(row?.minutes).toBe(20);
   });
 
   it('applies a replayed inventory adjustment once, so stock cannot drift', async () => {

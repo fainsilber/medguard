@@ -5,19 +5,14 @@ workspace exists to do the one thing a browser structurally cannot (PRD Delta D1
 alarm-volume dose chime that fires on a **locked phone with the screen off**, auto-stops on its
 own, and requires zero touches to work.
 
-**Status: Sprint A2 (feature parity) code-complete — every screen exists and is wired into a real
-navigator, backed by a real repository/SQLite store.** A0's exit gate is code-reviewed; the chime
-itself (the "Play test chime now" button) is confirmed firing on a real device (2026-08-06, and
-again 2026-08-07's household-sync testing below). **The full "Arm alarm in 15s," locked-phone,
-screen-off, zero-touch, auto-stop exit gate fired correctly on a real device 2026-08-08**, closing
-out A0 — see "Locked-phone alarm, real-device findings" below for the two bugs that same test found
-and fixed. A1 (storage/sync port) and A2 are both code-complete, and continued real-device use since
-has found and fixed two more bugs: revoked-device data retention (below) and, 2026-08-09, the
-on-screen keyboard overlapping focused text fields across the app (every form/text-input screen now
-wraps in a shared `KeyboardAvoidingScreen`) — plus, same day, the app gained a "Build" card on
-Diagnostics showing the git SHA and build timestamp baked in at `expo prebuild` time, so an
-installed APK can be identified from the device alone (mirrors `apps/web/src/version.ts`; see root
-`CLAUDE.md`'s build-identity convention).
+**Status: Sprint A3 (the local alarm engine) code-complete, not yet device-confirmed** — see
+"Sprint A3" below. A0's locked-phone exit gate fired correctly on a real device 2026-08-08; A1
+(storage/sync port) and A2 (feature parity) are code-complete and real-device-tested up through
+household join and sync. Continued real-device use since A0 found and fixed several bugs:
+revoked-device data retention, the on-screen keyboard overlapping focused text fields (every
+form/text-input screen now wraps in a shared `KeyboardAvoidingScreen`), and the app gained a
+"Build" card on Diagnostics showing the git SHA and build timestamp baked in at `expo prebuild`
+time (mirrors `apps/web/src/version.ts`; see root `CLAUDE.md`'s build-identity convention).
 
 **This sandbox has no Android SDK, emulator, or physical device (confirmed: no `adb` on `$PATH`)**, so
 nothing below has been watched running on an actual phone from inside a Claude Code session —
@@ -28,6 +23,107 @@ work." Real-device testing itself happens on the caregiver's own phone, off a si
 happened 2026-08-07: a caregiver installed the build, joined a household, and hit a real sync bug
 (see "Sync and household join" below) that no amount of in-sandbox testing could have caught, since
 it only reproduces against `expo-sqlite`'s real native connection.
+
+### Sprint A3 — the local alarm engine
+
+**Code-complete, not device-confirmed.** A0/A2 already built more of the native (Kotlin) layer than
+the plan's A3 scope assumed — `AlarmScheduler`, `AlarmReceiver`, `DoseAlarmService`, `BootReceiver`
+and all five versioned channels were already real and working. What A3 actually closes is the
+JavaScript half: `apps/android/src/alarms/` did not exist before this sprint, and nothing called
+`drainPendingActions()` at all — a lock-screen "Taken" tap was captured durably in Kotlin and then
+never became a dose.
+
+**The engine.** `src/alarms/horizon.ts` (`materializeHorizon`) is the pure decision: every
+`expandSchedules` occurrence over a rolling 48-hour window (matching the server's own window),
+minus anything already logged (`findLogForOccurrence`, so a correction chain is respected), minus
+archived medicines, with a snoozed occurrence's trigger moved to its deferral deadline instead of
+its due time, capped at 64 armed alarms. `alarmReconciler.ts` (`diffAlarms`) diffs that against
+what `MedGuardAlarms.listArmedAlarms()` says is actually armed — Kotlin's list is the source of
+truth, not a JS-side mirror, because `BootReceiver` re-arms after a reboot and drops expired alarms
+without JS ever seeing either event. `alarmHealth.ts` derives two things safety invariant 6 needs
+said loudly: **blockers** (exact alarms or notifications denied — alarms will not fire) versus
+**risks** (battery optimization, no DND access — alarms may be delayed, and AD7 is explicit these
+cannot be granted programmatically, so the wording says "may," never "will"), and **staleness**
+(no successful sync in 24h — a new `getLastSyncedAt`/`setLastSyncedAt` pair in
+`packages/store/src/cursor.ts`, since nothing previously recorded "the last pull succeeded at T").
+`AlarmEngine.ts` is the one impure orchestrator — `reconcile()` (coalesced the same way
+`SyncEngine.runOnce()` is, for the identical reason: it's triggered by store notifications that
+fire once per pulled record) and `applyPendingActions()`.
+
+**The peek/ack redesign.** The plan called for `drainPendingActions()` — read-and-clear in one
+call. Building the JS side surfaced why that's wrong: if the app is killed between reading a
+captured tap and writing the resulting `IntakeLog` (a real risk — the drain runs at app startup,
+exactly when Android is most willing to kill a process), the tap is gone with nothing on disk to
+retry. `PendingActionStore.kt` now gives each entry a stable id and splits into `readPendingActions`
+(non-destructive) / `ackPendingActions(ids)` (JS calls it only after the resulting record has
+committed). `AlarmEngine.applyPendingActions()` also dedupes against an occurrence's existing log
+before calling `recordDose()` — deliberately, since `recordDose()` is not idempotent, and the
+peek/ack redesign makes a repeated read the normal case rather than an edge case.
+
+**Drain triggers — the deliberate gap.** A `HeadlessJsTaskService` (the plan's original design for
+"the app process is fully dead") is **not** built here; it's deferred to A4, where the headless
+bootstrap gets built once and shared with the FCM data-message handler A4 needs regardless. A3
+instead: drains on app launch, on `AppState` → `'active'`, and on a new native `onPendingAction`
+event (`Events("onPendingAction")` on `MedGuardAlarmsModule`, wired from
+`NotificationActionReceiver` to a live JS runtime when one exists) — which covers a merely-locked
+phone with the app still resident in memory, arguably the common case. The gap this leaves: a tap
+made with a genuinely dead process waits for the next app open. Within A3 alone this costs nothing
+but latency (the tap timestamp is still exactly right); once A4's escalation exists, that window
+can cost one spurious escalation to the second caregiver's phone for a dose that was actually
+given. Accepted rather than closed now, to avoid building headless-bootstrap machinery twice.
+
+**Snooze became data (delta AD5).** `DoseSnooze` ships as a full synced entity, not a local-only
+stopgap: `packages/shared/src/types.ts` + `snooze.ts` (`MAX_SNOOZE_COUNT = 3`,
+`deriveSnoozeState`, `buildDoseSnooze`), `packages/store` (`recordSnooze`/`snoozesForOccurrence`/
+`recentSnoozes` on `MedGuardRepository`, both SQLite and Dexie schemas), and the server
+(`apps/api/migrations/0003_alarms.sql`, `dose_snoozes` in `apps/api/src/sync/tables.ts` as
+append-only — same reason `intake_logs` is: two caregivers snoozing the same dose concurrently must
+both survive, and the bound becomes a row count rather than a counter to get wrong). **Deployment
+ordering matters**: the API needs migrating and deploying before an A3 build reaches a phone, or
+`doseSnoozes` pushes are rejected and the outbox blocks. `HouseholdSettings.snoozeMinutes` — present
+since Sprint 3 but read by nothing — is now genuinely load-bearing, and its bootstrap default moved
+from 15 to 20 minutes (`packages/shared/src/settings.ts`, shared with web) to match the signed-off
+decision: three snoozes at 20 minutes is exactly AD6's 60-minute escalation window.
+`TodayView.tsx`'s in-memory `snoozedUntil` `Map` (a reload used to clear it) is gone, replaced by a
+`useLiveQuery` over `recentSnoozes` feeding the same `classifyOccurrence` call; the Snooze button
+shows "Snoozed 3/3" and disappears once the bound is reached rather than silently no-op'ing.
+
+**UI:** `AlarmHealthBanner.tsx` (mounted in `App.tsx` beside `SafetyWarningBanner`) renders the same
+wording `describeAlarmStatus` composes for the native `sync_status_v1` ongoing notification, so a
+caregiver sees one consistent explanation on the phone and in the shade. `AlarmSetupChecklist.tsx`
+is the AD7 guided checklist — the four grantable permissions plus an explicit, honest paragraph
+that Xiaomi/Huawei/Oppo/Samsung autostart managers have no API to request through at all — shared
+between the banner (only appears when something's actually wrong) and Diagnostics (always visible),
+replacing what used to be Diagnostics' own inline copy of the same four rows.
+
+**Tests:** `packages/shared/src/snooze.test.ts` and additions to `schedule.test.ts` (100% branch,
+same gate as `safety.ts`/`schedule.ts` — a snooze bug either leaves an alarm armed after dismissal
+or defers a dose past when it should escalate); a snooze conformance group in
+`packages/store/src/testing/repositoryConformance.ts` run against both Dexie and SQLite; server
+round-trip tests for duplicate/concurrent snoozes in `apps/api/tests/sync.test.ts`; and
+`apps/android/src/alarms/*.test.ts` (`horizon`, `alarmReconciler`, `alarmHealth`, `AlarmEngine` —
+76 Vitest tests total in `src/alarms/`) plus Jest coverage for the banner and the persisted-snooze
+UI (`AlarmHealthBanner.test.tsx`, additions to `TodayView.test.tsx`). One real bug the `AlarmEngine`
+tests caught before a device could: reading schedules/medicines/logs/snoozes via `Promise.all`
+inside `reconcile()` opened four concurrent `store.transaction()` calls, which `expo-sqlite`'s
+single connection tolerates only because of the queue added in Sprint A2's "Sync and household
+join" fix — but the `better-sqlite3` test double has no such queue and threw "cannot start a
+transaction within a transaction" immediately. Fixed by reading sequentially; also the more
+portable choice, since nothing in the `Store` port promises concurrent-transaction safety.
+
+Full repo Vitest (926/926, including the 100%-branch coverage gate on the new `snooze.ts` and the
+unchanged `repository.ts`/`tableDispatch.ts`), the Android Jest suite (12 files/31 tests), `npx expo
+export` (1054 modules, up from A2's 1040), and `npx expo prebuild --platform android --clean` (the
+generated manifest carries every alarm-layer component correctly — no new manifest entries were
+needed this sprint) are all green. Not built: the plan's Robolectric/instrumented `androidTest`
+layer — there's no Kotlin test harness in this repo and no Android SDK in this sandbox, so the
+Kotlin changes (`PendingActionStore`'s peek/ack split, the `onPendingAction` event, `StatusNotifier`,
+`AlarmScheduler.cancelAll`, the batch `armDoseAlarms`) are verified by `expo prebuild` parsing and
+production-code review, not by an on-device or emulator run. **What genuinely needs a real
+device**: the sprint's actual exit gate — a 25-hour locked-phone dry run where every alert fires,
+every one auto-stops, none repeats, zero touches — plus the lock-screen-tap-with-app-force-stopped
+path, a reboot and a timezone change mid-schedule, and the three-snooze bound exercised from the
+notification itself rather than from `TodayView`.
 
 ### Sprint A2 — feature parity
 
@@ -171,9 +267,18 @@ apps/android/
 │       ├── MedGuardChannels.kt       #   versioned notification channels
 │       ├── BootReceiver.kt           #   re-arms alarms after reboot / clock change
 │       ├── NotificationActionReceiver.kt  # captures Taken/Snooze taps durably (app may be dead)
-│       ├── PendingActionStore.kt     #   durable landing spot for captured taps (AD2)
+│       ├── PendingActionStore.kt     #   Sprint A3: peek/ack (readAll/ack), never a destructive drain
 │       ├── ArmedAlarmStore.kt        #   local mirror of "what's armed", for BootReceiver
-│       └── MedGuardAlarmsModule.kt   #   Expo Modules API bridge
+│       ├── StatusNotifier.kt         #   Sprint A3: the ongoing sync_status_v1 "alarms unarmed"/"stale" notification
+│       └── MedGuardAlarmsModule.kt   #   Expo Modules API bridge, incl. Sprint A3's onPendingAction event
+├── src/alarms/                       # Sprint A3: the JS alarm engine — see "Sprint A3" above
+│   ├── horizon.ts                    #   materializeHorizon — pure: synced data -> what should be armed
+│   ├── alarmReconciler.ts            #   diffAlarms — pure: armed-now vs. should-be-armed
+│   ├── alarmHealth.ts                #   deriveAlarmHealth/deriveSyncStaleness/describeAlarmStatus
+│   ├── AlarmEngine.ts                #   the one impure orchestrator: reconcile() / applyPendingActions() / snooze()
+│   ├── AlarmProvider.tsx             #   React wiring — mount point, AppState/store/event listeners
+│   ├── AlarmHealthBanner.tsx         #   safety invariant 6, in-app
+│   └── AlarmSetupChecklist.tsx       #   AD7's guided checklist, shared with Diagnostics
 ├── src/runtime/deviceRuntime.ts      # the only ambient-time/id edge in this app
 ├── src/store/expoSqliteDriver.ts     # Sprint A1: the expo-sqlite half of @medguard/store's SqlDriver
 ├── src/store/offlineFlow.test.ts     # Sprint A1's exit-gate flow, proven against the shared SQLite Store
@@ -185,7 +290,8 @@ apps/android/
 ├── src/features/today/, medicines/, schedules/, prnDoses/, inventory/, export/, household/, logs/, diagnostics/
 │                                      # Sprint A2's screens — one folder per web feature, same names
 ├── src/ui/primitives.tsx             # shared RN styling (Card/Badge/Button/colors), the Tailwind-classes equivalent
-├── src/testUtils/                    # renderWithRepository + expo-sqlite/secure-store/crypto Jest doubles
+├── src/testUtils/                    # renderWithRepository + expo-sqlite/secure-store/crypto Jest doubles,
+│                                      #   plus Sprint A3's seedAlarmData.ts (schedules/snoozes/sync metadata)
 ├── jest.config.js                    # Jest + jest-expo, for *.test.tsx (RN component tests) only
 └── App.tsx, index.ts
 ```
@@ -300,12 +406,19 @@ Once the app is installed and Metro connects:
    (`r` in the Metro terminal), arm it, then reboot the phone before it fires. Confirm the chime
    still fires on schedule after the reboot completes — this is the "household reboots the phone
    and silently stops getting alarms" failure the plan calls "the worst failure this app can have."
-8. **Notification-action capture:** tap "Taken" or "Snooze" on the notification while the chime is
-   playing (or after), then force-stop the app from Android's app-info screen, relaunch it, and
-   check Logcat (`adb logcat | grep medguard_pending_actions` or inspect the app's SharedPreferences
-   via `adb shell run-as com.medguard.app cat /data/data/com.medguard.app/shared_prefs/medguard_pending_actions.xml`)
-   to confirm the tap was captured with the correct timestamp. There's no UI for this yet — see
-   "Known gaps."
+8. **Notification-action capture (Sprint A3):** tap "Taken" or "Snooze" on the notification while
+   the chime is playing (or after), then force-stop the app from Android's app-info screen and
+   relaunch it. `AlarmEngine.applyPendingActions()` runs on launch, so this should now produce a
+   real result rather than only a SharedPreferences entry: a "Taken" tap should show up as a
+   logged dose on the Today screen with the **tap** instant as its time (not the relaunch instant
+   — check it against the wall clock when you actually tapped), and a "Snooze" tap should show the
+   occurrence deferred and a `DoseSnooze` row synced to the second device. If the app is relaunched
+   quickly enough that `MedGuardAlarmsModule`'s JS runtime was still alive when the tap landed, the
+   `onPendingAction` event should apply it within seconds, before any relaunch is even needed —
+   worth confirming both timings. To inspect the durable capture directly before it's applied:
+   `adb logcat | grep medguard_pending_actions` or
+   `adb shell run-as com.medguard.app cat /data/data/com.medguard.app/shared_prefs/medguard_pending_actions.xml`
+   — it should go empty once `ackPendingActions` runs.
 
 Useful commands while testing:
 
@@ -565,17 +678,15 @@ setup — it does **not** stand in for AD1's actual on-device Hermes check.
 
 ## What's deliberately not built yet
 
-A0, A1 and A2 are code-complete (see their sections above); everything below is genuinely still
+A0 through A3 are code-complete (see their sections above); everything below is genuinely still
 ahead, per the plan's sprint breakdown:
 
-- **A3** — the full local alarm engine: horizon materialization from synced schedules, the
-  Taken/Snooze → `pending_actions` → Headless JS → `recordDose()` path (the Kotlin side of that,
-  `PendingActionStore`/`NotificationActionReceiver`, is built; the JS-side headless drain that
-  runs with the app process dead is not — `drainPendingActions()` today only runs when the app is
-  foregrounded), bounded snooze, "alarms unarmed"/"sync stale" degradation states.
-- **A4** — server Sprint 5: the FCM sender, `dispatch.ts`, the DO dose-alarm chain, escalation,
-  `DoseSnooze`, missed-dose sweep, low-stock push, probe-route removal. None of this exists on the
-  API side yet, so a scheduled alarm currently has no server backstop.
+- **A4** — server Sprint 5: the FCM sender, `dispatch.ts`, the DO dose-alarm chain, escalation
+  logic (`DoseSnooze` the *entity* shipped in A3; the DO's `dose_alarms` state machine that reads
+  it did not), missed-dose sweep, low-stock push, probe-route removal, and the
+  `HeadlessJsTaskService` A3 deliberately deferred (see "Sprint A3" above). None of this exists on
+  the API side yet beyond the A3-shipped `dose_snoozes` table, so a scheduled alarm currently has
+  no server backstop.
 - **A5** — Shabbat on native.
 - **A6** — Play Console restricted-permission review, EAS CI wiring, accessibility pass.
 
@@ -585,12 +696,9 @@ ahead, per the plan's sprint breakdown:
   a custom-designed MedGuard tone. The plan's channel table calls for a "custom 45s chime" on the
   Shabbat channel specifically — that's a real audio asset someone needs to supply and drop into
   `modules/medguard-alarms/android/src/main/res/raw/`, then wire into `DoseAlarmService`.
-- `MedGuardAlarmsModule.drainPendingActions()` exists and the native capture path is real and
-  durable, but nothing calls it automatically yet — no headless task, no foreground-time drain
-  wired into a repository. A tap today is captured safely and sits in `PendingActionStore` until
-  Sprint A3 wires the drain.
-- No app icon / splash asset — `app.config.ts` omits `icon`/`splash` and Expo will use its
-  placeholder default until real assets exist.
+- No app-icon-sized splash asset — `app.config.ts` sets a real `icon`/`adaptiveIcon` (the Star of
+  Life mark, matching `apps/web/public/icons`) but no `splash`, so Expo uses its placeholder splash
+  screen until one exists.
 
 Two gaps that used to be listed here — no runtime `POST_NOTIFICATIONS` prompt, no in-app DND-bypass
 control — are closed: `MedGuardAlarmsModule` now exposes `hasNotificationPermission()` /
@@ -600,6 +708,18 @@ screen surfaces both that and the pre-existing `hasNotificationPolicyAccess()` /
 `requestNotificationPolicyAccess()` as buttons alongside exact-alarms and battery exemption. Neither
 has been exercised on a real device yet (see "What hasn't been verified"), so treat them as
 code-reviewed, not device-confirmed, until the next on-device pass.
+
+**New in Sprint A3:**
+
+- **A tap made with the app process fully dead isn't applied until the next app open.** See "Drain
+  triggers — the deliberate gap" in the Sprint A3 section above. The capture itself is durable and
+  the tap timestamp is exact regardless of when it's applied; the gap is latency, not correctness,
+  and closes in A4 alongside the headless bootstrap FCM needs anyway.
+- **AD6 vs. PRD §4 disagree on the escalation timing A3 doesn't otherwise touch.** AD6's signed-off
+  timeline puts the first escalation at 60 minutes; PRD §4, `HouseholdSettings.escalationAfterMinutes`'s
+  default, and A4's own exit gate in `docs/android-client-plan.md` all say 15. A3 has no escalation
+  logic so nothing here is blocked by it, but A4 cannot start building the DO alarm chain without
+  resolving which one is right.
 
 **New in Sprint A2:**
 

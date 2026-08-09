@@ -224,6 +224,36 @@ export interface InventoryItem extends Syncable {
 }
 
 // ---------------------------------------------------------------------------
+// Snooze
+// ---------------------------------------------------------------------------
+
+/**
+ * One caregiver deferring one scheduled dose (delta AD5).
+ *
+ * Append-only, not a mutable `snoozedUntil` field, for the same reason inventory is a ledger:
+ * two caregivers snoozing the same dose while offline would each write a deadline and
+ * Last-Write-Wins would silently discard one. It also makes the bound trivially correct — the
+ * number of snoozes granted *is* the row count, with nothing to increment and get wrong.
+ *
+ * Being a synced fact rather than local UI state is what lets the server stop an escalation when
+ * any device snoozes: `applyBatch` already sees every synced record, so no new channel is needed.
+ */
+export interface DoseSnooze {
+  id: Uuid;
+  /** An `occurrenceKey` — `${scheduleId}:${dueAt}`. See `occurrenceKey` in schedule.ts. */
+  occurrenceId: string;
+  /** How long this snooze defers the dose by, captured at creation so a later settings change
+   * cannot retroactively move a deadline that already passed. */
+  minutes: number;
+  /** 1-based ordinal of this snooze for its occurrence, as counted when it was created. */
+  count: number;
+  createdAt: IsoInstant;
+  createdByUserId: UserId;
+  createdByDeviceId: DeviceId;
+  syncStatus: SyncStatus;
+}
+
+// ---------------------------------------------------------------------------
 // Shabbat
 // ---------------------------------------------------------------------------
 
@@ -256,6 +286,7 @@ export type SyncableTable =
   | 'intakeLogs'
   | 'inventoryItems'
   | 'inventoryAdjustments'
+  | 'doseSnoozes'
   | 'shabbatConfig'
   | 'householdSettings';
 

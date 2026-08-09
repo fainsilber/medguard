@@ -1,6 +1,6 @@
 import type { SyncableTable } from '@medguard/shared';
 import type { MedGuardRepository } from './repository.js';
-import { getCursor, setCursor } from './cursor.js';
+import { getCursor, setCursor, setLastSyncedAt } from './cursor.js';
 import { applyPulledRecord, markSyncedLocally } from './tableDispatch.js';
 import type { Store } from './types.js';
 
@@ -187,6 +187,10 @@ export class SyncEngine {
       await applyPulledRecord(store, record);
     }
     await setCursor(store, householdId, result.value.cursor);
+    // Recorded on every successful pull, including one that returned nothing: "nothing changed"
+    // is still contact with the household, and it is contact — not change — that tells a device
+    // its local data is worth arming alarms from (safety invariant 6).
+    await setLastSyncedAt(store, this.deps.repository.now());
     this.log.debug('pull applied', {
       records: result.value.records.length,
       newCursor: result.value.cursor,

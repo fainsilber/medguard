@@ -44,6 +44,14 @@ tell which build a device was running, closed per this repo's standing "every ap
 identity" convention (see root `CLAUDE.md`) — `app.config.ts` now bakes the git SHA and build
 timestamp into Expo's `extra`, read via `expo-constants` alongside the real installed
 `nativeBuildVersion` from `expo-application`, both shown on a "Build" card in Diagnostics.
+**A3 (the local alarm engine) is code-complete, not yet device-confirmed** — see the A3 section
+below and `apps/android/README.md`'s "Sprint A3" for the full account. `DoseSnooze` shipped as a
+full synced entity ahead of A4 (delta AD5); the `HeadlessJsTaskService` this plan originally
+specified was deliberately deferred to A4, where it's built once and shared with the FCM handler
+A4 needs anyway — see A3's section for what covers the gap that leaves. One inconsistency the A3
+work surfaced but didn't need to resolve: AD6's signed-off missed-dose timeline puts the first
+escalation at 60 minutes, while PRD §4, `HouseholdSettings.escalationAfterMinutes`'s default, and
+A4's own exit gate below all say 15 — A4 cannot start without settling which one is right.
 **Team model:** Claude builds; you guide, decide, review.
 
 ---
@@ -510,17 +518,40 @@ a phone).
 
 ### A3 — The local alarm engine
 
-**Scope:** horizon materialization on the device; re-arm receivers; notification channels;
-Taken/Snooze actions through `pending_actions` + Headless JS; bounded snooze; the "alarms unarmed"
-and "sync stale" degradation states; battery-optimization and DND onboarding prompts.
+**Status: code-complete (2026-08-09), not yet device-confirmed.** See `apps/android/README.md`'s
+"Sprint A3 — the local alarm engine" for the full account; summary below.
 
-**Exit gate:** the 25-hour locked-phone dry run (existing manual QA item 2) passes — every alert
-fires, every one auto-stops, none repeats, zero touches.
+**Scope, as actually built — narrower than originally scoped, because A0/A2 had already built
+more of the native layer than this section assumed.** Re-arm receivers and notification channels
+were already done (`BootReceiver`, `MedGuardChannels`, all five versioned channels). What A3
+actually delivered: horizon materialization on the device (`src/alarms/horizon.ts`); Taken/Snooze
+actions through a durable **peek/ack** pair (`readPendingActions`/`ackPendingActions`, replacing
+the destructive `drainPendingActions()` this plan originally specified — a destructive drain loses
+the tap if the app dies between reading it and writing the resulting log); bounded snooze, shipped
+as a full synced `DoseSnooze` entity rather than deferred to A4 (`0003_alarms.sql`, append-only,
+signed off at `MAX_SNOOZE_COUNT = 3`); the "alarms unarmed"/"sync stale" degradation states
+(`alarmHealth.ts`, a new `getLastSyncedAt`/`setLastSyncedAt` primitive in `packages/store`); and
+battery-optimization/DND onboarding (`AlarmSetupChecklist.tsx`, including AD7's explicit,
+honest statement that OEM autostart managers cannot be granted programmatically).
+
+**Deliberately deferred to A4:** the `HeadlessJsTaskService` this section originally specified for
+"the app process is fully dead." A3 instead drains on app launch, on `AppState` → `'active'`, and
+on a new native `onPendingAction` event for a live JS runtime — covering the common
+merely-locked-phone case. A4 builds the headless bootstrap once, shared with the FCM data-message
+handler it needs regardless, rather than building it twice.
+
+**Exit gate:** the 25-hour locked-phone dry run (existing manual QA item 2) — every alert fires,
+every one auto-stops, none repeats, zero touches. Not yet run; this sandbox has no Android SDK or
+device. Code-level verification (typecheck, lint, full repo Vitest at 926/926 including the
+100%-branch gate on the new `snooze.ts`, the Android Jest suite, `expo export`, `expo prebuild`)
+is green.
 
 ### A4 — Server Sprint 5
 
-**Scope:** the FCM sender, the dispatch fan-out, the DO dose-alarm chain, escalation, `DoseSnooze`,
-the missed-dose sweep, low-stock push, probe-route removal, migration `0003_alarms.sql`.
+**Scope:** the FCM sender, the dispatch fan-out, the DO dose-alarm chain, escalation, the
+missed-dose sweep, low-stock push, probe-route removal, and the `HeadlessJsTaskService` A3
+deferred. `DoseSnooze` the *entity* — and its migration, `0003_alarms.sql` — shipped in A3; what's
+left here is the DO reading it to stop an escalation, not building the table.
 
 **Known risk:** FCM HTTP v1 needs RS256 service-account signing on workerd, which is the same class
 of problem as the Web Push encryption that Sprint 5 already flagged as "the single most likely thing
@@ -584,9 +615,22 @@ Extends the existing list in `medguard-sprint-plan.md` rather than replacing it.
 
 ✅ **AD6 — Missed-dose rule:** Dose becomes missed 3 hours after scheduled time (0–60min silent, 60min first escalation, 60–180min snooze window, 180min missed).
 
-✅ **Snooze parameters:** 20-minute individual snooze duration, `MAX_SNOOZE_COUNT = 3`.
+✅ **Snooze parameters:** 20-minute individual snooze duration, `MAX_SNOOZE_COUNT = 3`. Sourced from
+`HouseholdSettings.snoozeMinutes` (bootstrap default changed 15 → 20 to match), not hardcoded — the
+field existed since Sprint 3 but was read by nothing until A3.
 
 ✅ **AD9 — PWA vs Native:** Native app replaces PWA on Android; PWA continues on iOS and web. Migration via Play rollout + in-app guidance.
+
+✅ **A3 — `DoseSnooze` ships as a full synced entity in A3, not deferred to A4.** Shared type + zod
+schema + `SyncableTable` member, both `Store` schemas, `0003_alarms.sql`, and the server `TABLES`
+entry all land in A3; A4 only adds the DO reading it to stop an escalation. Consequence: the API
+must be migrated and deployed before an A3 build reaches a phone, or `doseSnoozes` pushes are
+rejected and the outbox blocks.
+
+✅ **A3 — Pending-action drain triggers: app launch, `AppState` → `'active'`, and a live-process
+`onPendingAction` event; no `HeadlessJsTaskService` in A3.** The headless case (app process fully
+dead) is deferred to A4, where its bootstrap is shared with the FCM data-message handler A4 needs
+regardless — see A3's section above for the accepted cost this leaves.
 
 ---
 

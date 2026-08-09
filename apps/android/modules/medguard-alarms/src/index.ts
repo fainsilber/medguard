@@ -1,16 +1,38 @@
 import { requireNativeModule } from 'expo-modules-core';
+import type { EventSubscription } from 'expo-modules-core';
 
 import type {
+  ArmedAlarm,
   MedGuardAlarmsModuleEvents,
   PendingActionEvent,
+  PendingActionRecord,
   ScheduleDoseAlarmInput,
 } from './MedGuardAlarms.types';
 
-export type { MedGuardChannelId, PendingActionEvent, ScheduleDoseAlarmInput } from './MedGuardAlarms.types';
+export type {
+  ArmedAlarm,
+  MedGuardChannelId,
+  PendingActionEvent,
+  PendingActionRecord,
+  ScheduleDoseAlarmInput,
+} from './MedGuardAlarms.types';
 
 interface MedGuardAlarmsNativeModule {
   scheduleDoseAlarm(input: ScheduleDoseAlarmInput): Promise<void>;
+  /** The reconcile pass's batch form — one bridge call for a whole horizon, not one per alarm. */
+  armDoseAlarms(inputs: ScheduleDoseAlarmInput[]): Promise<void>;
   cancelDoseAlarm(occurrenceKey: string): Promise<void>;
+  /** For leaving a household or clearing local data, when there is nothing left to reconcile against. */
+  cancelAllDoseAlarms(): Promise<void>;
+  /**
+   * What Android currently holds armed. The reconcile pass diffs against this rather than against
+   * a JS-side list, because `BootReceiver` re-arms and expires alarms without JS ever seeing it.
+   */
+  listArmedAlarms(): Promise<ArmedAlarm[]>;
+  /** The ongoing, silent `sync_status_v1` notification carrying the two degradation states. */
+  showStatusNotification(title: string, body: string): Promise<void>;
+  clearStatusNotification(): Promise<void>;
+  addListener(event: 'onPendingAction', listener: (payload: PendingActionEvent) => void): EventSubscription;
   /** Fires immediately: the standalone chime demo for the A0 exit gate and manual QA item 1. */
   playTestChime(chimeDurationSeconds: number): Promise<void>;
   canScheduleExactAlarms(): Promise<boolean>;
@@ -31,11 +53,15 @@ interface MedGuardAlarmsNativeModule {
   requestNotificationPolicyAccess(): Promise<void>;
   /**
    * Intent captured natively while the JS process may be dead (AD2): rows written by the
-   * notification action handler to a local `pending_actions` table, not yet converted into a
-   * domain `IntakeLog`. Draining and applying them through `recordDose()` is JS's job — Kotlin
-   * never writes an intake log itself.
+   * notification action handler, not yet converted into a domain `IntakeLog`. Applying them
+   * through `recordDose()` is JS's job — Kotlin never writes an intake log itself.
+   *
+   * Non-destructive. `ackPendingActions` is what removes them, and JS calls it only once the
+   * resulting records have committed, so a process killed mid-apply repeats a read rather than
+   * dropping a caregiver's tap (safety invariant 7).
    */
-  drainPendingActions(): Promise<PendingActionEvent[]>;
+  readPendingActions(): Promise<PendingActionRecord[]>;
+  ackPendingActions(ids: string[]): Promise<void>;
   /**
    * Milliseconds since boot, including time spent in deep sleep (`SystemClock.elapsedRealtime()`)
    * — unlike `performance.now()`, which halts across real device sleep on Android. The monotonic
@@ -50,8 +76,29 @@ const nativeModule = requireNativeModule<MedGuardAlarmsNativeModule>('MedGuardAl
 export const scheduleDoseAlarm = (input: ScheduleDoseAlarmInput): Promise<void> =>
   nativeModule.scheduleDoseAlarm(input);
 
+export const armDoseAlarms = (inputs: ScheduleDoseAlarmInput[]): Promise<void> =>
+  nativeModule.armDoseAlarms(inputs);
+
 export const cancelDoseAlarm = (occurrenceKey: string): Promise<void> =>
   nativeModule.cancelDoseAlarm(occurrenceKey);
+
+export const cancelAllDoseAlarms = (): Promise<void> => nativeModule.cancelAllDoseAlarms();
+
+export const listArmedAlarms = (): Promise<ArmedAlarm[]> => nativeModule.listArmedAlarms();
+
+export const showStatusNotification = (title: string, body: string): Promise<void> =>
+  nativeModule.showStatusNotification(title, body);
+
+export const clearStatusNotification = (): Promise<void> => nativeModule.clearStatusNotification();
+
+/**
+ * Fires when a Taken/Snooze action is tapped *while a JS runtime is alive* — the common case for
+ * a merely-locked phone. A dead process captures the tap durably instead and it is applied at the
+ * next launch, so this is a latency optimisation, never the only path.
+ */
+export const addPendingActionListener = (
+  listener: (event: PendingActionEvent) => void,
+): EventSubscription => nativeModule.addListener('onPendingAction', listener);
 
 export const playTestChime = (chimeDurationSeconds: number): Promise<void> =>
   nativeModule.playTestChime(chimeDurationSeconds);
@@ -78,7 +125,9 @@ export const hasNotificationPolicyAccess = (): Promise<boolean> => nativeModule.
 export const requestNotificationPolicyAccess = (): Promise<void> =>
   nativeModule.requestNotificationPolicyAccess();
 
-export const drainPendingActions = (): Promise<PendingActionEvent[]> => nativeModule.drainPendingActions();
+export const readPendingActions = (): Promise<PendingActionRecord[]> => nativeModule.readPendingActions();
+
+export const ackPendingActions = (ids: string[]): Promise<void> => nativeModule.ackPendingActions(ids);
 
 export const elapsedRealtimeMs = (): Promise<number> => nativeModule.elapsedRealtimeMs();
 

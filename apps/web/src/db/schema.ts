@@ -1,6 +1,7 @@
 import Dexie from 'dexie';
 import type { Table } from 'dexie';
 import type {
+  DoseSnooze,
   HouseholdSettings,
   IntakeLog,
   InventoryAdjustment,
@@ -30,6 +31,7 @@ export class MedGuardDB extends Dexie {
   intakeLogs!: Table<IntakeLog, string>;
   inventoryItems!: Table<InventoryItem, string>;
   inventoryAdjustments!: Table<InventoryAdjustment, string>;
+  doseSnoozes!: Table<DoseSnooze, string>;
   shabbatConfig!: Table<ShabbatConfig, string>;
   syncOutbox!: Table<SyncOutboxEntry, number>;
   /** Local-only bookkeeping (the pull cursor) — never synced itself, never read by domain code. */
@@ -62,6 +64,27 @@ export class MedGuardDB extends Dexie {
         'id, patientId, medicineId, scheduleId, status, type, actualTime, syncStatus, supersedesId, [medicineId+actualTime], [patientId+actualTime]',
       inventoryItems: 'id, medicineId, syncStatus, updatedAt',
       inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
+      shabbatConfig: 'id, patientId',
+      syncOutbox: '++id, table, entityId, action, createdAt',
+      syncMeta: 'key',
+    });
+
+    // Sprint A3 (delta AD5): snooze becomes an append-only synced record rather than a component
+    // `Map` that a reload clears. Purely additive — a new table needs no `upgrade()` callback, and
+    // Dexie carries every earlier table forward untouched.
+    //
+    // The web app never *writes* a snooze: the bounded-snooze UI is Android-only for now. It needs
+    // the table anyway, because a snooze made on a phone arrives in this device's pull and
+    // `applyPulledRecord` would otherwise fail to land it.
+    this.version(3).stores({
+      householdSettings: 'id',
+      medicines: 'id, patientId, name, archived, syncStatus, updatedAt',
+      schedules: 'id, medicineId, patientId, active, regimenGroupId, syncStatus, updatedAt',
+      intakeLogs:
+        'id, patientId, medicineId, scheduleId, status, type, actualTime, syncStatus, supersedesId, [medicineId+actualTime], [patientId+actualTime]',
+      inventoryItems: 'id, medicineId, syncStatus, updatedAt',
+      inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
+      doseSnoozes: 'id, occurrenceId, createdAt, syncStatus',
       shabbatConfig: 'id, patientId',
       syncOutbox: '++id, table, entityId, action, createdAt',
       syncMeta: 'key',

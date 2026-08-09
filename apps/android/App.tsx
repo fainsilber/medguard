@@ -2,6 +2,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { AlarmHealthBanner } from './src/alarms/AlarmHealthBanner';
+import { AlarmProvider } from './src/alarms/AlarmProvider';
 import { AppNavigator } from './src/app/AppNavigator';
 import { CaregiverGate } from './src/identity/CaregiverGate';
 import { RevokedDeviceBanner } from './src/sync/RevokedDeviceBanner';
@@ -16,6 +18,10 @@ import { colors } from './src/ui/primitives';
  * identifies themselves) wraps `SyncProvider` (starts the sync engine once a household session
  * exists) wraps the navigation shell — the same gating order as `apps/web/src/App.tsx`.
  *
+ * `AlarmProvider` (Sprint A3) nests just inside `SyncProvider`: it needs the repository, and it
+ * re-materializes on the same `NotifyingStore` writes `SyncProvider`'s pulls make, so no explicit
+ * "sync completed" hook is needed between them — the store notification is the hook.
+ *
  * The header row (title + sync status) and the safety warning banner sit above the tab
  * navigator, visible on every tab, mirroring web's `AppShell`.
  */
@@ -26,15 +32,18 @@ export default function App(): React.JSX.Element {
         <StatusBar style="light" />
         <CaregiverGate>
           <SyncProvider>
-            <View style={styles.header}>
-              <Text style={styles.title}>MedGuard</Text>
-              <SyncStatusBadge />
-            </View>
-            <RevokedDeviceBanner />
-            <SafetyWarningBanner />
-            <NavigationContainer>
-              <AppNavigator />
-            </NavigationContainer>
+            <AlarmProvider>
+              <View style={styles.header}>
+                <Text style={styles.title}>MedGuard</Text>
+                <SyncStatusBadge />
+              </View>
+              <RevokedDeviceBanner />
+              <SafetyWarningBanner />
+              <AlarmHealthBanner />
+              <NavigationContainer>
+                <AppNavigator />
+              </NavigationContainer>
+            </AlarmProvider>
           </SyncProvider>
         </CaregiverGate>
       </SafeAreaView>
