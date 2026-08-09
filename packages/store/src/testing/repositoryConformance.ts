@@ -299,6 +299,48 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         expect(await repository.activeMedicines()).toHaveLength(0);
         expect(await repository.allMedicines()).toHaveLength(1);
       });
+
+      it('closes the active schedule when a medicine is switched to as-needed', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine({ asNeeded: false }), 'CREATE');
+        await repository.saveSchedule(makeSchedule(), 'CREATE');
+
+        await repository.saveMedicine(makeMedicine({ asNeeded: true }));
+
+        const [schedule] = await repository.schedulesForMedicine('medicine-1');
+        expect(schedule!.active).toBe(false);
+        expect(schedule!.endDate).toBe('2026-06-14');
+
+        const outboxTables = (await repository.pendingSync()).map((entry) => entry.table);
+        expect(outboxTables).toContain('schedules');
+      });
+
+      it('produces no more occurrences once its schedule is closed by going as-needed', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine({ asNeeded: false }), 'CREATE');
+        await repository.saveSchedule(makeSchedule(), 'CREATE');
+
+        await repository.saveMedicine(makeMedicine({ asNeeded: true }));
+
+        const schedules = await repository.allSchedules();
+        const occurrences = expandSchedules(
+          schedules,
+          { fromMs: Date.parse('2026-06-15T00:00:00.000Z'), toMs: Date.parse('2026-06-20T00:00:00.000Z') },
+          JERUSALEM,
+        );
+        expect(occurrences).toHaveLength(0);
+      });
+
+      it('leaves schedules alone when a medicine is saved without changing as-needed', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine({ asNeeded: false }), 'CREATE');
+        await repository.saveSchedule(makeSchedule(), 'CREATE');
+
+        await repository.saveMedicine(makeMedicine({ asNeeded: false, name: 'Renamed' }));
+
+        const [schedule] = await repository.schedulesForMedicine('medicine-1');
+        expect(schedule!.active).toBe(true);
+      });
     });
 
     describe('indexed history queries', () => {

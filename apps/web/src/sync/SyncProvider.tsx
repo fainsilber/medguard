@@ -2,11 +2,11 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { LiveMessage, LiveSafetyWarningMessage } from '@medguard/shared';
-import { LiveClient, SyncEngine } from '@medguard/store';
+import { LiveClient, SyncApiError, SyncEngine } from '@medguard/store';
 import type { LiveClientStatus } from '@medguard/store';
 import * as syncApi from '../api/syncApi.js';
 import { getApiBaseUrl } from '../api/config.js';
-import { getHouseholdSession, onHouseholdSessionChange } from '../api/session.js';
+import { clearHouseholdSession, getHouseholdSession, onHouseholdSessionChange } from '../api/session.js';
 import { useMedGuardDb, useRepository, useStore } from '../app/RepositoryContext.js';
 import { appLog } from '../logging/appLog.js';
 
@@ -25,12 +25,27 @@ export type SyncIndicatorStatus =
   | { kind: 'syncing' }
   | { kind: 'synced' }
   | { kind: 'pending'; count: number }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string }
+  /** This device's token was revoked (by another caregiver, from the Household screen) — not a
+   * transient failure, so shown distinctly from `'error'` rather than as one more sync-error
+   * message. Sticky until the caregiver responds via `clearRevokedDevice` or joins a different
+   * household; every further sync attempt will keep failing the exact same way. */
+  | { kind: 'revoked' };
 
 interface SyncContextValue {
   status: SyncIndicatorStatus;
   lastSafetyWarning: LiveSafetyWarningMessage | null;
   dismissSafetyWarning: () => void;
+  /**
+   * Wipes this device's local medical data and forgets the household session — the caregiver's
+   * own confirmed response to a `'revoked'` status. Mirrors `HouseholdScreen`'s "Leave" flow
+   * (`disconnectLocally`), but usable when this device's token no longer works against the server
+   * at all, so it cannot go through `leaveHousehold()`'s API round-trip first. Deliberately not
+   * automatic on the first `'unauthorized'` response: a caregiver should see and confirm this, not
+   * have their device's data disappear out from under them on what could in principle be a
+   * transient/misconfigured 401.
+   */
+  clearRevokedDevice: () => Promise<void>;
 }
 
 const SyncReactContext = createContext<SyncContextValue | null>(null);
@@ -45,6 +60,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [revoked, setRevoked] = useState(false);
   const [lastSafetyWarning, setLastSafetyWarning] = useState<LiveSafetyWarningMessage | null>(null);
 
   useEffect(() => onHouseholdSessionChange(() => setSession(getHouseholdSession())), []);
@@ -57,10 +73,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (!session) {
       setConnectionStatus('closed');
       setError(null);
+      setRevoked(false);
       setPendingCount(0);
       runSyncRef.current = async () => {};
       return;
     }
+
+    // A fresh session (first load, or a different household after `clearRevokedDevice`/leaving)
+    // must not inherit a previous session's error/revoked state.
+    setError(null);
+    setRevoked(false);
 
     let cancelled = false;
     const engine = new SyncEngine({
@@ -88,10 +110,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           setError(null);
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Sync failed';
-        log.error('sync round failed', { message });
-        if (!cancelled) {
-          setError(message);
+        if (err instanceof SyncApiError && err.code === 'unauthorized') {
+          log.error('sync round failed: device revoked', { message: err.message });
+          if (!cancelled) {
+            setRevoked(true);
+          }
+        } else {
+          const message = err instanceof Error ? err.message : 'Sync failed';
+          log.error('sync round failed', { message });
+          if (!cancelled) {
+            setError(message);
+          }
         }
       } finally {
         if (!cancelled) {
@@ -158,19 +187,31 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   const status: SyncIndicatorStatus = !session
     ? { kind: 'disconnected' }
-    : error
-      ? { kind: 'error', message: error }
-      : syncing
-        ? { kind: 'syncing' }
-        : connectionStatus !== 'open'
-          ? { kind: 'offline' }
-          : pendingCount > 0
-            ? { kind: 'pending', count: pendingCount }
-            : { kind: 'synced' };
+    : revoked
+      ? { kind: 'revoked' }
+      : error
+        ? { kind: 'error', message: error }
+        : syncing
+          ? { kind: 'syncing' }
+          : connectionStatus !== 'open'
+            ? { kind: 'offline' }
+            : pendingCount > 0
+              ? { kind: 'pending', count: pendingCount }
+              : { kind: 'synced' };
+
+  const clearRevokedDevice = async () => {
+    await repository.clearAllData();
+    clearHouseholdSession();
+  };
 
   return (
     <SyncReactContext.Provider
-      value={{ status, lastSafetyWarning, dismissSafetyWarning: () => setLastSafetyWarning(null) }}
+      value={{
+        status,
+        lastSafetyWarning,
+        dismissSafetyWarning: () => setLastSafetyWarning(null),
+        clearRevokedDevice,
+      }}
     >
       {children}
     </SyncReactContext.Provider>

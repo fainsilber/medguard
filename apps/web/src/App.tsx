@@ -8,6 +8,7 @@ import { PrnScreen } from './features/prnDoses/PrnScreen.js';
 import { TodayView } from './features/today/TodayView.js';
 import { CaregiverGate } from './identity/CaregiverGate.js';
 import { ProbePage } from './probe/ProbePage.js';
+import { RevokedDeviceBanner } from './sync/RevokedDeviceBanner.js';
 import { SafetyWarningBanner } from './sync/SafetyWarningBanner.js';
 import { SyncProvider } from './sync/SyncProvider.js';
 import { SyncStatusBadge } from './sync/SyncStatusBadge.js';
@@ -59,6 +60,7 @@ function AppShell() {
         ))}
       </nav>
 
+      <RevokedDeviceBanner />
       <SafetyWarningBanner />
 
       <main>
