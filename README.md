@@ -6,14 +6,18 @@ inventory tracking, and (from Sprint 6) Shabbat/Yom Tov automation.
 
 **Status:** Web PWA Sprints 0–4 complete and deployed — real-time WebSocket sync, the server-side
 double-dose guard (authoritative Durable Object re-check), offline replay with zero log loss, and
-full JSON export/import/wipe are all live. Sprint 5 (Web Push alarms + escalation) is unstarted on
-the web track and has been absorbed into the Android plan as Sprint A4, server work shared by both
-clients. See [`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) for what's built, what
-changed along the way, and what's next.
+full JSON export/import/wipe are all live. **Sprint 5 (alarms, push and escalation) is
+code-complete**, delivered by the Android track as Sprint A4 because the server half is shared by
+both clients: the Durable Object now schedules every dose, escalates an unconfirmed one to the
+whole household at the configured boundary, writes a missed dose as a real correctable log, and
+sends to browsers and phones through one provider-blind fan-out. What it still needs is two real
+phones and a Firebase project. See
+[`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) for what's built, what changed along
+the way, and what's next.
 
 A native Android client is in active development alongside the PWA — see "Android client" below.
 It exists to do the one thing a browser structurally cannot: a real 45-second, alarm-volume, locked-
-phone dose chime. Sprints A0–A2 are code-complete, and real-device testing (the only way this app
+phone dose chime. Sprints A0–A4 are code-complete, and real-device testing (the only way this app
 can be verified end to end) has already found and fixed several bugs: a sync-engine SQLite race, a
 PRN clock-trust false positive after device sleep, stale local data on a revoked device, and — most
 recently — the on-screen keyboard covering text fields across the app. See

@@ -44,6 +44,12 @@ tell which build a device was running, closed per this repo's standing "every ap
 identity" convention (see root `CLAUDE.md`) — `app.config.ts` now bakes the git SHA and build
 timestamp into Expo's `extra`, read via `expo-constants` alongside the real installed
 `nativeBuildVersion` from `expo-application`, both shown on a "Build" card in Diagnostics.
+**A4 (Server Sprint 5) is code-complete as of 2026-08-09, not yet device-confirmed** — the FCM
+sender, the provider-blind fan-out, the DO dose-alarm chain with escalation at the household's own
+`escalationAfterMinutes`, the AD6 missed-dose sweep, low-stock push, AD8's probe removal, both
+clients' receive paths, and the `HeadlessJsTaskService` A3 deferred. The `runDurableObjectAlarm`
+half of its exit gate passes; the two-real-phone half needs hardware and a Firebase project. See
+A4's section below.
 **A3 (the local alarm engine) is code-complete, not yet device-confirmed** — see the A3 section
 below and `apps/android/README.md`'s "Sprint A3" for the full account. `DoseSnooze` shipped as a
 full synced entity ahead of A4 (delta AD5); the `HeadlessJsTaskService` this plan originally
@@ -51,7 +57,7 @@ specified was deliberately deferred to A4, where it's built once and shared with
 A4 needs anyway — see A3's section for what covers the gap that leaves. One inconsistency the A3
 work surfaced but didn't need to resolve: AD6's signed-off missed-dose timeline puts the first
 escalation at 60 minutes, while PRD §4, `HouseholdSettings.escalationAfterMinutes`'s default, and
-A4's own exit gate below all say 15 — A4 cannot start without settling which one is right.
+A4's own exit gate below all say 15 — **settled at the start of A4 in favour of 15**, see AD6.
 **Team model:** Claude builds; you guide, decide, review.
 
 ---
@@ -166,12 +172,24 @@ the count of records.
 **AD6 — "Missed" is undefined.** `IntakeStatus` includes `'missed'` and Sprint 5 lists "missed-dose
 detection" as scope, but neither the PRD nor the sprint plan says when a dose becomes missed.
 **Signed off:** an occurrence becomes `missed` when `now > scheduledTime + 180 minutes` (3 hours)
-and no effective log exists. Timeline: 0–60min silent window (no escalation); 60min first escalation
-alert sent to caregivers; 60–180min escalation + snooze window (up to 3 × 20-minute snoozes = 60min
-deferral); 180min dose marked missed. Written by the server as a real `IntakeLog{status:'missed'}`,
-so it is an append-only fact a caregiver can correct (invariant 1), never a status the UI derives
-and re-derives differently. Suppressed entirely in Shabbat mode, which writes `pending_shabbat`
+and no effective log exists. Written by the server as a real `IntakeLog{status:'missed'}`, so it is
+an append-only fact a caregiver can correct (invariant 1), never a status the UI derives and
+re-derives differently. Suppressed entirely in Shabbat mode, which writes `pending_shabbat`
 instead.
+
+*Timeline corrected in A4 (2026-08-09).* This paragraph originally put the first escalation at 60
+minutes, which contradicted PRD §4, `HouseholdSettings.escalationAfterMinutes`'s default, and A4's
+own exit gate — all three of which say 15. **Resolved in favour of 15**: it was the value in three
+of the four places, and the one already stored on every existing household. Nothing about the hour
+is lost — three snoozes at `DEFAULT_SNOOZE_MINUTES` (20) still cover exactly 60 minutes of
+deferral, which is what that number was protecting. The implemented timeline:
+
+| Elapsed since `scheduledTime` | Behaviour |
+| --- | --- |
+| 0 → `escalationAfterMinutes` (default 15) | Silent. The local alarm and the initial `dose` push only. |
+| at the boundary, unacknowledged | `escalation` push to every registered device in the household. |
+| any point, snoozed | Deferred by `snoozeMinutes` from the *tap*; escalation re-arms at the deferral deadline. Bounded at `MAX_SNOOZE_COUNT` (3), now enforced on the server as well as in the UI. |
+| 180 minutes | `IntakeLog{status:'missed'}`, written by the Durable Object. |
 
 **AD7 — Doze, OEM battery managers and Do Not Disturb cannot be fully solved in software.**
 `setAlarmClock` plus a battery-optimization exemption plus a user-granted notification-policy
@@ -187,6 +205,10 @@ endpoint and sends VAPID-signed pushes to it, with no auth. It is an open relay 
 instantiates arbitrary Durable Objects by `probeId`. The code already marks it for Sprint 5
 removal; shipping a second client alongside it is not acceptable. **Fix:** delete the probe routes,
 replace with an authenticated `POST /api/v1/devices/push` for push-credential registration.
+**Done in A4** — `probe.ts`, its two Durable Object methods and its two DO tables are gone;
+registration lives on `deviceRoutes` behind `requireDevice`, and writes only the calling device's
+own row. The web probe page survives as a Diagnostics screen, because it carries the build-identity
+line this repo's conventions require.
 
 **AD9 — Native app replaces PWA on Android.** Both clients register against the same backend with
 `devices.push_provider: 'fcm' | 'webpush'`, but a household running both on the same device creates
@@ -417,7 +439,7 @@ scheduling at all rather than going local-only.
 | Snooze as data | `0003_alarms.sql`, `packages/shared/src/types.ts`, `schemas.ts`, `apps/api/src/sync/tables.ts` | `DoseSnooze { id, occurrenceId, minutes, count, createdAt, createdByUserId, createdByDeviceId }`, append-only (AD5). Each snooze grants 20 minutes; `MAX_SNOOZE_COUNT = 3` signed off. |
 | Missed-dose sweep | same | Per AD6, and only outside Shabbat mode. |
 | Low-stock push | `apps/api/src/do/HouseholdDO.ts` | Evaluated in `applyBatch` after any `inventory_adjustments` write using `deriveInventoryState` from shared. A downward threshold crossing dispatches once per medicine, with a flag cleared on refill so it cannot spam — PRD §2.4's "notifications across all caregiver devices". |
-| Probe removal | `apps/api/src/routes/probe.ts` | Deleted (AD8), replaced by an authenticated `POST /api/v1/devices/push`. The Diagnostics tab's push checks move behind device auth. |
+| Probe removal | `apps/api/src/routes/probe.ts` | Deleted (AD8), replaced by an authenticated `POST`/`DELETE /api/v1/devices/push` plus `GET /api/v1/devices/push/vapid-public-key`. Web's probe page becomes `src/diagnostics/DiagnosticsPage.tsx`, keeping the build-identity line and the app log. |
 
 Note the one thing that does *not* need building: authentication, sync, conflict resolution, the
 authoritative safety re-check and the live channel all work as-is. The Android client is a second
@@ -548,18 +570,45 @@ is green.
 
 ### A4 — Server Sprint 5
 
-**Scope:** the FCM sender, the dispatch fan-out, the DO dose-alarm chain, escalation, the
-missed-dose sweep, low-stock push, probe-route removal, and the `HeadlessJsTaskService` A3
-deferred. `DoseSnooze` the *entity* — and its migration, `0003_alarms.sql` — shipped in A3; what's
-left here is the DO reading it to stop an escalation, not building the table.
+**Status: code-complete (2026-08-09), not yet device-confirmed.** The `runDurableObjectAlarm` half
+of the exit gate passes; the two-real-phone half is waiting on hardware and a Firebase project.
 
-**Known risk:** FCM HTTP v1 needs RS256 service-account signing on workerd, which is the same class
-of problem as the Web Push encryption that Sprint 5 already flagged as "the single most likely thing
-to slip." Spike it first, same as VAPID.
+**Scope, as built:** the FCM sender (`apps/api/src/push/fcm.ts`), the provider-blind fan-out
+(`dispatch.ts`), the DO dose-alarm chain and escalation (`do/doseAlarms.ts`), the missed-dose sweep
+(AD6), low-stock push, probe-route removal (AD8), both clients' receive paths, and the
+`HeadlessJsTaskService` A3 deferred. `DoseSnooze` the *entity* — and its migration,
+`0003_alarms.sql` — shipped in A3; what A4 added is the DO reading it to stop an escalation, plus a
+server-side refusal of a fourth snooze, since a snooze is the one client-written record that
+silences an escalation.
 
-**Exit gate:** escalation fires at exactly the configured boundary under `runDurableObjectAlarm`,
+**The known risk did not materialise.** FCM HTTP v1's RS256 service-account signing is ~40 lines of
+`crypto.subtle` on workerd (`importKey('pkcs8', …)`, `RSASSA-PKCS1-v1_5`, an access token cached
+against its 1-hour life), and it was in place inside a session — the same shape as the VAPID work
+before it, and much less trouble than the aes128gcm encryption Sprint 5 warned about.
+
+**Two things worth reviewing, both decided rather than discovered:**
+
+1. **AD6's 60-minute first escalation was resolved to 15** — see AD6 above. A4 could not start
+   without settling it.
+2. **FCM is optional at every layer.** No `FCM_SERVICE_ACCOUNT` secret → `fcm` devices are skipped
+   with a reported reason and `webpush` devices are unaffected. No `google-services.json` →
+   `withMedGuardAlarms.ts` omits the Firebase Gradle plugin and the messaging service, and
+   `alarmHealth` reports `no_server_backstop` as a *risk*, not a blocker. This keeps
+   `.github/workflows/android-apk.yml` (a GitHub-hosted runner with no secrets) producing a working
+   sideloadable APK, which mandatory Firebase would have broken. Verified by running
+   `expo prebuild` both ways.
+
+**What the shared code now carries.** `packages/store/src/pendingActions.ts` is the Android
+`AlarmEngine`'s tap-to-dose conversion, lifted out so the web service worker's captured taps go
+through the same repository transaction — AD2's rule applied to the second client rather than
+re-implemented for it. `packages/shared/src/push.ts`'s `describePush` does the same for the
+notification's wording, which Kotlin reads from the message's data map because it cannot call it.
+
+**Exit gate:** escalation fires at exactly the configured boundary under `runDurableObjectAlarm`
+(**passing** — `apps/api/tests/alarms.test.ts` asserts the armed instant, not just the behaviour),
 **and** a real escalation push lands on a second real phone after the first one ignores a dose for
-15 minutes.
+15 minutes (**not yet run**; needs two phones, a Firebase project, and the `FCM_SERVICE_ACCOUNT`
+secret set with `wrangler secret put`).
 
 ### A5 — Shabbat on native
 
@@ -630,7 +679,18 @@ rejected and the outbox blocks.
 ✅ **A3 — Pending-action drain triggers: app launch, `AppState` → `'active'`, and a live-process
 `onPendingAction` event; no `HeadlessJsTaskService` in A3.** The headless case (app process fully
 dead) is deferred to A4, where its bootstrap is shared with the FCM data-message handler A4 needs
-regardless — see A3's section above for the accepted cost this leaves.
+regardless — see A3's section above for the accepted cost this leaves. **Closed in A4:**
+`MedGuardHeadlessService` plus `AppRegistry.registerHeadlessTask('MedGuardPendingActions')`, started
+by `NotificationActionReceiver` whenever `MedGuardAlarmsModule.hasLiveRuntime()` is false. Kotlin
+still writes nothing — the headless task runs the same `PendingActionApplier` the foreground path
+does.
+
+✅ **A4 — AD6's escalation timeline is 15 minutes, not 60.** Settled before A4 began, in favour of
+PRD §4 / `DEFAULT_ESCALATION_MINUTES` / A4's exit gate over AD6's own prose. See AD6 above for the
+corrected table and the reasoning.
+
+✅ **A4 — FCM is optional at build time and at deploy time.** Absent credentials degrade to
+"local alarms only, and the app says so" rather than to a failure. See the A4 section above.
 
 ---
 
