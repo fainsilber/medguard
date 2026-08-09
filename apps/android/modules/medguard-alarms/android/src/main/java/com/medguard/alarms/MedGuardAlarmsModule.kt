@@ -36,6 +36,15 @@ class MedGuardAlarmsModule : Module() {
         @Volatile
         private var instance: MedGuardAlarmsModule? = null
 
+        /**
+         * Whether JavaScript is currently running at all.
+         *
+         * `NotificationActionReceiver` uses this to decide between handing a tap straight over
+         * and starting a headless runtime for it (Sprint A4). The tap is durable on disk before
+         * either happens, so a wrong answer here costs latency, never a dose.
+         */
+        fun hasLiveRuntime(): Boolean = instance != null
+
         fun emitPendingAction(occurrenceKey: String, action: String, tappedAtMs: Long) {
             val module = instance ?: return
             runCatching {
@@ -48,6 +57,18 @@ class MedGuardAlarmsModule : Module() {
                     ),
                 )
             }
+        }
+
+        /**
+         * A rotated FCM token, handed to JS so it can re-register with the server immediately.
+         *
+         * Best-effort by design: `onNewToken` frequently fires with no runtime alive, which is
+         * exactly why `PushTokenStore` writes it down as well. `getPushToken()` below is what
+         * the app reads on its next start.
+         */
+        fun emitPushToken(token: String) {
+            val module = instance ?: return
+            runCatching { module.sendEvent("onPushToken", mapOf("token" to token)) }
         }
     }
 
@@ -66,7 +87,7 @@ class MedGuardAlarmsModule : Module() {
         ModuleDefinition {
             Name("MedGuardAlarms")
 
-            Events("onPendingAction")
+            Events("onPendingAction", "onPushToken")
 
             OnCreate {
                 MedGuardChannels.createAll(context)
@@ -251,6 +272,18 @@ class MedGuardAlarmsModule : Module() {
             // kernel timer, not the user-settable system clock `Date.now()` reads.
             AsyncFunction("elapsedRealtimeMs") {
                 SystemClock.elapsedRealtime()
+            }
+
+            /**
+             * The FCM registration token, or null when this build has no Firebase project wired
+             * up (no `google-services.json`) or Firebase has not issued one yet.
+             *
+             * Null is a supported state, not an error: local alarms are primary, and a device
+             * without a token simply has no server backstop — which `alarmHealth` reports rather
+             * than hiding (safety invariant 6).
+             */
+            AsyncFunction("getPushToken") {
+                PushTokenStore.read(context)
             }
         }
 }

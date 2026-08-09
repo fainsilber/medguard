@@ -48,6 +48,12 @@ export interface ArmedAlarm {
   triggerAtMs: number;
 }
 
+/** A rotated FCM registration token, handed over the moment Firebase issues it. */
+export interface PushTokenEvent {
+  token: string;
+}
+
 export interface MedGuardAlarmsModuleEvents {
   onPendingAction(event: PendingActionEvent): void;
+  onPushToken(event: PushTokenEvent): void;
 }

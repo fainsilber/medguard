@@ -38,13 +38,28 @@ export type AlarmRisk =
   /** Not exempt from battery optimisation: OEM managers may delay or drop the alarm. */
   | 'battery_optimized'
   /** No notification-policy access: Do Not Disturb will silence an escalation. */
-  | 'dnd_not_granted';
+  | 'dnd_not_granted'
+  /**
+   * Sprint A4: this device has no push registration, so the server's backstop cannot reach it.
+   *
+   * A risk rather than a blocker, and deliberately so: local alarms are primary and unaffected.
+   * What is lost is the cover for everything local alarms cannot do — firing when this device's
+   * own alarms have been suppressed, and above all receiving an *escalation*, which only the
+   * server can decide to send because only it knows whether another caregiver responded.
+   */
+  | 'no_server_backstop';
 
 export interface AlarmPermissions {
   canScheduleExactAlarms: boolean;
   hasNotificationPermission: boolean;
   isIgnoringBatteryOptimizations: boolean;
   hasNotificationPolicyAccess: boolean;
+  /**
+   * Whether the server can reach this device by push (Sprint A4). Optional so a caller that has
+   * not looked yet reads as "no reason to worry" rather than raising a false alarm on every
+   * start — the registration is asynchronous and usually completes moments later.
+   */
+  hasPushRegistration?: boolean;
 }
 
 export interface AlarmHealth {
@@ -74,6 +89,9 @@ export function deriveAlarmHealth(
   }
   if (!permissions.hasNotificationPolicyAccess) {
     risks.push('dnd_not_granted');
+  }
+  if (permissions.hasPushRegistration === false) {
+    risks.push('no_server_backstop');
   }
 
   return { blockers, risks, armedCount, armed: blockers.length === 0 };
@@ -107,6 +125,13 @@ export function deriveSyncStaleness(
   const ageMs = nowMs - fromIso(lastSyncedAt);
   return { stale: ageMs > SYNC_STALE_AFTER_MS, ageMs, neverSynced: false };
 }
+
+const RISK_WORDING: Record<AlarmRisk, string> = {
+  battery_optimized: 'Battery optimisation is on for MedGuard, which can delay or drop alarms.',
+  dnd_not_granted: 'Do Not Disturb access has not been granted, so an escalation may be silenced.',
+  no_server_backstop:
+    'This device is not registered for server alerts, so it will not receive an escalation if a dose goes unconfirmed.',
+};
 
 /**
  * The text of the ongoing `sync_status_v1` notification, or `undefined` when there is nothing
@@ -146,11 +171,7 @@ export function describeAlarmStatus(
     return {
       title: 'MedGuard alarms may be delayed',
       body: health.risks
-        .map((risk) =>
-          risk === 'battery_optimized'
-            ? 'Battery optimisation is on for MedGuard, which can delay or drop alarms.'
-            : 'Do Not Disturb access has not been granted, so an escalation may be silenced.',
-        )
+        .map((risk) => RISK_WORDING[risk])
         .join(' '),
     };
   }

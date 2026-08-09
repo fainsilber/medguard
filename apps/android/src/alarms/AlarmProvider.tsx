@@ -10,8 +10,12 @@ import {
   useRepository,
   useStore,
 } from '../app/RepositoryContext.js';
+import { getApiBaseUrl } from '../api/config.js';
+import { request } from '../api/householdApi.js';
+import { getHouseholdSession } from '../identity/session.js';
 import { appLog } from '../logging/appLog.js';
 import { AlarmEngine } from './AlarmEngine.js';
+import { registerForPush } from './pushRegistration.js';
 import type { AlarmEngineState } from './AlarmEngine.js';
 import type { AlarmHealth, SyncStaleness } from './alarmHealth.js';
 
@@ -47,6 +51,11 @@ export function AlarmProvider({ children }: { children: ReactNode }) {
 
   const [state, setState] = useState<AlarmEngineState | undefined>(undefined);
 
+  // Read by the engine when it derives alarm health, so "the server cannot reach this device"
+  // shows up in the same place every other degradation does. Undefined until the first attempt
+  // finishes — see `isPushRegistered` on `AlarmEngineDeps` for why that is not `false`.
+  const pushRegisteredRef = useRef<boolean | undefined>(undefined);
+
   const engineRef = useRef<AlarmEngine | null>(null);
   if (!engineRef.current) {
     engineRef.current = new AlarmEngine({
@@ -57,6 +66,7 @@ export function AlarmProvider({ children }: { children: ReactNode }) {
       ids,
       userId,
       deviceId,
+      isPushRegistered: () => pushRegisteredRef.current,
       log,
     });
   }
@@ -120,6 +130,55 @@ export function AlarmProvider({ children }: { children: ReactNode }) {
     // The engine instance is stable for the provider's lifetime (see the ref above); re-running
     // this effect on every render would tear down and rebuild every listener for nothing.
   }, [store]);
+
+  /**
+   * Registers this device for the server's push backstop (Sprint A4).
+   *
+   * Separate from the reconcile effect above because it depends on something else entirely — the
+   * household session — and because it must survive Firebase rotating the token at any moment,
+   * which is what the `onPushToken` listener covers. Every outcome is reported through alarm
+   * health rather than raised as an error: a household with no Firebase project configured is a
+   * supported configuration, not a broken one.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    const register = async () => {
+      const session = await getHouseholdSession();
+      if (!session || cancelled) {
+        return;
+      }
+
+      const outcome = await registerForPush({
+        apiBaseUrl: getApiBaseUrl(),
+        deviceToken: session.deviceToken,
+        getPushToken: MedGuardAlarms.getPushToken,
+        post: (url, options) => request('POST', url, options),
+      });
+      if (cancelled) {
+        return;
+      }
+
+      pushRegisteredRef.current = outcome.kind === 'registered';
+      if (outcome.kind !== 'registered') {
+        log.debug('no server push backstop on this device', { outcome: outcome.kind });
+      }
+      // Re-derive health so the banner and the ongoing notification reflect what just happened.
+      void engineRef.current!.reconcile().then((next) => {
+        if (!cancelled) {
+          setState(next);
+        }
+      });
+    };
+
+    void register();
+    const tokenSubscription = MedGuardAlarms.addPushTokenListener(() => void register());
+
+    return () => {
+      cancelled = true;
+      tokenSubscription.remove();
+    };
+  }, []);
 
   const snooze = async (occurrenceKey: string) => {
     await engineRef.current!.snooze(occurrenceKey);

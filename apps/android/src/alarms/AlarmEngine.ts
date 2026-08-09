@@ -51,6 +51,13 @@ export interface AlarmEngineDeps {
   ids: IdGenerator;
   userId: string;
   deviceId: string;
+  /**
+   * Whether the server can currently reach this device by push (Sprint A4). `undefined` means
+   * "not looked yet", which is deliberately not the same as `false`: registration is async and
+   * usually completes moments after launch, and reporting a missing backstop in that window
+   * would be a warning that fixes itself before a caregiver finishes reading it.
+   */
+  isPushRegistered?: () => boolean | undefined;
   log?: AlarmEngineLog;
 }
 
@@ -226,11 +233,14 @@ export class AlarmEngine {
       native.hasNotificationPolicyAccess(),
     ]);
 
+    const pushRegistered = this.deps.isPushRegistered?.();
+
     return {
       canScheduleExactAlarms,
       hasNotificationPermission,
       isIgnoringBatteryOptimizations,
       hasNotificationPolicyAccess,
+      ...(pushRegistered === undefined ? {} : { hasPushRegistration: pushRegistered }),
     };
   }
 
