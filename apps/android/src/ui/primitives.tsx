@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 
 /**
@@ -41,6 +41,29 @@ export const styles = StyleSheet.create({
   errorText: { color: colors.locked, fontSize: 13 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });
+
+/**
+ * Every screen that puts a `TextInput` in front of a caregiver — a form, or a card embedded in a
+ * scrolling list — needs this: this app is Android-only (`app.config.ts`'s `platforms`), and
+ * Android does not reliably resize or pan content around the keyboard on its own once edge-to-edge
+ * display is in play (the default since Expo SDK 53), so without it the keyboard simply overlaps
+ * whatever was focused. `behavior="height"` (not `"padding"`) is the one that actually works on
+ * Android — `"padding"` measures the view's on-screen position, which is unreliable across nested
+ * navigators here.
+ */
+export function KeyboardAvoidingScreen({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}): React.JSX.Element {
+  return (
+    <KeyboardAvoidingView style={[styles.screen, style]} behavior="height">
+      {children}
+    </KeyboardAvoidingView>
+  );
+}
 
 export function Card({
   children,

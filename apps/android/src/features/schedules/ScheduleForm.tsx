@@ -3,7 +3,7 @@ import { ScrollView, Text, TextInput, View } from 'react-native';
 import { DAY_LABELS, SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { FrequencyType, LocalDate, Schedule } from '@medguard/shared';
 import { useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
-import { Button, styles as sharedStyles } from '../../ui/primitives.js';
+import { Button, KeyboardAvoidingScreen, styles as sharedStyles } from '../../ui/primitives.js';
 
 const FREQUENCY_OPTIONS: ReadonlyArray<{ value: FrequencyType; label: string }> = [
   { value: 'daily', label: 'Every day' },
@@ -164,123 +164,125 @@ export function ScheduleForm({
   };
 
   return (
-    <ScrollView contentContainerStyle={sharedStyles.content}>
-      <Text style={sharedStyles.title}>{existing ? 'Change this schedule' : 'New schedule'}</Text>
+    <KeyboardAvoidingScreen>
+      <ScrollView contentContainerStyle={sharedStyles.content} keyboardShouldPersistTaps="handled">
+        <Text style={sharedStyles.title}>{existing ? 'Change this schedule' : 'New schedule'}</Text>
 
-      <View style={{ gap: 6 }}>
-        <Text style={sharedStyles.label}>Frequency</Text>
-        <View style={[sharedStyles.row, { flexWrap: 'wrap' }]}>
-          {FREQUENCY_OPTIONS.map((option) => (
-            <Chip
-              key={option.value}
-              label={option.label}
-              selected={frequencyType === option.value}
-              onPress={() => setFrequencyType(option.value)}
-            />
-          ))}
-        </View>
-      </View>
-
-      {frequencyType === 'interval_days' && (
-        <View>
-          <Text style={sharedStyles.label}>Every how many days</Text>
-          <TextInput style={sharedStyles.input} keyboardType="numeric" value={intervalDays} onChangeText={setIntervalDays} />
-        </View>
-      )}
-
-      {frequencyType === 'specific_days' && (
         <View style={{ gap: 6 }}>
-          <Text style={sharedStyles.label}>Days of the week</Text>
+          <Text style={sharedStyles.label}>Frequency</Text>
           <View style={[sharedStyles.row, { flexWrap: 'wrap' }]}>
-            {DAY_LABELS.map((label, day) => (
-              <Chip key={day} label={label} selected={daysOfWeek.includes(day)} onPress={() => toggleDay(day)} />
+            {FREQUENCY_OPTIONS.map((option) => (
+              <Chip
+                key={option.value}
+                label={option.label}
+                selected={frequencyType === option.value}
+                onPress={() => setFrequencyType(option.value)}
+              />
             ))}
           </View>
         </View>
-      )}
 
-      <View style={{ gap: 8 }}>
-        <Text style={sharedStyles.label}>Times of day</Text>
-        {timesOfDay.map((time, index) => {
-          const invalid = time !== '' && !isValidTime(time);
-          return (
-            <View key={index} style={{ gap: 4 }}>
-              <View style={[sharedStyles.row]}>
-                <TextInput
-                  style={[sharedStyles.input, { flex: 1 }]}
-                  value={time}
-                  onChangeText={(value) => updateTime(index, value)}
-                  placeholder="HH:MM"
-                  placeholderTextColor="#64748b"
-                  accessibilityLabel={`Time ${index + 1}`}
-                  autoCapitalize="none"
-                />
-                {timesOfDay.length > 1 && <Button label="Remove" onPress={() => removeTime(index)} />}
-              </View>
-              {invalid && <Text style={sharedStyles.errorText}>Enter a valid time as HH:MM (e.g. 08:00).</Text>}
+        {frequencyType === 'interval_days' && (
+          <View>
+            <Text style={sharedStyles.label}>Every how many days</Text>
+            <TextInput style={sharedStyles.input} keyboardType="numeric" value={intervalDays} onChangeText={setIntervalDays} />
+          </View>
+        )}
+
+        {frequencyType === 'specific_days' && (
+          <View style={{ gap: 6 }}>
+            <Text style={sharedStyles.label}>Days of the week</Text>
+            <View style={[sharedStyles.row, { flexWrap: 'wrap' }]}>
+              {DAY_LABELS.map((label, day) => (
+                <Chip key={day} label={label} selected={daysOfWeek.includes(day)} onPress={() => toggleDay(day)} />
+              ))}
             </View>
-          );
-        })}
-        <Button label="+ Add a time" onPress={() => setTimesOfDay((current) => [...current, ''])} />
-      </View>
+          </View>
+        )}
 
-      <View>
-        <Text style={sharedStyles.label}>Dose quantity</Text>
-        <TextInput style={sharedStyles.input} keyboardType="numeric" value={dosageQuantity} onChangeText={setDosageQuantity} />
-      </View>
+        <View style={{ gap: 8 }}>
+          <Text style={sharedStyles.label}>Times of day</Text>
+          {timesOfDay.map((time, index) => {
+            const invalid = time !== '' && !isValidTime(time);
+            return (
+              <View key={index} style={{ gap: 4 }}>
+                <View style={[sharedStyles.row]}>
+                  <TextInput
+                    style={[sharedStyles.input, { flex: 1 }]}
+                    value={time}
+                    onChangeText={(value) => updateTime(index, value)}
+                    placeholder="HH:MM"
+                    placeholderTextColor="#64748b"
+                    accessibilityLabel={`Time ${index + 1}`}
+                    autoCapitalize="none"
+                  />
+                  {timesOfDay.length > 1 && <Button label="Remove" onPress={() => removeTime(index)} />}
+                </View>
+                {invalid && <Text style={sharedStyles.errorText}>Enter a valid time as HH:MM (e.g. 08:00).</Text>}
+              </View>
+            );
+          })}
+          <Button label="+ Add a time" onPress={() => setTimesOfDay((current) => [...current, ''])} />
+        </View>
 
-      {existing ? (
         <View>
-          <Text style={sharedStyles.label}>Effective from</Text>
+          <Text style={sharedStyles.label}>Dose quantity</Text>
+          <TextInput style={sharedStyles.input} keyboardType="numeric" value={dosageQuantity} onChangeText={setDosageQuantity} />
+        </View>
+
+        {existing ? (
+          <View>
+            <Text style={sharedStyles.label}>Effective from</Text>
+            <TextInput
+              style={sharedStyles.input}
+              value={effectiveFrom}
+              onChangeText={setEffectiveFrom}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="#64748b"
+              autoCapitalize="none"
+            />
+            {!isValidDate(effectiveFrom) && <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>}
+          </View>
+        ) : (
+          <View>
+            <Text style={sharedStyles.label}>Start date</Text>
+            <TextInput
+              style={sharedStyles.input}
+              value={startDate}
+              onChangeText={setStartDate}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="#64748b"
+              autoCapitalize="none"
+            />
+            {!isValidDate(startDate) && <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>}
+          </View>
+        )}
+
+        <View>
+          <Text style={sharedStyles.label}>End date (optional — for a fixed course like a taper)</Text>
           <TextInput
             style={sharedStyles.input}
-            value={effectiveFrom}
-            onChangeText={setEffectiveFrom}
+            value={endDate}
+            onChangeText={setEndDate}
             placeholder="YYYY-MM-DD"
             placeholderTextColor="#64748b"
             autoCapitalize="none"
           />
-          {!isValidDate(effectiveFrom) && <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>}
+          {endDate !== '' && !isValidDate(endDate) && <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>}
         </View>
-      ) : (
-        <View>
-          <Text style={sharedStyles.label}>Start date</Text>
-          <TextInput
-            style={sharedStyles.input}
-            value={startDate}
-            onChangeText={setStartDate}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor="#64748b"
-            autoCapitalize="none"
-          />
-          {!isValidDate(startDate) && <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>}
+
+        {error && (
+          <Text style={sharedStyles.errorText} accessibilityRole="alert">
+            {error}
+          </Text>
+        )}
+
+        <View style={sharedStyles.row}>
+          <Button label={saving ? 'Saving…' : 'Save'} onPress={() => void handleSubmit()} disabled={saving} variant="primary" />
+          <Button label="Cancel" onPress={onCancel} disabled={saving} />
         </View>
-      )}
-
-      <View>
-        <Text style={sharedStyles.label}>End date (optional — for a fixed course like a taper)</Text>
-        <TextInput
-          style={sharedStyles.input}
-          value={endDate}
-          onChangeText={setEndDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor="#64748b"
-          autoCapitalize="none"
-        />
-        {endDate !== '' && !isValidDate(endDate) && <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>}
-      </View>
-
-      {error && (
-        <Text style={sharedStyles.errorText} accessibilityRole="alert">
-          {error}
-        </Text>
-      )}
-
-      <View style={sharedStyles.row}>
-        <Button label={saving ? 'Saving…' : 'Save'} onPress={() => void handleSubmit()} disabled={saving} variant="primary" />
-        <Button label="Cancel" onPress={onCancel} disabled={saving} />
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingScreen>
   );
 }
 

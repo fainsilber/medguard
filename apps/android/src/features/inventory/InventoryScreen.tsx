@@ -4,7 +4,7 @@ import type { InventoryAdjustment, InventoryItem, Medicine, Schedule } from '@me
 import { useClock, useRepository } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
-import { Card, colors, styles as sharedStyles } from '../../ui/primitives.js';
+import { Card, KeyboardAvoidingScreen, colors, styles as sharedStyles } from '../../ui/primitives.js';
 import { InventoryCard } from './InventoryCard.js';
 
 /** RN port of `apps/web/src/features/inventory/InventoryScreen.tsx`. */
@@ -64,23 +64,29 @@ export function InventoryScreen(): React.JSX.Element {
     .map((medicine) => medicine.name);
 
   return (
-    <ScrollView contentContainerStyle={sharedStyles.content} style={sharedStyles.screen}>
-      {lowStockNames.length > 0 && (
-        <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.capped }}>
-          <Text style={sharedStyles.label}>Running low: {lowStockNames.join(', ')}</Text>
-        </Card>
-      )}
+    <KeyboardAvoidingScreen>
+      <ScrollView
+        contentContainerStyle={sharedStyles.content}
+        style={sharedStyles.screen}
+        keyboardShouldPersistTaps="handled"
+      >
+        {lowStockNames.length > 0 && (
+          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.capped }}>
+            <Text style={sharedStyles.label}>Running low: {lowStockNames.join(', ')}</Text>
+          </Card>
+        )}
 
-      {data.medicines.map((medicine) => (
-        <InventoryCard
-          key={medicine.id}
-          medicine={medicine}
-          item={itemsByMedicine.get(medicine.id)}
-          adjustments={data.adjustments.filter((adjustment) => adjustment.medicineId === medicine.id)}
-          schedules={data.schedules}
-          today={today}
-        />
-      ))}
-    </ScrollView>
+        {data.medicines.map((medicine) => (
+          <InventoryCard
+            key={medicine.id}
+            medicine={medicine}
+            item={itemsByMedicine.get(medicine.id)}
+            adjustments={data.adjustments.filter((adjustment) => adjustment.medicineId === medicine.id)}
+            schedules={data.schedules}
+            today={today}
+          />
+        ))}
+      </ScrollView>
+    </KeyboardAvoidingScreen>
   );
 }

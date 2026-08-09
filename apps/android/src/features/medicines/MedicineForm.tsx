@@ -3,7 +3,7 @@ import { ScrollView, Text, TextInput, View } from 'react-native';
 import { SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { Medicine, MedicineForm as MedicineFormValue } from '@medguard/shared';
 import { useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
-import { Button, styles as sharedStyles } from '../../ui/primitives.js';
+import { Button, KeyboardAvoidingScreen, styles as sharedStyles } from '../../ui/primitives.js';
 
 const MEDICINE_FORMS: readonly MedicineFormValue[] = ['pill', 'liquid', 'injection', 'topical', 'other'];
 
@@ -89,99 +89,101 @@ export function MedicineForm({
   };
 
   return (
-    <ScrollView contentContainerStyle={sharedStyles.content}>
-      <Text style={sharedStyles.title}>{medicine ? 'Edit medicine' : 'Add medicine'}</Text>
+    <KeyboardAvoidingScreen>
+      <ScrollView contentContainerStyle={sharedStyles.content} keyboardShouldPersistTaps="handled">
+        <Text style={sharedStyles.title}>{medicine ? 'Edit medicine' : 'Add medicine'}</Text>
 
-      <View>
-        <Text style={sharedStyles.label}>Name</Text>
-        <TextInput style={sharedStyles.input} value={name} onChangeText={setName} autoFocus placeholderTextColor="#64748b" />
-      </View>
-
-      <View>
-        <Text style={sharedStyles.label}>Strength</Text>
-        <TextInput
-          style={sharedStyles.input}
-          placeholder="e.g. 50mg"
-          placeholderTextColor="#64748b"
-          value={strength}
-          onChangeText={setStrength}
-        />
-      </View>
-
-      <View>
-        <Text style={sharedStyles.label}>Form</Text>
-        <View style={[sharedStyles.row, { flexWrap: 'wrap' }]}>
-          {MEDICINE_FORMS.map((option) => (
-            <Chip key={option} label={option} selected={form === option} onPress={() => setForm(option)} />
-          ))}
+        <View>
+          <Text style={sharedStyles.label}>Name</Text>
+          <TextInput style={sharedStyles.input} value={name} onChangeText={setName} autoFocus placeholderTextColor="#64748b" />
         </View>
-      </View>
 
-      <View style={{ gap: 6 }}>
-        <Text style={sharedStyles.label}>How is it taken?</Text>
-        <Chip
-          label="On a schedule (set on the medicine's own page after saving)"
-          selected={!asNeeded}
-          onPress={() => setAsNeeded(false)}
-        />
-        <Chip
-          label="As needed — no fixed times, given when it's needed"
-          selected={asNeeded}
-          onPress={() => setAsNeeded(true)}
-        />
-      </View>
+        <View>
+          <Text style={sharedStyles.label}>Strength</Text>
+          <TextInput
+            style={sharedStyles.input}
+            placeholder="e.g. 50mg"
+            placeholderTextColor="#64748b"
+            value={strength}
+            onChangeText={setStrength}
+          />
+        </View>
 
-      {asNeeded && (
-        <View style={[sharedStyles.row, { justifyContent: 'space-between' }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={sharedStyles.label}>Min hours between doses</Text>
-            <TextInput
-              style={sharedStyles.input}
-              keyboardType="numeric"
-              placeholder="optional"
-              placeholderTextColor="#64748b"
-              value={minHours}
-              onChangeText={setMinHours}
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={sharedStyles.label}>Max doses / day</Text>
-            <TextInput
-              style={sharedStyles.input}
-              keyboardType="numeric"
-              placeholder="optional"
-              placeholderTextColor="#64748b"
-              value={maxDaily}
-              onChangeText={setMaxDaily}
-            />
+        <View>
+          <Text style={sharedStyles.label}>Form</Text>
+          <View style={[sharedStyles.row, { flexWrap: 'wrap' }]}>
+            {MEDICINE_FORMS.map((option) => (
+              <Chip key={option} label={option} selected={form === option} onPress={() => setForm(option)} />
+            ))}
           </View>
         </View>
-      )}
 
-      <View>
-        <Text style={sharedStyles.label}>Instructions</Text>
-        <TextInput
-          style={sharedStyles.input}
-          multiline
-          numberOfLines={2}
-          placeholder="e.g. Take on an empty stomach"
-          placeholderTextColor="#64748b"
-          value={instructions}
-          onChangeText={setInstructions}
-        />
-      </View>
+        <View style={{ gap: 6 }}>
+          <Text style={sharedStyles.label}>How is it taken?</Text>
+          <Chip
+            label="On a schedule (set on the medicine's own page after saving)"
+            selected={!asNeeded}
+            onPress={() => setAsNeeded(false)}
+          />
+          <Chip
+            label="As needed — no fixed times, given when it's needed"
+            selected={asNeeded}
+            onPress={() => setAsNeeded(true)}
+          />
+        </View>
 
-      {error && (
-        <Text style={sharedStyles.errorText} accessibilityRole="alert">
-          {error}
-        </Text>
-      )}
+        {asNeeded && (
+          <View style={[sharedStyles.row, { justifyContent: 'space-between' }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={sharedStyles.label}>Min hours between doses</Text>
+              <TextInput
+                style={sharedStyles.input}
+                keyboardType="numeric"
+                placeholder="optional"
+                placeholderTextColor="#64748b"
+                value={minHours}
+                onChangeText={setMinHours}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={sharedStyles.label}>Max doses / day</Text>
+              <TextInput
+                style={sharedStyles.input}
+                keyboardType="numeric"
+                placeholder="optional"
+                placeholderTextColor="#64748b"
+                value={maxDaily}
+                onChangeText={setMaxDaily}
+              />
+            </View>
+          </View>
+        )}
 
-      <View style={sharedStyles.row}>
-        <Button label={saving ? 'Saving…' : 'Save'} onPress={() => void handleSubmit()} disabled={saving} variant="primary" />
-        <Button label="Cancel" onPress={onCancel} disabled={saving} />
-      </View>
-    </ScrollView>
+        <View>
+          <Text style={sharedStyles.label}>Instructions</Text>
+          <TextInput
+            style={sharedStyles.input}
+            multiline
+            numberOfLines={2}
+            placeholder="e.g. Take on an empty stomach"
+            placeholderTextColor="#64748b"
+            value={instructions}
+            onChangeText={setInstructions}
+          />
+        </View>
+
+        {error && (
+          <Text style={sharedStyles.errorText} accessibilityRole="alert">
+            {error}
+          </Text>
+        )}
+
+        <View style={sharedStyles.row}>
+          <Button label={saving ? 'Saving…' : 'Save'} onPress={() => void handleSubmit()} disabled={saving} variant="primary" />
+          <Button label="Cancel" onPress={onCancel} disabled={saving} />
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingScreen>
   );
 }
 
