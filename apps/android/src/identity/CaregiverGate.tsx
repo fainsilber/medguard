@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { RepositoryProvider } from '../app/RepositoryContext.js';
 import { HouseholdOnboarding } from '../features/household/HouseholdOnboarding.js';
-import { Button, colors, styles as ui } from '../ui/primitives.js';
+import { Button, KeyboardAvoidingScreen, colors, styles as ui } from '../ui/primitives.js';
 import { getCaregiverName, setCaregiverName } from './caregiverName.js';
 import { getHouseholdSession } from './session.js';
 
@@ -79,32 +79,34 @@ export function CaregiverGate({ children }: { children: ReactNode }): React.JSX.
   };
 
   return (
-    <View style={[ui.content, { flex: 1, justifyContent: 'center' }]}>
-      <Text style={ui.title}>MedGuard</Text>
-      <Text style={ui.subtitle}>
-        Who&rsquo;s using this device? This name is attached to every dose you log, so the
-        household always knows who gave what.
-      </Text>
-      <View>
-        <Text style={ui.label}>Your name</Text>
-        <TextInput
-          style={ui.input}
-          placeholder="e.g. Mom, Dad, Grandma"
-          placeholderTextColor={colors.textMuted}
-          value={draft}
-          onChangeText={(value) => {
-            setDraft(value);
-            setError(null);
-          }}
-          autoFocus
-        />
-      </View>
-      {error ? (
-        <Text style={ui.errorText} accessibilityRole="alert">
-          {error}
+    <KeyboardAvoidingScreen>
+      <View style={[ui.content, { flex: 1, justifyContent: 'center' }]}>
+        <Text style={ui.title}>MedGuard</Text>
+        <Text style={ui.subtitle}>
+          Who&rsquo;s using this device? This name is attached to every dose you log, so the
+          household always knows who gave what.
         </Text>
-      ) : null}
-      <Button label="Continue" onPress={() => void handleSubmit()} variant="primary" />
-    </View>
+        <View>
+          <Text style={ui.label}>Your name</Text>
+          <TextInput
+            style={ui.input}
+            placeholder="e.g. Mom, Dad, Grandma"
+            placeholderTextColor={colors.textMuted}
+            value={draft}
+            onChangeText={(value) => {
+              setDraft(value);
+              setError(null);
+            }}
+            autoFocus
+          />
+        </View>
+        {error ? (
+          <Text style={ui.errorText} accessibilityRole="alert">
+            {error}
+          </Text>
+        ) : null}
+        <Button label="Continue" onPress={() => void handleSubmit()} variant="primary" />
+      </View>
+    </KeyboardAvoidingScreen>
   );
 }

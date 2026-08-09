@@ -23,7 +23,7 @@ import {
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useTick } from '../../app/useTick.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
-import { Button, Card, colors, styles as ui } from '../../ui/primitives.js';
+import { Button, Card, KeyboardAvoidingScreen, colors, styles as ui } from '../../ui/primitives.js';
 import { DoseCorrection } from '../logs/DoseCorrection.js';
 import { TakenTimePrompt } from './TakenTimePrompt.js';
 
@@ -180,81 +180,83 @@ export function TodayView(): React.JSX.Element {
   const sections: OccurrenceStatus[] = ['overdue', 'due_now', 'snoozed', 'upcoming', 'done'];
 
   return (
-    <ScrollView style={ui.screen} contentContainerStyle={ui.content}>
-      <Text style={ui.title}>Today</Text>
-      {rows.length === 0 ? <Text style={ui.subtitle}>Nothing scheduled today.</Text> : null}
+    <KeyboardAvoidingScreen>
+      <ScrollView style={ui.screen} contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled">
+        <Text style={ui.title}>Today</Text>
+        {rows.length === 0 ? <Text style={ui.subtitle}>Nothing scheduled today.</Text> : null}
 
-      {sections.map((status) => {
-        const inSection = rows.filter((row) => row.status === status);
-        if (inSection.length === 0) return null;
+        {sections.map((status) => {
+          const inSection = rows.filter((row) => row.status === status);
+          if (inSection.length === 0) return null;
 
-        return (
-          <View key={status} style={{ gap: 8 }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: STATUS_HEADING_COLOR[status], textTransform: 'uppercase' }}>
-              {STATUS_LABEL[status]}
-            </Text>
-            <View style={{ gap: 8 }}>
-              {inSection.map(({ occurrence, log, key }) => (
-                <Card key={key}>
-                  <View style={[ui.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>
-                        {medicineNames.get(occurrence.medicineId) ?? 'Unknown medicine'}
-                      </Text>
-                      <Text style={{ fontSize: 13, color: colors.textMuted }}>
-                        Due {formatLocalTime(timeZone, fromIso(occurrence.dueAt))} · {occurrence.dosageQuantity}
-                      </Text>
-                      {log ? (
-                        <>
-                          <Text style={{ fontSize: 12, color: colors.textMuted }}>
-                            {log.status === 'taken'
-                              ? `Taken ${formatLocalTime(timeZone, fromIso(log.actualTime))}`
-                              : 'Skipped'}{' '}
-                            by {log.loggedByUserId}
-                            {log.status === 'taken' && log.actualTime !== occurrence.dueAt
-                              ? ' · not at the scheduled time'
-                              : ''}
-                          </Text>
-                          <DoseCorrection allLogs={logs ?? []} tipLog={log} timeZone={timeZone} />
-                        </>
-                      ) : null}
-                    </View>
-                    {status !== 'done' && promptingKey !== key ? (
-                      <View style={[ui.row, { flexShrink: 0 }]}>
-                        <Button
-                          label="Taken"
-                          onPress={() => handleTakenPress(occurrence, key, status)}
-                          disabled={busyKey === key}
-                          variant="primary"
-                        />
-                        <Button
-                          label="Skip"
-                          onPress={() => void handleSkipped(occurrence, key)}
-                          disabled={busyKey === key}
-                        />
-                        {status !== 'snoozed' ? (
-                          <Button label="Snooze 15m" onPress={() => handleSnooze(key)} disabled={busyKey === key} />
+          return (
+            <View key={status} style={{ gap: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: STATUS_HEADING_COLOR[status], textTransform: 'uppercase' }}>
+                {STATUS_LABEL[status]}
+              </Text>
+              <View style={{ gap: 8 }}>
+                {inSection.map(({ occurrence, log, key }) => (
+                  <Card key={key}>
+                    <View style={[ui.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>
+                          {medicineNames.get(occurrence.medicineId) ?? 'Unknown medicine'}
+                        </Text>
+                        <Text style={{ fontSize: 13, color: colors.textMuted }}>
+                          Due {formatLocalTime(timeZone, fromIso(occurrence.dueAt))} · {occurrence.dosageQuantity}
+                        </Text>
+                        {log ? (
+                          <>
+                            <Text style={{ fontSize: 12, color: colors.textMuted }}>
+                              {log.status === 'taken'
+                                ? `Taken ${formatLocalTime(timeZone, fromIso(log.actualTime))}`
+                                : 'Skipped'}{' '}
+                              by {log.loggedByUserId}
+                              {log.status === 'taken' && log.actualTime !== occurrence.dueAt
+                                ? ' · not at the scheduled time'
+                                : ''}
+                            </Text>
+                            <DoseCorrection allLogs={logs ?? []} tipLog={log} timeZone={timeZone} />
+                          </>
                         ) : null}
                       </View>
-                    ) : null}
-                  </View>
+                      {status !== 'done' && promptingKey !== key ? (
+                        <View style={[ui.row, { flexShrink: 0 }]}>
+                          <Button
+                            label="Taken"
+                            onPress={() => handleTakenPress(occurrence, key, status)}
+                            disabled={busyKey === key}
+                            variant="primary"
+                          />
+                          <Button
+                            label="Skip"
+                            onPress={() => void handleSkipped(occurrence, key)}
+                            disabled={busyKey === key}
+                          />
+                          {status !== 'snoozed' ? (
+                            <Button label="Snooze 15m" onPress={() => handleSnooze(key)} disabled={busyKey === key} />
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </View>
 
-                  {promptingKey === key ? (
-                    <TakenTimePrompt
-                      dueAtIso={occurrence.dueAt}
-                      nowMs={nowMs}
-                      timeZone={timeZone}
-                      saving={busyKey === key}
-                      onConfirm={(actualTimeIso) => void handleTaken(occurrence, key, actualTimeIso)}
-                      onCancel={() => setPromptingKey(null)}
-                    />
-                  ) : null}
-                </Card>
-              ))}
+                    {promptingKey === key ? (
+                      <TakenTimePrompt
+                        dueAtIso={occurrence.dueAt}
+                        nowMs={nowMs}
+                        timeZone={timeZone}
+                        saving={busyKey === key}
+                        onConfirm={(actualTimeIso) => void handleTaken(occurrence, key, actualTimeIso)}
+                        onCancel={() => setPromptingKey(null)}
+                      />
+                    ) : null}
+                  </Card>
+                ))}
+              </View>
             </View>
-          </View>
-        );
-      })}
-    </ScrollView>
+          );
+        })}
+      </ScrollView>
+    </KeyboardAvoidingScreen>
   );
 }

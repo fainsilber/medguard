@@ -5,7 +5,7 @@ import { createHousehold, redeemJoinCode } from '../../api/householdApi.js';
 import { setCaregiverName } from '../../identity/caregiverName.js';
 import { setHouseholdSession } from '../../identity/session.js';
 import type { HouseholdSession } from '../../identity/session.js';
-import { Button, colors, styles as sharedStyles } from '../../ui/primitives.js';
+import { Button, KeyboardAvoidingScreen, colors, styles as sharedStyles } from '../../ui/primitives.js';
 
 /**
  * First run: start a household, or join one someone else already started. RN port of
@@ -222,5 +222,9 @@ export function HouseholdOnboarding({
     return <View style={{ gap: 16 }}>{content}</View>;
   }
 
-  return <View style={[sharedStyles.content, { flex: 1, justifyContent: 'center' }]}>{content}</View>;
+  return (
+    <KeyboardAvoidingScreen>
+      <View style={[sharedStyles.content, { flex: 1, justifyContent: 'center' }]}>{content}</View>
+    </KeyboardAvoidingScreen>
+  );
 }

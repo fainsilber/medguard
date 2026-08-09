@@ -5,7 +5,7 @@ import type { IntakeLog, Medicine } from '@medguard/shared';
 import { useClock, useStore } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
-import { Button, Card, colors, styles as sharedStyles } from '../../ui/primitives.js';
+import { Button, Card, KeyboardAvoidingScreen, colors, styles as sharedStyles } from '../../ui/primitives.js';
 import { BackupRestoreCard } from './BackupRestoreCard.js';
 import { shareTextFile } from './shareTextFile.js';
 
@@ -82,72 +82,78 @@ export function ExportScreen(): React.JSX.Element {
   };
 
   return (
-    <ScrollView style={sharedStyles.screen} contentContainerStyle={sharedStyles.content}>
-      <Card>
-        <Text style={sharedStyles.title}>Export</Text>
-        <Text style={sharedStyles.subtitle}>
-          Keep a CSV copy for hospital visits — this app is a helper, not the only record.
-        </Text>
-        <Button
-          label={sharing ? 'Sharing…' : 'Share CSV'}
-          onPress={() => void handleShareCsv()}
-          disabled={isEmpty || sharing}
-          variant="primary"
-        />
-        {shareError && (
-          <Text style={sharedStyles.errorText} accessibilityRole="alert">
-            {shareError}
+    <KeyboardAvoidingScreen>
+      <ScrollView
+        style={sharedStyles.screen}
+        contentContainerStyle={sharedStyles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Card>
+          <Text style={sharedStyles.title}>Export</Text>
+          <Text style={sharedStyles.subtitle}>
+            Keep a CSV copy for hospital visits — this app is a helper, not the only record.
           </Text>
-        )}
-      </Card>
+          <Button
+            label={sharing ? 'Sharing…' : 'Share CSV'}
+            onPress={() => void handleShareCsv()}
+            disabled={isEmpty || sharing}
+            variant="primary"
+          />
+          {shareError && (
+            <Text style={sharedStyles.errorText} accessibilityRole="alert">
+              {shareError}
+            </Text>
+          )}
+        </Card>
 
-      <Card>
-        <Text style={sharedStyles.title}>Medication log</Text>
-        <Text style={sharedStyles.subtitle}>
-          Generated {generatedOn} · {timeZone}
-        </Text>
+        <Card>
+          <Text style={sharedStyles.title}>Medication log</Text>
+          <Text style={sharedStyles.subtitle}>
+            Generated {generatedOn} · {timeZone}
+          </Text>
 
-        {isEmpty ? (
-          <Text style={sharedStyles.subtitle}>No doses logged yet.</Text>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator>
-            <View>
-              <View style={tableStyles.headerRow}>
-                {TABLE_COLUMNS.map((heading) => (
-                  <Text key={heading} style={tableStyles.headerCell}>
-                    {heading}
-                  </Text>
+          {isEmpty ? (
+            <Text style={sharedStyles.subtitle}>No doses logged yet.</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator>
+              <View>
+                <View style={tableStyles.headerRow}>
+                  {TABLE_COLUMNS.map((heading) => (
+                    <Text key={heading} style={tableStyles.headerCell}>
+                      {heading}
+                    </Text>
+                  ))}
+                </View>
+                {rows.map((log) => (
+                  <View key={log.id} style={tableStyles.row}>
+                    <Text style={tableStyles.cell}>{formatLocalDate(timeZone, fromIso(log.actualTime))}</Text>
+                    <Text style={[tableStyles.cell, tableStyles.muted]}>
+                      {log.scheduledTime === undefined
+                        ? '—'
+                        : formatLocalTime(timeZone, fromIso(log.scheduledTime))}
+                    </Text>
+                    <Text style={tableStyles.cell}>{formatLocalTime(timeZone, fromIso(log.actualTime))}</Text>
+                    <Text style={[tableStyles.cell, tableStyles.wide]}>
+                      {medicineNames.get(log.medicineId) ?? 'Unknown medicine'}
+                    </Text>
+                    <Text style={tableStyles.cell}>{log.status === 'taken' ? 'Taken' : 'Skipped'}</Text>
+                    <Text style={tableStyles.cell}>{log.quantityTaken}</Text>
+                    <Text style={tableStyles.cell}>{log.loggedByUserId}</Text>
+                    <Text style={[tableStyles.cell, tableStyles.wide, tableStyles.muted]}>
+                      {log.override
+                        ? `Override (${log.override.blockedBy}): ${log.override.reason}`
+                        : (log.notes ?? '')}
+                    </Text>
+                  </View>
                 ))}
               </View>
-              {rows.map((log) => (
-                <View key={log.id} style={tableStyles.row}>
-                  <Text style={tableStyles.cell}>{formatLocalDate(timeZone, fromIso(log.actualTime))}</Text>
-                  <Text style={[tableStyles.cell, tableStyles.muted]}>
-                    {log.scheduledTime === undefined
-                      ? '—'
-                      : formatLocalTime(timeZone, fromIso(log.scheduledTime))}
-                  </Text>
-                  <Text style={tableStyles.cell}>{formatLocalTime(timeZone, fromIso(log.actualTime))}</Text>
-                  <Text style={[tableStyles.cell, tableStyles.wide]}>
-                    {medicineNames.get(log.medicineId) ?? 'Unknown medicine'}
-                  </Text>
-                  <Text style={tableStyles.cell}>{log.status === 'taken' ? 'Taken' : 'Skipped'}</Text>
-                  <Text style={tableStyles.cell}>{log.quantityTaken}</Text>
-                  <Text style={tableStyles.cell}>{log.loggedByUserId}</Text>
-                  <Text style={[tableStyles.cell, tableStyles.wide, tableStyles.muted]}>
-                    {log.override
-                      ? `Override (${log.override.blockedBy}): ${log.override.reason}`
-                      : (log.notes ?? '')}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </ScrollView>
-        )}
-      </Card>
+            </ScrollView>
+          )}
+        </Card>
 
-      <BackupRestoreCard />
-    </ScrollView>
+        <BackupRestoreCard />
+      </ScrollView>
+    </KeyboardAvoidingScreen>
   );
 }
 

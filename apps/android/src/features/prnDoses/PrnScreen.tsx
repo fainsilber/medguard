@@ -6,7 +6,7 @@ import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useTick } from '../../app/useTick.js';
 import { startLocalClockGuard } from '../../clock/localClockGuard.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
-import { Card, styles as sharedStyles } from '../../ui/primitives.js';
+import { Card, KeyboardAvoidingScreen, styles as sharedStyles } from '../../ui/primitives.js';
 import { PrnCard } from './PrnCard.js';
 
 /** RN port of `apps/web/src/features/prnDoses/PrnScreen.tsx` — PRD §2.3's PRN safety screen. */
@@ -65,16 +65,22 @@ export function PrnScreen({ clockTrust }: { clockTrust?: ClockTrust }): React.JS
   }
 
   return (
-    <ScrollView contentContainerStyle={sharedStyles.content} style={sharedStyles.screen}>
-      {data.medicines.map((medicine) => (
-        <PrnCard
-          key={medicine.id}
-          medicine={medicine}
-          logs={data.logsByMedicine.get(medicine.id) ?? []}
-          timeZone={householdSettings.timeZone}
-          {...(clockTrust ? { clockTrust } : {})}
-        />
-      ))}
-    </ScrollView>
+    <KeyboardAvoidingScreen>
+      <ScrollView
+        contentContainerStyle={sharedStyles.content}
+        style={sharedStyles.screen}
+        keyboardShouldPersistTaps="handled"
+      >
+        {data.medicines.map((medicine) => (
+          <PrnCard
+            key={medicine.id}
+            medicine={medicine}
+            logs={data.logsByMedicine.get(medicine.id) ?? []}
+            timeZone={householdSettings.timeZone}
+            {...(clockTrust ? { clockTrust } : {})}
+          />
+        ))}
+      </ScrollView>
+    </KeyboardAvoidingScreen>
   );
 }

@@ -13,7 +13,13 @@ import { useRepository } from '../../app/RepositoryContext.js';
 import { getCaregiverName } from '../../identity/caregiverName.js';
 import { clearHouseholdSession, getHouseholdSession } from '../../identity/session.js';
 import type { HouseholdSession } from '../../identity/session.js';
-import { Button, Card, colors, styles as sharedStyles } from '../../ui/primitives.js';
+import {
+  Button,
+  Card,
+  KeyboardAvoidingScreen,
+  colors,
+  styles as sharedStyles,
+} from '../../ui/primitives.js';
 import { HouseholdOnboarding } from './HouseholdOnboarding.js';
 
 const DELETE_CONFIRMATION_PHRASE = 'DELETE';
@@ -177,192 +183,214 @@ export function HouseholdScreen(): React.JSX.Element {
 
   if (!session) {
     return (
-      <ScrollView style={sharedStyles.screen} contentContainerStyle={sharedStyles.content}>
-        <Card>
-          <Text style={sharedStyles.title}>Household</Text>
-          <Text style={sharedStyles.subtitle}>
-            This device isn&rsquo;t connected to a household. It still works on its own —
-            everything is stored locally — but doses won&rsquo;t be shared with another
-            caregiver&rsquo;s phone.
-          </Text>
-          <HouseholdOnboarding
-            embedded
-            initialDisplayName={caregiverName}
-            onDone={() => {
-              void (async () => {
-                const newSession = await getHouseholdSession();
-                setSession(newSession);
-              })();
-            }}
-          />
-        </Card>
-      </ScrollView>
+      <KeyboardAvoidingScreen>
+        <ScrollView
+          style={sharedStyles.screen}
+          contentContainerStyle={sharedStyles.content}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Card>
+            <Text style={sharedStyles.title}>Household</Text>
+            <Text style={sharedStyles.subtitle}>
+              This device isn&rsquo;t connected to a household. It still works on its own —
+              everything is stored locally — but doses won&rsquo;t be shared with another
+              caregiver&rsquo;s phone.
+            </Text>
+            <HouseholdOnboarding
+              embedded
+              initialDisplayName={caregiverName}
+              onDone={() => {
+                void (async () => {
+                  const newSession = await getHouseholdSession();
+                  setSession(newSession);
+                })();
+              }}
+            />
+          </Card>
+        </ScrollView>
+      </KeyboardAvoidingScreen>
     );
   }
 
   return (
-    <ScrollView style={sharedStyles.screen} contentContainerStyle={sharedStyles.content}>
-      <Card>
-        <Text style={sharedStyles.title}>Household</Text>
-        <Text style={sharedStyles.subtitle}>
-          {session.householdName ? `Connected to ${session.householdName}.` : 'Connected.'} Doses
-          logged here are shared with every caregiver in this household.
-        </Text>
-
-        <Button
-          label={inviteBusy ? 'Creating code…' : 'Invite another caregiver'}
-          onPress={() => void handleInvite()}
-          disabled={inviteBusy}
-          variant="primary"
-        />
-
-        {inviteCode && (
-          <View style={cardStyles.inviteBox}>
-            <Text style={cardStyles.inviteCode}>{inviteCode}</Text>
-            <Text style={sharedStyles.subtitle}>
-              Enter this on the other phone
-              {inviteExpiresInSeconds !== null &&
-                ` within ${Math.round(inviteExpiresInSeconds / 60)} minutes`}
-              . It works once.
-            </Text>
-            <Button label="Done" onPress={() => setInviteCode(null)} />
-          </View>
-        )}
-
-        {inviteError && (
-          <Text style={sharedStyles.errorText} accessibilityRole="alert">
-            {inviteError}
+    <KeyboardAvoidingScreen>
+      <ScrollView
+        style={sharedStyles.screen}
+        contentContainerStyle={sharedStyles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Card>
+          <Text style={sharedStyles.title}>Household</Text>
+          <Text style={sharedStyles.subtitle}>
+            {session.householdName ? `Connected to ${session.householdName}.` : 'Connected.'} Doses
+            logged here are shared with every caregiver in this household.
           </Text>
-        )}
-      </Card>
 
-      <Card>
-        <Text style={sharedStyles.title}>Devices</Text>
-        <Text style={sharedStyles.subtitle}>
-          Every device currently signed in to this household. Revoke one that&rsquo;s lost,
-          stolen, or no longer in use — it stops working immediately.
-        </Text>
+          <Button
+            label={inviteBusy ? 'Creating code…' : 'Invite another caregiver'}
+            onPress={() => void handleInvite()}
+            disabled={inviteBusy}
+            variant="primary"
+          />
 
-        {devicesError && (
-          <Text style={sharedStyles.errorText} accessibilityRole="alert">
-            {devicesError}
-          </Text>
-        )}
-        {revokeError && (
-          <Text style={sharedStyles.errorText} accessibilityRole="alert">
-            {revokeError}
-          </Text>
-        )}
-
-        {!devices ? (
-          <Text style={sharedStyles.subtitle}>Loading…</Text>
-        ) : (
-          <View style={{ gap: 8 }}>
-            {devices.map((device) => (
-              <View key={device.id} style={cardStyles.deviceRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={cardStyles.deviceName}>
-                    {device.displayName}
-                    {device.isThisDevice && <Text style={{ color: colors.textMuted }}> (this device)</Text>}
-                  </Text>
-                  {device.platform && <Text style={cardStyles.devicePlatform}>{device.platform}</Text>}
-                </View>
-                {!device.isThisDevice && (
-                  <Button
-                    label={revokingId === device.id ? 'Revoking…' : 'Revoke'}
-                    onPress={() => void handleRevoke(device.id)}
-                    disabled={revokingId === device.id}
-                  />
-                )}
-              </View>
-            ))}
-          </View>
-        )}
-      </Card>
-
-      <Card>
-        <Text style={sharedStyles.title}>Leave or delete</Text>
-
-        {!leaving ? (
-          <Button label="Leave this household" onPress={() => setLeaving(true)} />
-        ) : (
-          <View style={cardStyles.confirmBox}>
-            <Text style={sharedStyles.subtitle}>
-              This device will stop syncing with {session.householdName ?? 'this household'}, and
-              its medicine, schedule, and dose data on this device will be cleared. Other
-              caregivers keep their own copies — nothing on the server is deleted.
-            </Text>
-            {leaveError && (
-              <Text style={sharedStyles.errorText} accessibilityRole="alert">
-                {leaveError}
+          {inviteCode && (
+            <View style={cardStyles.inviteBox}>
+              <Text style={cardStyles.inviteCode}>{inviteCode}</Text>
+              <Text style={sharedStyles.subtitle}>
+                Enter this on the other phone
+                {inviteExpiresInSeconds !== null &&
+                  ` within ${Math.round(inviteExpiresInSeconds / 60)} minutes`}
+                . It works once.
               </Text>
-            )}
-            <View style={sharedStyles.row}>
-              <Button
-                label={leaveBusy ? 'Leaving…' : 'Leave household'}
-                onPress={() => void handleLeave()}
-                disabled={leaveBusy}
-                variant="danger"
-              />
-              <Button
-                label="Cancel"
-                onPress={() => {
-                  setLeaving(false);
-                  setLeaveError(null);
-                }}
-                disabled={leaveBusy}
-              />
+              <Button label="Done" onPress={() => setInviteCode(null)} />
             </View>
-          </View>
-        )}
+          )}
 
-        <View style={cardStyles.section}>
-          {!deleting ? (
-            <Button label="Delete this household" onPress={() => setDeleting(true)} variant="danger" />
+          {inviteError && (
+            <Text style={sharedStyles.errorText} accessibilityRole="alert">
+              {inviteError}
+            </Text>
+          )}
+        </Card>
+
+        <Card>
+          <Text style={sharedStyles.title}>Devices</Text>
+          <Text style={sharedStyles.subtitle}>
+            Every device currently signed in to this household. Revoke one that&rsquo;s lost,
+            stolen, or no longer in use — it stops working immediately.
+          </Text>
+
+          {devicesError && (
+            <Text style={sharedStyles.errorText} accessibilityRole="alert">
+              {devicesError}
+            </Text>
+          )}
+          {revokeError && (
+            <Text style={sharedStyles.errorText} accessibilityRole="alert">
+              {revokeError}
+            </Text>
+          )}
+
+          {!devices ? (
+            <Text style={sharedStyles.subtitle}>Loading…</Text>
           ) : (
-            <View style={cardStyles.dangerBox}>
-              <Text style={cardStyles.dangerText} accessibilityRole="alert">
-                This permanently deletes {session.householdName ?? 'this household'} for every
-                caregiver in it — every device, every medicine, every dose ever logged. This
-                cannot be undone.
+            <View style={{ gap: 8 }}>
+              {devices.map((device) => (
+                <View key={device.id} style={cardStyles.deviceRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={cardStyles.deviceName}>
+                      {device.displayName}
+                      {device.isThisDevice && (
+                        <Text style={{ color: colors.textMuted }}> (this device)</Text>
+                      )}
+                    </Text>
+                    {device.platform && (
+                      <Text style={cardStyles.devicePlatform}>{device.platform}</Text>
+                    )}
+                  </View>
+                  {!device.isThisDevice && (
+                    <Button
+                      label={revokingId === device.id ? 'Revoking…' : 'Revoke'}
+                      onPress={() => void handleRevoke(device.id)}
+                      disabled={revokingId === device.id}
+                    />
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+        </Card>
+
+        <Card>
+          <Text style={sharedStyles.title}>Leave or delete</Text>
+
+          {!leaving ? (
+            <Button label="Leave this household" onPress={() => setLeaving(true)} />
+          ) : (
+            <View style={cardStyles.confirmBox}>
+              <Text style={sharedStyles.subtitle}>
+                This device will stop syncing with {session.householdName ?? 'this household'}, and
+                its medicine, schedule, and dose data on this device will be cleared. Other
+                caregivers keep their own copies — nothing on the server is deleted.
               </Text>
-              <View>
-                <Text style={sharedStyles.label}>Type {DELETE_CONFIRMATION_PHRASE} to confirm</Text>
-                <TextInput
-                  style={sharedStyles.input}
-                  value={deleteText}
-                  onChangeText={setDeleteText}
-                  autoFocus
-                  accessibilityLabel={`Type ${DELETE_CONFIRMATION_PHRASE} to confirm`}
-                />
-              </View>
-              {deleteError && (
+              {leaveError && (
                 <Text style={sharedStyles.errorText} accessibilityRole="alert">
-                  {deleteError}
+                  {leaveError}
                 </Text>
               )}
               <View style={sharedStyles.row}>
                 <Button
-                  label={deleteBusy ? 'Deleting…' : 'Delete household'}
-                  onPress={() => void handleDeleteHousehold()}
-                  disabled={deleteBusy || deleteText !== DELETE_CONFIRMATION_PHRASE}
+                  label={leaveBusy ? 'Leaving…' : 'Leave household'}
+                  onPress={() => void handleLeave()}
+                  disabled={leaveBusy}
                   variant="danger"
                 />
                 <Button
                   label="Cancel"
                   onPress={() => {
-                    setDeleting(false);
-                    setDeleteText('');
-                    setDeleteError(null);
+                    setLeaving(false);
+                    setLeaveError(null);
                   }}
-                  disabled={deleteBusy}
+                  disabled={leaveBusy}
                 />
               </View>
             </View>
           )}
-        </View>
-      </Card>
-    </ScrollView>
+
+          <View style={cardStyles.section}>
+            {!deleting ? (
+              <Button
+                label="Delete this household"
+                onPress={() => setDeleting(true)}
+                variant="danger"
+              />
+            ) : (
+              <View style={cardStyles.dangerBox}>
+                <Text style={cardStyles.dangerText} accessibilityRole="alert">
+                  This permanently deletes {session.householdName ?? 'this household'} for every
+                  caregiver in it — every device, every medicine, every dose ever logged. This
+                  cannot be undone.
+                </Text>
+                <View>
+                  <Text style={sharedStyles.label}>
+                    Type {DELETE_CONFIRMATION_PHRASE} to confirm
+                  </Text>
+                  <TextInput
+                    style={sharedStyles.input}
+                    value={deleteText}
+                    onChangeText={setDeleteText}
+                    autoFocus
+                    accessibilityLabel={`Type ${DELETE_CONFIRMATION_PHRASE} to confirm`}
+                  />
+                </View>
+                {deleteError && (
+                  <Text style={sharedStyles.errorText} accessibilityRole="alert">
+                    {deleteError}
+                  </Text>
+                )}
+                <View style={sharedStyles.row}>
+                  <Button
+                    label={deleteBusy ? 'Deleting…' : 'Delete household'}
+                    onPress={() => void handleDeleteHousehold()}
+                    disabled={deleteBusy || deleteText !== DELETE_CONFIRMATION_PHRASE}
+                    variant="danger"
+                  />
+                  <Button
+                    label="Cancel"
+                    onPress={() => {
+                      setDeleting(false);
+                      setDeleteText('');
+                      setDeleteError(null);
+                    }}
+                    disabled={deleteBusy}
+                  />
+                </View>
+              </View>
+            )}
+          </View>
+        </Card>
+      </ScrollView>
+    </KeyboardAvoidingScreen>
   );
 }
 
