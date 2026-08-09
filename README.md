@@ -4,13 +4,21 @@ A local-first PWA for households managing complex pediatric-oncology medication 
 several caregivers — scheduled doses, as-needed doses with cooldown and daily-cap safety guards,
 inventory tracking, and (from Sprint 6) Shabbat/Yom Tov automation.
 
-**Status:** Sprints 0–3 complete in code. The app is fully usable offline on a single device, a
-second device can join a household with a 6-digit code and sync through the backend, and every
-medicine, schedule, dose logged, and stock change can be exported to a JSON file, restored from
-one, or wiped from a device — from the Export tab. Real-time push-based sync and the server-side
-double-dose guard arrive in Sprint 4. See
-[`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) for what's built, what changed along
-the way, and what's next.
+**Status:** Web PWA Sprints 0–4 complete and deployed — real-time WebSocket sync, the server-side
+double-dose guard (authoritative Durable Object re-check), offline replay with zero log loss, and
+full JSON export/import/wipe are all live. Sprint 5 (Web Push alarms + escalation) is unstarted on
+the web track and has been absorbed into the Android plan as Sprint A4, server work shared by both
+clients. See [`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) for what's built, what
+changed along the way, and what's next.
+
+A native Android client is in active development alongside the PWA — see "Android client" below.
+It exists to do the one thing a browser structurally cannot: a real 45-second, alarm-volume, locked-
+phone dose chime. Sprints A0–A2 are code-complete, and real-device testing (the only way this app
+can be verified end to end) has already found and fixed several bugs: a sync-engine SQLite race, a
+PRN clock-trust false positive after device sleep, stale local data on a revoked device, and — most
+recently — the on-screen keyboard covering text fields across the app. See
+[`docs/android-client-plan.md`](docs/android-client-plan.md) and
+[`apps/android/README.md`](apps/android/README.md) for the details.
 
 - **Live PWA:** https://medguard-web.fainsilber.workers.dev
 - **API:** https://medguard-api.fainsilber.workers.dev
@@ -43,9 +51,9 @@ packages/store/    Storage-agnostic repository + sync engine (extracted from app
                    one implementation of the append-only ledger and outbox rules, not two.
 apps/web/          React 18 + Vite PWA. Dexie (IndexedDB) for local-first storage via packages/store.
 apps/api/          Hono on Cloudflare Workers, with D1 and a SQLite-backed Durable Object.
-apps/android/      React Native + Expo native client (Sprint A1: storage/sync port in progress) —
-                   the locked-phone dose alarm the PWA structurally cannot deliver. See
-                   apps/android/README.md and docs/android-client-plan.md.
+apps/android/      React Native + Expo native client (Sprints A0-A2 code-complete; A3, the local
+                   alarm engine, is next) — the locked-phone dose alarm the PWA structurally cannot
+                   deliver. See apps/android/README.md and docs/android-client-plan.md.
 ```
 
 ## Getting started
@@ -107,7 +115,7 @@ fine. This cost real diagnostic time once already; `features/prn/` is now `featu
 | --- | --- |
 | [`docs/medguard-prd.md`](docs/medguard-prd.md) | Product requirements — the source of truth for behaviour. |
 | [`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) | Sprint-by-sprint plan, progress, and every deviation from the PRD with its reasoning. |
-| [`docs/android-client-plan.md`](docs/android-client-plan.md) | Plan for the native Android client — feature parity, real locked-device alarms, and the server-side push work it absorbs. Signed off, ready for Sprint A0. |
+| [`docs/android-client-plan.md`](docs/android-client-plan.md) | Plan for the native Android client — feature parity, real locked-device alarms, and the server-side push work it absorbs. Signed off; A0-A2 code-complete, A3 (local alarm engine) is next. |
 | [`docs/data-handling.md`](docs/data-handling.md) | What medical data is stored, where, who can reach it, and the known gaps. |
 | [`docs/platform-capabilities.md`](docs/platform-capabilities.md) | Real-device probe results — what push and background timers actually do on Android and iOS, measured rather than assumed. |
 | [`docs/halachic-decisions.md`](docs/halachic-decisions.md) | Working answers on Shabbat behaviour. **Pragmatic placeholders, not a ruling** — the questions still need to go to a rav before Sprint 6 ships. |
