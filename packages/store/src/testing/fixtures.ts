@@ -1,4 +1,11 @@
-import type { IntakeLog, InventoryAdjustment, InventoryItem, Medicine, Schedule } from '@medguard/shared';
+import type {
+  DoseSnooze,
+  IntakeLog,
+  InventoryAdjustment,
+  InventoryItem,
+  Medicine,
+  Schedule,
+} from '@medguard/shared';
 
 /** Shared fixture builders for the repository conformance suite — same shape as the fixtures
  * `apps/web/src/db/repository.test.ts` used before the Sprint A1 extraction. */
@@ -78,6 +85,23 @@ export function makeInventoryAdjustment(overrides: Partial<InventoryAdjustment> 
     createdByUserId: 'mom',
     createdByDeviceId: 'device-1',
     syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
+/** The `occurrenceKey` shape (`${scheduleId}:${dueAt}`) the alarm layer keys snoozes by. */
+export const CONFORMANCE_OCCURRENCE = `schedule-1:${CONFORMANCE_NOW}`;
+
+export function makeDoseSnooze(overrides: Partial<DoseSnooze> = {}): DoseSnooze {
+  return {
+    id: 'snooze-1',
+    occurrenceId: CONFORMANCE_OCCURRENCE,
+    minutes: 20,
+    count: 1,
+    createdAt: CONFORMANCE_NOW,
+    createdByUserId: 'mom',
+    createdByDeviceId: 'device-1',
+    syncStatus: 'pending',
     ...overrides,
   };
 }

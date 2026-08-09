@@ -23,6 +23,7 @@ const HOUSEHOLD_SCOPED_TABLES = [
   'intake_logs',
   'inventory_items',
   'inventory_adjustments',
+  'dose_snoozes',
   'shabbat_config',
 ];
 
@@ -50,7 +51,7 @@ describe('migrations', () => {
       .bind('schema_version')
       .first<{ value: string }>();
 
-    expect(row?.value).toBe('2');
+    expect(row?.value).toBe('3');
   });
 
   it.each(HOUSEHOLD_SCOPED_TABLES)(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  doseSnoozeSchema,
   householdSettingsSchema,
   intakeLogSchema,
   inventoryAdjustmentSchema,
@@ -283,6 +284,45 @@ describe('inventoryAdjustmentSchema', () => {
   it('accepts a correction in either direction', () => {
     expect(inventoryAdjustmentSchema.safeParse({ ...valid, reason: 'correction', delta: 2 }).success).toBe(true);
     expect(inventoryAdjustmentSchema.safeParse({ ...valid, reason: 'correction', delta: -2 }).success).toBe(true);
+  });
+});
+
+describe('doseSnoozeSchema', () => {
+  const valid = {
+    id: UUID,
+    occurrenceId: `${UUID_2}:${NOW}`,
+    minutes: 20,
+    count: 1,
+    createdAt: NOW,
+    createdByUserId: 'mom',
+    createdByDeviceId: 'device-1',
+    syncStatus: 'synced',
+  };
+
+  it('accepts a snooze', () => {
+    expect(doseSnoozeSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('rejects an occurrence id that is not a real occurrence key', () => {
+    // The occurrence id is the join back to a dose. A malformed one would validate, sync, and
+    // then silently defer nothing — the alarm would keep ringing with a snooze on record.
+    expect(doseSnoozeSchema.safeParse({ ...valid, occurrenceId: UUID_2 }).success).toBe(false);
+    expect(
+      doseSnoozeSchema.safeParse({ ...valid, occurrenceId: `${UUID_2}:not-an-instant` }).success,
+    ).toBe(false);
+  });
+
+  it('rejects a zero or negative ordinal — the count is 1-based', () => {
+    expect(doseSnoozeSchema.safeParse({ ...valid, count: 0 }).success).toBe(false);
+  });
+
+  it('accepts a count above MAX_SNOOZE_COUNT, which is a client policy the server does not enforce', () => {
+    expect(doseSnoozeSchema.safeParse({ ...valid, count: 9 }).success).toBe(true);
+  });
+
+  it('rejects a non-positive or absurd duration', () => {
+    expect(doseSnoozeSchema.safeParse({ ...valid, minutes: 0 }).success).toBe(false);
+    expect(doseSnoozeSchema.safeParse({ ...valid, minutes: 1441 }).success).toBe(false);
   });
 });
 

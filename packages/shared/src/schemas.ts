@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { parseOccurrenceKey } from './schedule.js';
+
 /**
  * Runtime validation for everything that crosses a trust boundary: user input, IndexedDB reads
  * after a schema migration, and (from Sprint 3) request bodies on the Worker.
@@ -242,6 +244,29 @@ export const inventoryItemSchema = z.object({
   ...syncableFields,
 });
 
+/**
+ * An `occurrenceKey` — validated by running it back through the one parser rather than by a
+ * second regex that could drift from how `occurrenceKey()` composes it.
+ */
+export const occurrenceKeySchema = z
+  .string()
+  .min(1)
+  .refine((value) => parseOccurrenceKey(value) !== undefined, 'Not a valid occurrence key');
+
+export const doseSnoozeSchema = z.object({
+  id: z.uuid(),
+  occurrenceId: occurrenceKeySchema,
+  minutes: z.number().int().positive().max(1440),
+  // 1-based, and bounded well above MAX_SNOOZE_COUNT rather than at it: the bound is a client
+  // policy the server does not enforce, and a record that already exists must still validate if
+  // that policy is ever loosened.
+  count: z.number().int().positive(),
+  createdAt: isoInstantSchema,
+  createdByUserId: z.string().min(1),
+  createdByDeviceId: z.string().min(1),
+  syncStatus: syncStatusSchema,
+});
+
 export const shabbatConfigSchema = z.object({
   id: z.uuid(),
   patientId: z.uuid(),
@@ -261,6 +286,7 @@ export const syncableTableSchema = z.enum([
   'intakeLogs',
   'inventoryItems',
   'inventoryAdjustments',
+  'doseSnoozes',
   'shabbatConfig',
   'householdSettings',
 ]);

@@ -11,11 +11,13 @@ import type {
   BackupBundle,
   Clock,
   DeviceId,
+  DoseSnooze,
   HouseholdSettings,
   IdGenerator,
   IntakeLog,
   InventoryAdjustment,
   InventoryItem,
+  IsoInstant,
   LocalDate,
   ManualAdjustmentInput,
   Medicine,
@@ -61,6 +63,18 @@ export class MedGuardRepository {
     private readonly store: Store,
     private readonly context: RepositoryContext,
   ) {}
+
+  /**
+   * The injected clock's current instant.
+   *
+   * Exposed so callers that need to stamp something *alongside* a repository write — the sync
+   * engine's `lastSyncedAt`, for one — use the same clock the outbox rows are stamped with,
+   * rather than reaching for an ambient `Date.now()` that a test could not control and the
+   * no-ambient-time lint rule would reject anyway.
+   */
+  now(): IsoInstant {
+    return this.context.clock.nowIso();
+  }
 
   // -------------------------------------------------------------------------
   // Outbox
@@ -407,6 +421,61 @@ export class MedGuardRepository {
   }
 
   // -------------------------------------------------------------------------
+  // Snooze (delta AD5)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Appends one deferral of one scheduled dose.
+   *
+   * Append-only like the intake ledger, and for the same reason: two caregivers snoozing the same
+   * dose while offline must both survive the merge rather than one silently overwriting the
+   * other. It also means the bound is a row count, with no counter to increment and get wrong.
+   *
+   * The caller supplies the whole record — `buildDoseSnooze` in `@medguard/shared` mints it, and
+   * takes an explicit tap instant so a snooze captured on a lock screen dates from the tap rather
+   * than from whenever the app got around to applying it.
+   */
+  async recordSnooze(snooze: DoseSnooze): Promise<DoseSnooze> {
+    await this.store.transaction(['doseSnoozes', 'syncOutbox'], async (tx) => {
+      await tx.put('doseSnoozes', snooze);
+      await this.enqueue(tx, 'doseSnoozes', snooze.id, 'CREATE', snooze);
+    });
+
+    return snooze;
+  }
+
+  snoozesForOccurrence(occurrenceId: string): Promise<DoseSnooze[]> {
+    return this.store.transaction(['doseSnoozes'], (tx) =>
+      tx.queryIndex<DoseSnooze>('doseSnoozes', {
+        kind: 'equals',
+        fields: ['occurrenceId'],
+        values: [occurrenceId],
+      }),
+    );
+  }
+
+  /**
+   * Every snooze created since `sinceIso`, for the alarm engine's horizon pass and the Today
+   * view — both need snoozes across many occurrences at once, and querying per occurrence would
+   * be one round trip per row on screen.
+   *
+   * Bounded by time rather than unbounded because snoozes accumulate forever and only the recent
+   * ones can still be deferring anything: a snooze older than the horizon cannot move an alarm
+   * that is inside it.
+   */
+  recentSnoozes(sinceIso: string): Promise<DoseSnooze[]> {
+    return this.store.transaction(['doseSnoozes'], (tx) =>
+      tx.queryIndex<DoseSnooze>('doseSnoozes', {
+        kind: 'range',
+        fields: ['createdAt'],
+        prefix: [],
+        lower: sinceIso,
+        upper: RANGE_SENTINEL_MAX,
+      }),
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Inventory
   // -------------------------------------------------------------------------
 
@@ -511,9 +580,10 @@ export class MedGuardRepository {
   }
 
   /**
-   * Wipes medicines, schedules, the full intake log, and the inventory ledger — everything a
-   * backup covers. Household settings and this device's own identity/session are left alone:
-   * this clears medical data, not the household connection.
+   * Wipes medicines, schedules, the full intake log, the inventory ledger and any outstanding
+   * snoozes — everything a backup covers, plus the alarm bookkeeping that only means anything
+   * against those schedules. Household settings and this device's own identity/session are left
+   * alone: this clears medical data, not the household connection.
    *
    * Local only, and structurally cannot be otherwise: nothing in the sync protocol supports
    * deleting a record (see docs/data-handling.md), so this action has no way to reach — and no
@@ -521,18 +591,35 @@ export class MedGuardRepository {
    */
   async clearAllData(): Promise<void> {
     await this.store.transaction(
-      ['medicines', 'schedules', 'intakeLogs', 'inventoryItems', 'inventoryAdjustments', 'syncOutbox', 'syncMeta'],
+      [
+        'medicines',
+        'schedules',
+        'intakeLogs',
+        'inventoryItems',
+        'inventoryAdjustments',
+        'doseSnoozes',
+        'syncOutbox',
+        'syncMeta',
+      ],
       async (tx) => {
         await tx.clear('medicines');
         await tx.clear('schedules');
         await tx.clear('intakeLogs');
         await tx.clear('inventoryItems');
         await tx.clear('inventoryAdjustments');
+        await tx.clear('doseSnoozes');
 
         const staleOutbox = await tx.queryIndex<SyncOutboxEntry>('syncOutbox', {
           kind: 'anyOf',
           fields: ['table'],
-          values: ['medicines', 'schedules', 'intakeLogs', 'inventoryItems', 'inventoryAdjustments'],
+          values: [
+            'medicines',
+            'schedules',
+            'intakeLogs',
+            'inventoryItems',
+            'inventoryAdjustments',
+            'doseSnoozes',
+          ],
         });
         for (const entry of staleOutbox) {
           await tx.delete('syncOutbox', entry.id!);

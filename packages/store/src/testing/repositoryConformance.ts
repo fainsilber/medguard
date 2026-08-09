@@ -6,8 +6,10 @@ import { MedGuardRepository } from '../repository.js';
 import type { Store } from '../types.js';
 import {
   CONFORMANCE_NOW as NOW,
+  CONFORMANCE_OCCURRENCE as OCCURRENCE,
   CONFORMANCE_TIMEZONE as JERUSALEM,
   makeBundle,
+  makeDoseSnooze,
   makeInventoryAdjustment,
   makeInventoryItem,
   makeLog,
@@ -488,6 +490,80 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         await expect(
           repository.restoreBackup({ medicines: [], schedules: [], intakeLogs: [], inventoryItems: [], inventoryAdjustments: [] }),
         ).resolves.toBeUndefined();
+      });
+    });
+
+    describe('snoozes — append-only, never overwritten (delta AD5)', () => {
+      it('writes a snooze and its outbox row together', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordSnooze(makeDoseSnooze());
+
+        expect(await repository.snoozesForOccurrence(OCCURRENCE)).toHaveLength(1);
+        const outbox = await repository.pendingSync();
+        expect(outbox).toHaveLength(1);
+        expect(outbox[0]).toMatchObject({ table: 'doseSnoozes', entityId: 'snooze-1', action: 'CREATE' });
+      });
+
+      it('accumulates rather than overwriting, so a bound is a row count', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordSnooze(makeDoseSnooze({ id: 'snooze-1', count: 1 }));
+        await repository.recordSnooze(makeDoseSnooze({ id: 'snooze-2', count: 2 }));
+        await repository.recordSnooze(makeDoseSnooze({ id: 'snooze-3', count: 3 }));
+
+        const stored = await repository.snoozesForOccurrence(OCCURRENCE);
+        expect(stored).toHaveLength(3);
+        expect(stored.map((snooze) => snooze.count).sort()).toEqual([1, 2, 3]);
+      });
+
+      it('keeps two devices’ concurrent snoozes of the same dose, discarding neither', async () => {
+        // The whole reason this is a ledger and not a `snoozedUntil` field: LWW here would drop
+        // one caregiver's decision silently.
+        const { repository } = await freshRepository();
+        await repository.recordSnooze(makeDoseSnooze({ id: 'from-mom', createdByDeviceId: 'device-1' }));
+        await repository.recordSnooze(makeDoseSnooze({ id: 'from-dad', createdByDeviceId: 'device-2' }));
+
+        expect(await repository.snoozesForOccurrence(OCCURRENCE)).toHaveLength(2);
+      });
+
+      it('scopes by occurrence — one dose’s snoozes never bound another’s', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordSnooze(makeDoseSnooze({ id: 'a' }));
+        await repository.recordSnooze(
+          makeDoseSnooze({ id: 'b', occurrenceId: `schedule-2:${NOW}` }),
+        );
+
+        expect(await repository.snoozesForOccurrence(OCCURRENCE)).toHaveLength(1);
+        expect(await repository.snoozesForOccurrence(`schedule-2:${NOW}`)).toHaveLength(1);
+      });
+
+      it('returns nothing for an occurrence that has never been snoozed', async () => {
+        const { repository } = await freshRepository();
+        expect(await repository.snoozesForOccurrence(OCCURRENCE)).toEqual([]);
+      });
+
+      it('recentSnoozes returns the window, excluding anything older', async () => {
+        // The alarm engine reads a bounded window rather than the whole table: snoozes accumulate
+        // forever, and one older than the horizon cannot still be deferring an alarm inside it.
+        const { repository } = await freshRepository();
+        await repository.recordSnooze(
+          makeDoseSnooze({ id: 'old', createdAt: '2026-06-13T12:00:00.000Z' }),
+        );
+        await repository.recordSnooze(
+          makeDoseSnooze({ id: 'recent', createdAt: '2026-06-15T11:00:00.000Z' }),
+        );
+
+        const recent = await repository.recentSnoozes('2026-06-15T00:00:00.000Z');
+        expect(recent.map((snooze) => snooze.id)).toEqual(['recent']);
+      });
+
+      it('recentSnoozes spans occurrences, so one pass feeds a whole horizon', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordSnooze(makeDoseSnooze({ id: 'a' }));
+        await repository.recordSnooze(
+          makeDoseSnooze({ id: 'b', occurrenceId: `schedule-2:${NOW}` }),
+        );
+
+        expect(await repository.recentSnoozes('2026-06-01T00:00:00.000Z')).toHaveLength(2);
       });
     });
 

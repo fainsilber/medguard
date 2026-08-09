@@ -27,6 +27,7 @@ export const SQLITE_TABLE_SCHEMAS: readonly SqliteTableSchema[] = [
   { name: 'intakeLogs', pk: 'id', indexedFields: ['medicineId', 'patientId', 'actualTime'] },
   { name: 'inventoryItems', pk: 'id', indexedFields: ['medicineId'] },
   { name: 'inventoryAdjustments', pk: 'id', indexedFields: ['medicineId', 'relatedLogId'] },
+  { name: 'doseSnoozes', pk: 'id', indexedFields: ['occurrenceId', 'createdAt'] },
   { name: 'shabbatConfig', pk: 'id', indexedFields: [] },
   { name: 'syncOutbox', pk: 'id', pkIsInteger: true, indexedFields: ['table', 'createdAt'] },
   { name: 'syncMeta', pk: 'key', indexedFields: [] },

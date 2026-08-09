@@ -1,16 +1,19 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect } from 'react';
+import { DEFAULT_ESCALATION_MINUTES, DEFAULT_SNOOZE_MINUTES } from '@medguard/shared';
 import type { HouseholdSettings } from '@medguard/shared';
 import { useMedGuardDb, useRepository } from './RepositoryContext.js';
 
 /**
- * Defaults matching the PRD (§4: 15-minute escalation, configurable snooze) and the browser's
- * own timezone — bootstrapping, like device id and caregiver name, not a domain decision. This
- * stands in for a real settings screen until Sprint 6 needs one for Shabbat coordinates; nothing
- * here is final, just a reasonable starting point that requires no manual setup to use the app.
+ * Defaults from `@medguard/shared` (PRD §4 escalation, the Android plan's signed-off snooze
+ * length) and the browser's own timezone — bootstrapping, like device id and caregiver name, not
+ * a domain decision. This stands in for a real settings screen until Sprint 6 needs one for
+ * Shabbat coordinates; nothing here is final, just a reasonable starting point that requires no
+ * manual setup to use the app.
+ *
+ * Shared with Android rather than each app defining its own: a household-wide safety setting
+ * should not depend on which client happened to create it.
  */
-const DEFAULT_ESCALATION_MINUTES = 15;
-const DEFAULT_SNOOZE_MINUTES = 15;
 
 function detectTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;

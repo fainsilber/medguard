@@ -50,6 +50,39 @@ export function occurrenceKey(occurrence: Occurrence): string {
 }
 
 /**
+ * The inverse of `occurrenceKey`, for the one caller that only ever has the key: a notification
+ * action tapped on a lock screen carries the key as an intent extra and nothing else.
+ *
+ * Splits on the *first* colon only — a UUID contains none and an ISO instant contains two, so
+ * anything after the first colon is the timestamp. Returns `undefined` rather than throwing on
+ * anything malformed: a corrupt notification extra must degrade to "ignore this action", never
+ * crash the drain that is trying to convert a caregiver's tap into a dose record.
+ */
+export function parseOccurrenceKey(
+  key: string,
+): { scheduleId: Uuid; dueAt: IsoInstant } | undefined {
+  const separator = key.indexOf(':');
+  if (separator <= 0) {
+    return undefined;
+  }
+
+  const scheduleId = key.slice(0, separator);
+  const dueAt = key.slice(separator + 1);
+  if (dueAt.length === 0) {
+    return undefined;
+  }
+
+  // Round-tripping through `toIso` is what rejects "2026-13-45T99:00:00.000Z" and other strings
+  // that are shaped right but are not real instants — `Date.parse` alone accepts too much.
+  const parsed = Date.parse(dueAt);
+  if (Number.isNaN(parsed) || toIso(parsed) !== dueAt) {
+    return undefined;
+  }
+
+  return { scheduleId, dueAt };
+}
+
+/**
  * Whether a schedule version produces doses on a given local date.
  *
  * The `active` / `endDate` interaction encodes schedule versioning (safety invariant 1 — the

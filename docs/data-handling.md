@@ -7,10 +7,10 @@ That is protected health information in most jurisdictions and sensitive family 
 of them. This document exists so the handling is a deliberate, reviewable decision rather than
 whatever fell out of the implementation.
 
-**Status:** updated 2026-08-09. Real-time sync (Sprint 4) is deployed; push and alarms (Sprint 5) are
-still unbuilt, now driven by the Android track as Sprint A4. The Android section below describes
-device-local storage on a real, code-complete client (Sprints A0–A2), not a scaffold — the
-server-side FCM and dose-alarm work it depends on is still Sprint A4/Sprint 5, unbuilt.
+**Status:** updated 2026-08-09. Real-time sync (Sprint 4) is deployed; the Android client's local
+alarm engine (Sprint A3) is code-complete; server-side push and the dose-alarm/escalation chain
+(Sprint 5, driven by the Android track as Sprint A4) are still unbuilt. The Android section below
+describes device-local storage on a real, code-complete client (Sprints A0–A3), not a scaffold.
 
 ---
 
@@ -19,7 +19,10 @@ server-side FCM and dose-alarm work it depends on is still Sprint A4/Sprint 5, u
 ### On the device (IndexedDB, via Dexie)
 
 The complete local record: medicines, schedules, intake logs, the inventory ledger, household
-settings. This is the primary copy — the app is local-first and fully usable with no network.
+settings, and (since Sprint A3) `doseSnoozes` — an append-only record of who deferred which dose,
+by how long. This is the primary copy — the app is local-first and fully usable with no network.
+The web client stores `doseSnoozes` (so a snooze made on a synced Android device lands somewhere
+rather than being dropped) but does not yet write to it; only Android's bounded-snooze UI does.
 
 Also in `localStorage`, deliberately kept small and non-medical:
 
@@ -39,8 +42,19 @@ under storage pressure.
 ### On the device (Android, `expo-sqlite`)
 
 The same complete local record as the web client's IndexedDB copy — medicines, schedules, intake
-logs, the inventory ledger, household settings — in a SQLite file instead
+logs, the inventory ledger, household settings, `doseSnoozes` — in a SQLite file instead
 (`docs/android-client-plan.md`, "Storage and the sync port").
+
+Two additional, Android-only stores exist outside that SQLite file, both alarm bookkeeping rather
+than medical history and both covered by the same backup exclusion below (`sharedpref` is an
+excluded domain): `medguard_pending_actions` (a captured Taken/Snooze tap, durable from the instant
+of the tap until `AlarmEngine` acknowledges it — Sprint A3, `PendingActionStore.kt`) and
+`medguard_armed_alarms` (a mirror of which occurrences are currently armed, read back by
+`BootReceiver` after a reboot — `ArmedAlarmStore.kt`). Both are Android `SharedPreferences`, not
+rows in the SQLite file itself — worth being precise about, since they hold a tap's timestamp and
+an occurrence identifier (schedule id + due time), not drug names or doses, but they are still
+device-local dosing-adjacent data and still need the same auto-backup exclusion the SQLite file
+gets.
 
 Two things the web client doesn't need to worry about, and this one does:
 
@@ -65,6 +79,7 @@ Per household: the same domain records, plus identity.
 | Table | Sensitivity |
 | --- | --- |
 | `medicines`, `schedules`, `intake_logs`, `inventory_*`, `household_settings`, `shabbat_config` | **Medical.** Drug names, doses, times, who administered, override reasons |
+| `dose_snoozes` (Sprint A3) | **Medical-adjacent.** Who deferred which dose occurrence, by how long, and when — no drug name or quantity of its own, but ties directly to a specific scheduled dose |
 | `households`, `users` | Household name and caregiver display names, both free text |
 | `devices` | Device token **hash**, push credentials, a truncated user-agent string |
 | `join_codes` | Join code **hash**, expiry, redemption state |

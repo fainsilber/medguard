@@ -1,16 +1,17 @@
 import { useEffect } from 'react';
+import { DEFAULT_ESCALATION_MINUTES, DEFAULT_SNOOZE_MINUTES } from '@medguard/shared';
 import type { HouseholdSettings } from '@medguard/shared';
 import { useRepository } from './RepositoryContext.js';
 import { useLiveQuery } from '../store/useLiveQuery.js';
 
 /**
- * Defaults matching the PRD (§4: 15-minute escalation, configurable snooze) and the device's own
- * timezone — bootstrapping, like device id and caregiver name, not a domain decision. The Android
- * equivalent of `apps/web/src/app/useHouseholdSettings.ts`, reading through the repository (via
- * `useLiveQuery`) instead of a raw Dexie `db.householdSettings.get(...)` call.
+ * Defaults from `@medguard/shared` (PRD §4 escalation, the Android plan's signed-off snooze
+ * length) and the device's own timezone — bootstrapping, like device id and caregiver name, not a
+ * domain decision. The Android equivalent of `apps/web/src/app/useHouseholdSettings.ts`, reading
+ * through the repository (via `useLiveQuery`) instead of a raw Dexie `db.householdSettings.get(...)`
+ * call, and sharing the same defaults so a household doesn't get a different snooze window
+ * depending on which client created it.
  */
-const DEFAULT_ESCALATION_MINUTES = 15;
-const DEFAULT_SNOOZE_MINUTES = 15;
 
 function detectTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;

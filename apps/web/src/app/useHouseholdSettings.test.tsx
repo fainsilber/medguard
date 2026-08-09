@@ -24,7 +24,9 @@ describe('useHouseholdSettings', () => {
     const { result } = renderHook(() => useHouseholdSettings(), { wrapper: wrapper('hh-defaults') });
 
     await waitFor(() => expect(result.current).toBeDefined());
-    expect(result.current).toMatchObject({ escalationAfterMinutes: 15, snoozeMinutes: 15 });
+    // 20, not 15: the signed-off snooze length (docs/android-client-plan.md) — three snoozes at
+    // this default is exactly AD6's 60-minute escalation window.
+    expect(result.current).toMatchObject({ escalationAfterMinutes: 15, snoozeMinutes: 20 });
     expect(typeof result.current?.timeZone).toBe('string');
     expect(result.current?.timeZone.length).toBeGreaterThan(0);
   });

@@ -101,12 +101,16 @@ export function hasPendingChanges(record: Pick<Syncable, 'syncStatus'>): boolean
 }
 
 /**
- * The two tables that are never overwritten (intake logs, inventory adjustments) — see the
- * module doc above for why LWW cannot apply to them. Shared between client and server so which
+ * The tables that are never overwritten (intake logs, inventory adjustments, dose snoozes) — see
+ * the module doc above for why LWW cannot apply to them. Shared between client and server so which
  * tables get which treatment cannot drift between the two: `apps/api/src/sync/tables.ts` and the
  * client's pull-merge logic both read this rather than each hardcoding their own classification.
  */
-const APPEND_ONLY_TABLES: ReadonlySet<SyncableTable> = new Set(['intakeLogs', 'inventoryAdjustments']);
+const APPEND_ONLY_TABLES: ReadonlySet<SyncableTable> = new Set([
+  'intakeLogs',
+  'inventoryAdjustments',
+  'doseSnoozes',
+]);
 
 export function isAppendOnlyTable(table: SyncableTable): boolean {
   return APPEND_ONLY_TABLES.has(table);

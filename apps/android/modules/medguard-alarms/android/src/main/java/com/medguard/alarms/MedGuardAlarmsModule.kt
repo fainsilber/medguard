@@ -26,31 +26,101 @@ class MedGuardAlarmsModule : Module() {
     private val context: Context
         get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
 
+    companion object {
+        /**
+         * Set while a JS runtime exists, so `NotificationActionReceiver` — which runs whether or
+         * not the app is alive — can hand a tap straight to JS when it happens to be. When this
+         * is null the tap is still durably captured in `PendingActionStore`; it simply waits for
+         * the next app launch instead of being applied within seconds.
+         */
+        @Volatile
+        private var instance: MedGuardAlarmsModule? = null
+
+        fun emitPendingAction(occurrenceKey: String, action: String, tappedAtMs: Long) {
+            val module = instance ?: return
+            runCatching {
+                module.sendEvent(
+                    "onPendingAction",
+                    mapOf(
+                        "occurrenceKey" to occurrenceKey,
+                        "action" to action,
+                        "tappedAtMs" to tappedAtMs,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun payloadOf(input: ScheduleDoseAlarmRecord) =
+        AlarmPayload(
+            occurrenceKey = input.occurrenceKey,
+            channelId = input.channelId,
+            title = input.title,
+            body = input.body,
+            chimeDurationSeconds = input.chimeDurationSeconds,
+            escalation = input.escalation,
+            triggerAtMs = input.triggerAtMs,
+        )
+
     override fun definition() =
         ModuleDefinition {
             Name("MedGuardAlarms")
 
+            Events("onPendingAction")
+
             OnCreate {
                 MedGuardChannels.createAll(context)
+                instance = this@MedGuardAlarmsModule
+            }
+
+            OnDestroy {
+                instance = null
             }
 
             AsyncFunction("scheduleDoseAlarm") { input: ScheduleDoseAlarmRecord ->
-                AlarmScheduler.schedule(
-                    context,
-                    AlarmPayload(
-                        occurrenceKey = input.occurrenceKey,
-                        channelId = input.channelId,
-                        title = input.title,
-                        body = input.body,
-                        chimeDurationSeconds = input.chimeDurationSeconds,
-                        escalation = input.escalation,
-                        triggerAtMs = input.triggerAtMs,
-                    ),
-                )
+                AlarmScheduler.schedule(context, payloadOf(input))
+            }
+
+            // The batch form the alarm engine's reconcile pass uses: a 48-hour horizon can be
+            // dozens of occurrences, and one bridge call beats one per alarm.
+            AsyncFunction("armDoseAlarms") { inputs: List<ScheduleDoseAlarmRecord> ->
+                for (input in inputs) {
+                    AlarmScheduler.schedule(context, payloadOf(input))
+                }
             }
 
             AsyncFunction("cancelDoseAlarm") { occurrenceKey: String ->
                 AlarmScheduler.cancel(context, occurrenceKey)
+            }
+
+            AsyncFunction("cancelAllDoseAlarms") {
+                AlarmScheduler.cancelAll(context)
+            }
+
+            /**
+             * What is armed right now, straight from the store `BootReceiver` re-arms from.
+             *
+             * JS reconciles against this rather than against a list of its own, because Kotlin's
+             * is the one that reflects reality: `BootReceiver` re-arms after a reboot and drops
+             * alarms whose time passed while the phone was off, and JS never sees either event. A
+             * parallel JS-side table would drift from the truth on exactly the reboot path that
+             * "alarms silently stop firing" is the worst failure mode of.
+             */
+            AsyncFunction("listArmedAlarms") {
+                ArmedAlarmStore.getAll(context).map { payload ->
+                    mapOf(
+                        "occurrenceKey" to payload.occurrenceKey,
+                        "triggerAtMs" to payload.triggerAtMs,
+                    )
+                }
+            }
+
+            AsyncFunction("showStatusNotification") { title: String, body: String ->
+                StatusNotifier.show(context, title, body)
+            }
+
+            AsyncFunction("clearStatusNotification") {
+                StatusNotifier.clear(context)
             }
 
             // The A0 exit-gate demo (docs/android-client-plan.md, manual QA item 1): fires the
@@ -153,14 +223,24 @@ class MedGuardAlarmsModule : Module() {
                 )
             }
 
-            AsyncFunction("drainPendingActions") {
-                PendingActionStore.drainAll(context).map { entry ->
+            // Read and ack are separate on purpose (AD2, safety invariant 7): a destructive drain
+            // loses the caregiver's tap outright if the process dies between reading it and
+            // writing the resulting IntakeLog — and the drain runs at app startup, which is
+            // exactly when Android is most willing to kill things. JS acks only after the dose has
+            // committed, so a crash costs a repeated read rather than a lost dose.
+            AsyncFunction("readPendingActions") {
+                PendingActionStore.readAll(context).map { entry ->
                     mapOf(
+                        "id" to entry.id,
                         "occurrenceKey" to entry.occurrenceKey,
                         "action" to entry.action,
                         "tappedAtMs" to entry.tappedAtMs,
                     )
                 }
+            }
+
+            AsyncFunction("ackPendingActions") { ids: List<String> ->
+                PendingActionStore.ack(context, ids)
             }
 
             // `src/clock/localClockGuard.ts`'s tamper-detection reference: milliseconds since

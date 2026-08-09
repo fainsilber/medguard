@@ -12,9 +12,14 @@ import android.content.Intent
  *
  * It deliberately does not write an `IntakeLog`, a `DoseSnooze`, or touch inventory: that would
  * be a second, uncovered implementation of the append-only ledger (AD2). Converting captured
- * intent into domain state happens in JS, through the one tested `recordDose()` repository call,
- * the next time the app runs `drainPendingActions()` — on foreground, or (from A3 on) via a
- * `HeadlessJsTaskService` kicked from here.
+ * intent into domain state happens in JS, through the one tested `recordDose()` repository call.
+ *
+ * Two paths get it there, and the order matters. If a JS runtime happens to be alive — the common
+ * case for a phone that is merely locked rather than freshly booted — `emitPendingAction` hands
+ * the tap over immediately and the dose is logged and synced within seconds. If it is not, the
+ * `PendingActionStore` row above is the whole record, and it is applied at the next app launch or
+ * foreground. A `HeadlessJsTaskService` would close that last gap; it is deferred to A4, where the
+ * headless bootstrap gets built once and shared with the FCM data-message handler A4 needs anyway.
  */
 class NotificationActionReceiver : BroadcastReceiver() {
     companion object {
@@ -35,7 +40,11 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 else -> return
             }
 
+        // Durable first, notify second — never the reverse. If the process dies between these two
+        // lines the tap is still on disk; if they were swapped, a JS listener that received the
+        // event and then died would leave no record anywhere that the caregiver had acted.
         PendingActionStore.add(context, occurrenceKey, action, tappedAtMs)
+        MedGuardAlarmsModule.emitPendingAction(occurrenceKey, action, tappedAtMs)
 
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
         if (notificationId != -1) {

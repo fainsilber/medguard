@@ -65,6 +65,17 @@ object AlarmScheduler {
     }
 
     /**
+     * Cancels every armed alarm. Exists for the one case JS cannot express as a diff: leaving a
+     * household (or clearing local data), after which every armed occurrence refers to schedules
+     * this device no longer has, so there is nothing left to reconcile *against*.
+     */
+    fun cancelAll(context: Context) {
+        for (payload in ArmedAlarmStore.getAll(context)) {
+            cancel(context, payload.occurrenceKey)
+        }
+    }
+
+    /**
      * `false` is not a silent failure — it is checked on every arm and drives the "alarms
      * unarmed" degradation state (AD7, safety invariant 6).
      */
