@@ -25,6 +25,12 @@ function renderBanner(dbName: string) {
   );
 }
 
+// AlarmProvider's reconcile() reads settings/schedules/medicines/logs/snoozes sequentially,
+// each its own store transaction serialized through the same queue the render itself waits on
+// — @testing-library's default 1000ms waitFor timeout is tight enough to flake on a slower CI
+// runner even though nothing is actually wrong. See the identical note in TodayView.test.tsx.
+const WAIT_OPTIONS = { timeout: 5000 };
+
 describe('AlarmHealthBanner', () => {
   it('says nothing on a device with granted permissions, aside from being unsynced by default', async () => {
     // A fresh test database has never completed a sync pull (there is no SyncProvider in this
@@ -32,7 +38,7 @@ describe('AlarmHealthBanner', () => {
     // would be the wrong answer for a device that genuinely has no idea what "current" data is.
     const { queryByText, getByText } = renderBanner('alarm-banner-default.db');
 
-    await waitFor(() => expect(getByText('MedGuard has not synced recently')).toBeTruthy());
+    await waitFor(() => expect(getByText('MedGuard has not synced recently')).toBeTruthy(), WAIT_OPTIONS);
     expect(queryByText('MedGuard alarms are off')).toBeNull();
   });
 
@@ -41,7 +47,7 @@ describe('AlarmHealthBanner', () => {
 
     const { getByText } = renderBanner('alarm-banner-blocked.db');
 
-    await waitFor(() => expect(getByText('MedGuard alarms are off')).toBeTruthy());
+    await waitFor(() => expect(getByText('MedGuard alarms are off')).toBeTruthy(), WAIT_OPTIONS);
     expect(getByText(/Exact alarms are not permitted/)).toBeTruthy();
   });
 
@@ -50,13 +56,13 @@ describe('AlarmHealthBanner', () => {
 
     const { getByText } = renderBanner('alarm-banner-fix.db');
 
-    await waitFor(() => expect(getByText('Fix this')).toBeTruthy());
+    await waitFor(() => expect(getByText('Fix this')).toBeTruthy(), WAIT_OPTIONS);
     fireEvent.press(getByText('Fix this'));
 
-    await waitFor(() => expect(getByText('Exact alarms')).toBeTruthy());
+    await waitFor(() => expect(getByText('Exact alarms')).toBeTruthy(), WAIT_OPTIONS);
     fireEvent.press(getByText('Grant'));
 
-    await waitFor(() => expect(MedGuardAlarms.requestScheduleExactAlarm).toHaveBeenCalled());
+    await waitFor(() => expect(MedGuardAlarms.requestScheduleExactAlarm).toHaveBeenCalled(), WAIT_OPTIONS);
   });
 
   it('offers no fix action for a mere risk — there is nothing to grant programmatically (AD7)', async () => {
@@ -69,7 +75,7 @@ describe('AlarmHealthBanner', () => {
 
     const { getByText, queryByText } = renderBanner(dbName);
 
-    await waitFor(() => expect(getByText('MedGuard alarms may be delayed')).toBeTruthy());
+    await waitFor(() => expect(getByText('MedGuard alarms may be delayed')).toBeTruthy(), WAIT_OPTIONS);
     expect(queryByText('Fix this')).toBeNull();
   });
 });

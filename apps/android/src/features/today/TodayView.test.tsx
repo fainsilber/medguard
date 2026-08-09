@@ -57,13 +57,21 @@ function renderTodayView(dbName: string) {
   );
 }
 
+// AlarmProvider now mounts alongside every TodayView in this file and runs its own
+// reconcile()/applyPendingActions() chain — several more store transactions than TodayView's own
+// queries, all serialized through the same SQLite test-double queue (ExpoSqliteDriver's queue on
+// a real device; the ExpoSqliteDriver test double here). @testing-library's default 1000ms
+// waitFor timeout was tuned before that extra chain existed and is tight enough to flake on a
+// slower CI runner even though nothing is actually wrong — give every wait in this file room.
+const WAIT_OPTIONS = { timeout: 5000 };
+
 describe('TodayView', () => {
   it('renders and shows the empty state with nothing scheduled', async () => {
     // TodayView's Snooze button reads through useAlarmHealth(), which needs an AlarmProvider
     // ancestor — the same requirement DiagnosticsScreen.smoke.test.tsx has for SyncProvider.
     const { getByText, queryByText } = renderTodayView('today-view-smoke.db');
 
-    await waitFor(() => expect(queryByText('Today')).toBeTruthy());
+    await waitFor(() => expect(queryByText('Today')).toBeTruthy(), WAIT_OPTIONS);
     expect(getByText('Nothing scheduled today.')).toBeTruthy();
   });
 
@@ -75,19 +83,19 @@ describe('TodayView', () => {
 
     const { getByText } = renderTodayView(dbName);
 
-    await waitFor(() => expect(getByText('Snooze 20m')).toBeTruthy());
+    await waitFor(() => expect(getByText('Snooze 20m')).toBeTruthy(), WAIT_OPTIONS);
     fireEvent.press(getByText('Snooze 20m'));
 
     await waitFor(async () => {
       const stored = await readSnoozes(dbName, OCCURRENCE);
       expect(stored).toHaveLength(1);
       expect(stored[0]).toMatchObject({ minutes: 20, count: 1 });
-    });
+    }, WAIT_OPTIONS);
 
     // A reload no longer clears it — the whole point of AD5. Re-render fresh against the same
     // database and confirm the dose still reads as snoozed rather than back to due-now.
     const second = renderTodayView(dbName);
-    await waitFor(() => expect(second.getByText('Snoozed')).toBeTruthy());
+    await waitFor(() => expect(second.getByText('Snoozed')).toBeTruthy(), WAIT_OPTIONS);
   });
 
   it('bounds at three snoozes: the fourth is refused and the UI shows the count, not a button', async () => {
@@ -119,7 +127,7 @@ describe('TodayView', () => {
 
     const { getByText, queryByText } = renderTodayView(dbName);
 
-    await waitFor(() => expect(getByText('Snoozed 3/3')).toBeTruthy());
+    await waitFor(() => expect(getByText('Snoozed 3/3')).toBeTruthy(), WAIT_OPTIONS);
     expect(queryByText('Snooze 20m')).toBeNull();
     // Every prior snooze's deadline (latest: 10:20) has passed by NOW, so the dose is back to
     // its own due time (12:00, exactly NOW) rather than staying parked in the snoozed bucket —
