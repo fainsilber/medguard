@@ -6,3 +6,12 @@
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:you@example.com
+
+# Sprint A4: Firebase Cloud Messaging, for the native Android client's push backstop.
+#
+# The whole service-account JSON on one line (Firebase console → Project settings → Service
+# accounts → Generate new private key). Leave it empty and nothing breaks: `fcm` devices are
+# skipped with a reported reason, `webpush` devices are unaffected, and the Android app's local
+# alarms — which are primary anyway — keep firing. In production this is a Worker secret:
+#   wrangler secret put FCM_SERVICE_ACCOUNT
+FCM_SERVICE_ACCOUNT=

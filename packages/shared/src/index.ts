@@ -59,7 +59,11 @@ export { MAX_SNOOZE_COUNT, buildDoseSnooze, deriveSnoozeState } from './snooze.j
 export type { SnoozeContext, SnoozeState } from './snooze.js';
 
 // Household setting defaults, shared so two clients cannot bootstrap different safety windows
-export { DEFAULT_ESCALATION_MINUTES, DEFAULT_SNOOZE_MINUTES } from './settings.js';
+export {
+  DEFAULT_ESCALATION_MINUTES,
+  DEFAULT_SNOOZE_MINUTES,
+  MISSED_AFTER_MINUTES,
+} from './settings.js';
 
 // PRN safety guards
 export {
@@ -108,12 +112,20 @@ export type { BackupBundle, BackupSource, BackupSummary, ParseBackupResult } fro
 export { LogBuffer, formatLogEntriesAsText, formatLogEntry } from './log.js';
 export type { LogEntry, LogLevel } from './log.js';
 
-// Push (Sprint 0 probe contract; superseded by the real push routes in Sprint 5)
-export { SHABBAT_BURST_COUNT, SHABBAT_BURST_SPACING_MS } from './push.js';
+// Push (Sprint A4: the real dose/escalation/shabbat/low-stock contract)
+export {
+  PUSH_CHANNEL_IDS,
+  PUSH_PAYLOAD_VERSION,
+  SHABBAT_BURST_COUNT,
+  SHABBAT_BURST_SPACING_MS,
+  describePush,
+  pushHasDoseActions,
+} from './push.js';
 export type {
-  ProbeNotificationOptions,
-  ProbePushLog,
-  ProbePushPayload,
-  ProbePushReceipt,
-  ProbeSendRecord,
+  DosePushPayload,
+  EscalationPushPayload,
+  LowStockPushPayload,
+  PushKind,
+  PushPayload,
+  ShabbatPushPayload,
 } from './push.js';

@@ -1,19 +1,22 @@
 import { DurableObject } from 'cloudflare:workers';
-import { assessDose, blockReasonFor, fromIso, systemClock } from '@medguard/shared';
+import {
+  MAX_SNOOZE_COUNT,
+  assessDose,
+  blockReasonFor,
+  fromIso,
+  systemClock,
+} from '@medguard/shared';
 import type {
   Clock,
+  DoseSnooze,
   IntakeLog,
   LiveMessage,
   Medicine,
-  ProbePushLog,
-  ProbePushPayload,
-  ProbeSendRecord,
   SyncableTable,
 } from '@medguard/shared';
-import { readVapidConfig, sendPush } from '../push/send.js';
-import type { PushSubscription } from '../push/send.js';
 import { applyRecord, currentCursor } from '../sync/repository.js';
 import type { PushOutcome } from '../sync/repository.js';
+import { DoseAlarmChain, createAlarmTables } from './doseAlarms.js';
 
 /**
  * One Durable Object per household.
@@ -24,17 +27,12 @@ import type { PushOutcome } from '../sync/repository.js';
  * think a dose is safe and administer it inside the same cooldown window. Sprint 4 adds the
  * WebSocket Hibernation API and the broadcast fan-out.
  *
- * Sprint 0 uses it to retire two Sprint 5 risks early: that DO Alarms can drive scheduled Web
- * Push at all, and that a push actually arrives on a locked phone.
+ * Sprint A4 adds the second thing only a serialized, addressable-by-household object can do:
+ * scheduling. `DoseAlarmChain` (see `doseAlarms.ts`) drives dose alerts, escalation and the
+ * missed-dose sweep off this object's single `setAlarm`. It replaced the Sprint 0 push probe,
+ * which had already answered its question — a push does reach a locked phone, on both platforms —
+ * and whose unauthenticated relay route could not coexist with a shipped native client (AD8).
  */
-
-// The index signature is what SqlStorage's exec<T>() requires of a row type.
-interface QueuedPush extends Record<string, SqlStorageValue> {
-  id: number;
-  due_at_ms: number;
-  subscription: string;
-  payload: string;
-}
 
 export interface ApplyBatchChange {
   table: SyncableTable;
@@ -54,21 +52,18 @@ export interface ApplyBatchResult {
 }
 
 export class HouseholdDO extends DurableObject<Env> {
+  private readonly alarms: DoseAlarmChain;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.alarms = new DoseAlarmChain(ctx.storage.sql, env);
     ctx.blockConcurrencyWhile(async () => {
-      this.ctx.storage.sql.exec(`
-        CREATE TABLE IF NOT EXISTS probe_push_queue (
-          id           INTEGER PRIMARY KEY AUTOINCREMENT,
-          due_at_ms    INTEGER NOT NULL,
-          subscription TEXT NOT NULL,
-          payload      TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS probe_push_log (
-          id     INTEGER PRIMARY KEY AUTOINCREMENT,
-          record TEXT NOT NULL
-        );
-      `);
+      createAlarmTables(this.ctx.storage.sql);
+      // Sprint 0's probe queue, retired with the probe routes it existed for (delta AD8). Dropped
+      // rather than left in place: a household's DO storage outlives a deploy, and a stale table
+      // holding a caller-supplied push subscription is exactly the thing that route was removed for.
+      this.ctx.storage.sql.exec('DROP TABLE IF EXISTS probe_push_queue');
+      this.ctx.storage.sql.exec('DROP TABLE IF EXISTS probe_push_log');
     });
   }
 
@@ -151,6 +146,8 @@ export class HouseholdDO extends DurableObject<Env> {
     changes: ApplyBatchChange[],
   ): Promise<{ cursor: number; results: ApplyBatchResult[] }> {
     const results: ApplyBatchResult[] = [];
+    /** Only what actually landed, so the alarm chain never reacts to a duplicate or a loser. */
+    const applied: ApplyBatchChange[] = [];
     // Logs blocked earlier in *this* batch, so their paired inventory adjustment (a separate
     // change with its own id) is blocked too, even before it would otherwise be visible in D1.
     const blockedLogIds = new Set<string>();
@@ -163,6 +160,23 @@ export class HouseholdDO extends DurableObject<Env> {
         if (verdict.blockedReason) {
           blockedLogIds.add(id);
           results.push({ table: change.table, id, outcome: 'blocked', ...verdict });
+          continue;
+        }
+      }
+
+      if (change.table === 'doseSnoozes') {
+        const occurrenceId = String(change.record.occurrenceId);
+        if (await this.snoozeLimitReached(householdId, occurrenceId, id)) {
+          // The bound has to hold here, not only in the UI: a snooze is the one client-written
+          // record that stops a server escalation, so a device with a stale or patched copy of
+          // `MAX_SNOOZE_COUNT` could otherwise defer a dose indefinitely and silence the
+          // escalation that exists to catch exactly that (delta AD5).
+          results.push({
+            table: change.table,
+            id,
+            outcome: 'blocked',
+            blockedReason: 'snooze_limit_reached',
+          });
           continue;
         }
       }
@@ -189,15 +203,114 @@ export class HouseholdDO extends DurableObject<Env> {
 
       const outcome = await applyRecord(this.env.DB, householdId, change.table, change.record);
       results.push({ table: change.table, id, outcome });
+
+      if (outcome === 'applied') {
+        applied.push(change);
+      }
     }
 
     const cursor = await currentCursor(this.env.DB, householdId);
 
-    if (results.some((result) => result.outcome === 'applied')) {
+    if (applied.length > 0) {
       this.broadcast({ type: 'sync', cursor });
+      await this.reactToWrites(householdId, applied);
     }
 
     return { cursor, results };
+  }
+
+  /**
+   * What an accepted write means for the alarm chain.
+   *
+   * This is the whole reason "escalation stops immediately on acknowledgement from any device"
+   * needs no new channel: `applyBatch` is already the single write path for every synced record,
+   * so a caregiver's dose log arriving from any phone lands here, and the chain simply reads it.
+   *
+   * Awaited rather than deferred to `waitUntil`. It is a handful of SQLite statements plus, at
+   * most, one low-stock push on an actual threshold crossing — and getting it wrong means either
+   * an escalation to a second caregiver for a dose that was already given, or a schedule edit
+   * that quietly keeps firing the old times.
+   */
+  private async reactToWrites(householdId: string, applied: ApplyBatchChange[]): Promise<void> {
+    const tables = new Set(applied.map((change) => change.table));
+
+    for (const change of applied) {
+      if (change.table === 'intakeLogs') {
+        const { scheduleId, scheduledTime } = change.record;
+        if (typeof scheduleId === 'string' && typeof scheduledTime === 'string') {
+          this.alarms.acknowledge(`${scheduleId}:${scheduledTime}`);
+        }
+      }
+    }
+
+    if (tables.has('doseSnoozes')) {
+      const escalationAfterMs = await this.alarms.escalationAfterMs(householdId);
+      for (const change of applied) {
+        if (change.table === 'doseSnoozes') {
+          this.alarms.defer(change.record as unknown as DoseSnooze, escalationAfterMs);
+        }
+      }
+    }
+
+    // A schedule edit, a new medicine, an archived one, or a changed escalation window all move
+    // what is owed and when. Re-deriving the whole horizon is what makes a schedule edit cancel
+    // and reschedule implicitly, with no per-schedule bookkeeping to get out of step.
+    if (tables.has('schedules') || tables.has('medicines') || tables.has('householdSettings')) {
+      await this.alarms.materialize(householdId, systemClock.nowMs());
+    } else {
+      this.alarms.rememberHousehold(householdId);
+    }
+
+    if (tables.has('inventoryAdjustments')) {
+      const medicineIds = applied
+        .filter((change) => change.table === 'inventoryAdjustments')
+        .map((change) => String(change.record.medicineId));
+      await this.alarms.evaluateLowStock(householdId, medicineIds, systemClock.nowMs());
+    }
+
+    await this.rearm();
+  }
+
+  /**
+   * Points this object's single alarm at the next thing owed.
+   *
+   * A Durable Object holds one alarm at a time, so scheduling is a chain rather than a set of
+   * timers: each wake does what is due and arms for whatever is next. When the chain runs dry the
+   * horizon is re-derived, which is how a household whose alarms all fired yesterday picks up
+   * tomorrow's without anything having to remember to ask.
+   */
+  private async rearm(): Promise<void> {
+    let next = this.alarms.nextWakeMs();
+
+    if (next === null) {
+      const householdId = this.alarms.householdId();
+      if (householdId) {
+        await this.alarms.materialize(householdId, systemClock.nowMs());
+        next = this.alarms.nextWakeMs();
+      }
+    }
+
+    if (next !== null) {
+      await this.ctx.storage.setAlarm(next);
+    }
+  }
+
+  /**
+   * Counts the snoozes already recorded for an occurrence, excluding a resend of this very
+   * record — a retried batch must stay idempotent, and re-counting a snooze against itself would
+   * turn a dropped response into a refusal.
+   */
+  private async snoozeLimitReached(
+    householdId: string,
+    occurrenceId: string,
+    snoozeId: string,
+  ): Promise<boolean> {
+    const row = await this.env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM dose_snoozes WHERE household_id = ? AND occurrence_id = ? AND id != ?',
+    )
+      .bind(householdId, occurrenceId, snoozeId)
+      .first<{ n: number }>();
+    return (row?.n ?? 0) >= MAX_SNOOZE_COUNT;
   }
 
   private async logExists(householdId: string, logId: string): Promise<boolean> {
@@ -296,7 +409,7 @@ export class HouseholdDO extends DurableObject<Env> {
   }
 
   // -------------------------------------------------------------------------
-  // Sprint 0 push probe
+  // Health
   // -------------------------------------------------------------------------
 
   /**
@@ -322,104 +435,33 @@ export class HouseholdDO extends DurableObject<Env> {
     return { ok: true, storage: 'sqlite', hits: row.hits };
   }
 
+  // -------------------------------------------------------------------------
+  // The dose alarm chain (Sprint A4)
+  // -------------------------------------------------------------------------
+
   /**
-   * Queues a burst of pushes and arms the alarm for the earliest one.
+   * Arms this household's chain.
    *
-   * The delay exists so the probe is usable at all: you press the button, lock the phone, put it
-   * down, and the push has to arrive at a genuinely locked screen. Testing it with the browser
-   * in the foreground would prove nothing.
+   * Called when a device registers for push, so that a household which has not synced anything
+   * since the last deploy still gets its alarms — the chain is otherwise only ever started by a
+   * write landing in `applyBatch`.
    */
-  async schedulePushBurst(
-    subscription: PushSubscription,
-    payloads: ProbePushPayload[],
-    firstDelayMs: number,
-    spacingMs: number,
-  ): Promise<{ scheduled: number; firstDueAtIso: string }> {
-    this.ctx.storage.sql.exec('DELETE FROM probe_push_queue');
-    this.ctx.storage.sql.exec('DELETE FROM probe_push_log');
-
-    const now = systemClock.nowMs();
-    const serialisedSubscription = JSON.stringify(subscription);
-
-    payloads.forEach((payload, index) => {
-      this.ctx.storage.sql.exec(
-        'INSERT INTO probe_push_queue (due_at_ms, subscription, payload) VALUES (?, ?, ?)',
-        now + firstDelayMs + index * spacingMs,
-        serialisedSubscription,
-        JSON.stringify(payload),
-      );
-    });
-
-    const firstDueAtMs = now + firstDelayMs;
-    await this.ctx.storage.setAlarm(firstDueAtMs);
-
-    return { scheduled: payloads.length, firstDueAtIso: new Date(firstDueAtMs).toISOString() };
-  }
-
-  /** What the server actually did, so a missing notification can be told apart from a failed send. */
-  async getProbeLog(): Promise<ProbePushLog> {
-    const sent = this.ctx.storage.sql
-      .exec<{ record: string }>('SELECT record FROM probe_push_log ORDER BY id')
-      .toArray()
-      .map((row) => JSON.parse(row.record) as ProbeSendRecord);
-
-    const pending = this.ctx.storage.sql
-      .exec<{ n: number }>('SELECT COUNT(*) AS n FROM probe_push_queue')
-      .one().n;
-
-    return { pending, sent };
+  async ensureAlarmsArmed(householdId: string): Promise<void> {
+    await this.alarms.materialize(householdId, systemClock.nowMs());
+    await this.rearm();
   }
 
   /**
-   * Sends the earliest queued push, then re-arms for the next.
+   * Does whatever is owed, then arms for the next thing.
    *
-   * Deliberately does not re-check the due time. The alarm is only ever armed for the earliest
-   * queued item, so if it fired, that item is what is owed — and alarms legitimately fire early
-   * or late, so gating on a clock comparison would silently drop doses. Lateness is recorded as
-   * a measurement rather than acted on.
+   * Deliberately does not check that this is the exact moment the alarm was set for. Alarms fire
+   * early and late — sometimes much later, after a household has been idle — and gating on a
+   * clock comparison would silently drop a dose alert. `runDueWork` handles lateness honestly
+   * instead: an alert whose escalation deadline has also passed escalates rather than announcing
+   * that a two-hour-old dose is due now.
    */
   override async alarm(): Promise<void> {
-    const rows = this.ctx.storage.sql
-      .exec<QueuedPush>('SELECT * FROM probe_push_queue ORDER BY due_at_ms, id LIMIT 1')
-      .toArray();
-
-    const row = rows[0];
-    if (!row) return;
-
-    const vapid = readVapidConfig(this.env);
-    const payload = JSON.parse(row.payload) as ProbePushPayload;
-    const sentAtMs = systemClock.nowMs();
-    payload.sentAtIso = new Date(sentAtMs).toISOString();
-
-    const result = vapid
-      ? await sendPush(JSON.parse(row.subscription) as PushSubscription, payload, vapid)
-      : ({ ok: false, status: 0, error: 'VAPID keys not configured', expired: false } as const);
-
-    const record: ProbeSendRecord = {
-      burstIndex: payload.burstIndex,
-      burstTotal: payload.burstTotal,
-      dueAtIso: new Date(row.due_at_ms).toISOString(),
-      sentAtIso: payload.sentAtIso,
-      latenessMs: sentAtMs - row.due_at_ms,
-      ok: result.ok,
-      status: result.status,
-      ...(result.ok ? {} : { error: result.error }),
-    };
-
-    this.ctx.storage.sql.exec(
-      'INSERT INTO probe_push_log (record) VALUES (?)',
-      JSON.stringify(record),
-    );
-    this.ctx.storage.sql.exec('DELETE FROM probe_push_queue WHERE id = ?', row.id);
-
-    // A Durable Object holds one alarm at a time, so a burst is a chain of alarms rather than
-    // a single timer. This is the same mechanism Sprint 5 uses for dose scheduling.
-    const next = this.ctx.storage.sql
-      .exec<{ due_at_ms: number | null }>('SELECT MIN(due_at_ms) AS due_at_ms FROM probe_push_queue')
-      .one().due_at_ms;
-
-    if (next !== null) {
-      await this.ctx.storage.setAlarm(next);
-    }
+    await this.alarms.runDueWork(systemClock.nowMs());
+    await this.rearm();
   }
 }

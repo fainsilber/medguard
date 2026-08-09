@@ -4,9 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.js';
 
-// The probe screen fetches the VAPID key and the server log on mount. Stub fetch so this stays a
-// fast, network-free render test rather than attempting a real connection to an API that isn't
-// running under vitest.
+// Nothing here should reach the network; the diagnostics screen only talks to the API when a
+// button is pressed. Anything that slips through is stubbed so this stays a fast render test.
 afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
@@ -49,7 +48,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Today' })).toBeInTheDocument();
   });
 
-  it('reaches the Sprint 0 diagnostics probe via its tab', async () => {
+  it('reaches Diagnostics via its tab, and shows which build is running', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}), text: async () => '' }) as Response),
@@ -62,6 +61,9 @@ describe('App', () => {
     const nav = await screen.findByRole('navigation', { name: 'Sections' });
     await user.click(within(nav).getByRole('button', { name: 'Diagnostics' }));
 
-    await waitFor(() => expect(screen.getByText(/failed to load/)).toBeInTheDocument());
+    // The build-identity line is the reason this screen survived the probe's removal: without it
+    // there is no way to tell from inside the app which commit a device is running.
+    await waitFor(() => expect(screen.getByText(/^v/)).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: /Dose alerts/ })).toBeInTheDocument();
   });
 });
