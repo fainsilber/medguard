@@ -11,6 +11,8 @@ import { setHouseholdSession } from '../api/session.js';
 import { MedGuardDB } from '../db/schema.js';
 import { FakeWebSocket } from '@medguard/store/testing';
 import { renderWithRepository } from '../testUtils/renderWithRepository.js';
+import { getHouseholdSession } from '../api/session.js';
+import { RevokedDeviceBanner } from './RevokedDeviceBanner.js';
 import { SafetyWarningBanner } from './SafetyWarningBanner.js';
 import { SyncProvider } from './SyncProvider.js';
 import { SyncStatusBadge } from './SyncStatusBadge.js';
@@ -212,5 +214,40 @@ describe('SyncProvider', () => {
     await screen.findByRole('alert');
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Morphine/));
     expect(screen.getByRole('alert')).toHaveTextContent(/override/i);
+  });
+
+  it('shows Removed and the revoked banner once the server rejects this device as unauthorized', async () => {
+    setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+    stubFetch(() => jsonResponse({ error: 'unauthorized' }, 401));
+
+    await renderWithRepository(
+      <SyncProvider>
+        <SyncStatusBadge />
+        <RevokedDeviceBanner />
+      </SyncProvider>,
+      { clock: fixedClock('2026-08-03T12:00:00.000Z') },
+    );
+
+    await screen.findByText('Removed');
+    expect(screen.getByRole('alert')).toHaveTextContent(/removed from the household/);
+  });
+
+  it('clears local data and the session once the caregiver confirms on the revoked banner', async () => {
+    setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+    stubFetch(() => jsonResponse({ error: 'unauthorized' }, 401));
+
+    const user = userEvent.setup();
+    await renderWithRepository(
+      <SyncProvider>
+        <RevokedDeviceBanner />
+      </SyncProvider>,
+      { clock: fixedClock('2026-08-03T12:00:00.000Z') },
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Clear local data' }));
+    await user.click(screen.getByRole('button', { name: 'Yes, clear it' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(getHouseholdSession()).toBeNull();
   });
 });

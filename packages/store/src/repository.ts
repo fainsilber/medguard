@@ -4,6 +4,7 @@ import {
   buildManualAdjustment,
   buildReversalAdjustment,
   closeSchedule,
+  formatLocalDate,
   reviseSchedule,
 } from '@medguard/shared';
 import type {
@@ -147,12 +148,39 @@ export class MedGuardRepository {
   // Medicines
   // -------------------------------------------------------------------------
 
+  /**
+   * Saving a medicine as as-needed also closes any schedule still active for it. Without this, a
+   * medicine switched from scheduled to as-needed keeps producing occurrences from its old
+   * schedule forever — `asNeeded` alone doesn't stop `expandSchedules` from a schedule row that's
+   * still `active: true`. Mirrors the "Stop" action `ScheduleList` already offers, just applied
+   * automatically at the point a caregiver declares the medicine as-needed instead of requiring a
+   * separate manual step.
+   */
   async saveMedicine(medicine: Medicine, action: SyncAction = 'UPDATE'): Promise<void> {
     const stamped = this.stamp(medicine);
-    await this.store.transaction(['medicines', 'syncOutbox'], async (tx) => {
+
+    const activeSchedules = medicine.asNeeded
+      ? (await this.schedulesForMedicine(medicine.id)).filter((schedule) => schedule.active)
+      : [];
+    const closedSchedules =
+      activeSchedules.length > 0 ? await this.closeSchedulesForAsNeeded(activeSchedules) : [];
+
+    await this.store.transaction(['medicines', 'schedules', 'syncOutbox'], async (tx) => {
       await tx.put('medicines', stamped);
       await this.enqueue(tx, 'medicines', stamped.id, action, stamped);
+      for (const closed of closedSchedules) {
+        await tx.put('schedules', closed);
+        await this.enqueue(tx, 'schedules', closed.id, 'UPDATE', closed);
+      }
     });
+  }
+
+  private async closeSchedulesForAsNeeded(schedules: Schedule[]): Promise<Schedule[]> {
+    const settings = await this.getHouseholdSettings();
+    const today = formatLocalDate(settings?.timeZone ?? 'UTC', this.context.clock.nowMs());
+    return schedules.map((schedule) =>
+      closeSchedule(schedule, today, { clock: this.context.clock, deviceId: this.context.deviceId }),
+    );
   }
 
   /**
