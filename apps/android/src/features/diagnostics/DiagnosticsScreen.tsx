@@ -27,6 +27,7 @@ import { deviceClock, deviceIdGenerator } from '../../runtime/deviceRuntime.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
 import { useSyncStatus } from '../../sync/SyncProvider.js';
 import { Button, Card, colors, styles as ui } from '../../ui/primitives.js';
+import { APP_VERSION, BUILD_TIME, GIT_SHA, NATIVE_BUILD_VERSION } from '../../version.js';
 
 const JERUSALEM = 'Asia/Jerusalem';
 
@@ -130,6 +131,14 @@ export function DiagnosticsScreen(): React.JSX.Element {
         Device- and sync-level checks, not a port of the web app&rsquo;s push-testing screen — see
         the code comment in this file for why.
       </Text>
+
+      <Card>
+        <Text style={sectionTitle}>Build</Text>
+        <Row label="Version" value={APP_VERSION} />
+        <Row label="Git SHA" value={GIT_SHA} />
+        <Row label="Built" value={BUILD_TIME ? new Date(BUILD_TIME).toLocaleString() : 'unknown'} />
+        <Row label="Native build number" value={NATIVE_BUILD_VERSION ?? 'unknown'} />
+      </Card>
 
       <Card>
         <Text style={sectionTitle}>Sync status</Text>
