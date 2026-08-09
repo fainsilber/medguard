@@ -8,9 +8,18 @@ own, and requires zero touches to work.
 **Status: Sprint A2 (feature parity) code-complete — every screen exists and is wired into a real
 navigator, backed by a real repository/SQLite store.** A0's exit gate is code-reviewed; the chime
 itself (the "Play test chime now" button) is confirmed firing on a real device (2026-08-06, and
-again 2026-08-07's household-sync testing below) — the "Arm alarm in 15s" locked-phone path is
-still not re-confirmed this session. A1 (storage/sync port) and A2 are both code-complete. **This
-sandbox has no Android SDK, emulator, or physical device (confirmed: no `adb` on `$PATH`)**, so
+again 2026-08-07's household-sync testing below). **The full "Arm alarm in 15s," locked-phone,
+screen-off, zero-touch, auto-stop exit gate fired correctly on a real device 2026-08-08**, closing
+out A0 — see "Locked-phone alarm, real-device findings" below for the two bugs that same test found
+and fixed. A1 (storage/sync port) and A2 are both code-complete, and continued real-device use since
+has found and fixed two more bugs: revoked-device data retention (below) and, 2026-08-09, the
+on-screen keyboard overlapping focused text fields across the app (every form/text-input screen now
+wraps in a shared `KeyboardAvoidingScreen`) — plus, same day, the app gained a "Build" card on
+Diagnostics showing the git SHA and build timestamp baked in at `expo prebuild` time, so an
+installed APK can be identified from the device alone (mirrors `apps/web/src/version.ts`; see root
+`CLAUDE.md`'s build-identity convention).
+
+**This sandbox has no Android SDK, emulator, or physical device (confirmed: no `adb` on `$PATH`)**, so
 nothing below has been watched running on an actual phone from inside a Claude Code session —
 every claim made from in here is backed by a passing typecheck, a passing lint, a passing
 Vitest/Jest test suite, or a successful Metro bundle, each cited specifically, never by "should
@@ -469,6 +478,29 @@ Not yet re-confirmed on an actual revoked device — the sync half of this (`Syn
 passing Vitest coverage; the Android-side banner/status wiring passed typecheck, lint, and the
 existing Jest suite unchanged, but has no dedicated component test yet and hasn't been watched
 firing on a real 401 from a real revoked token.
+
+### Keyboard overlap and build identity (2026-08-09)
+
+Two same-day fixes from continued real-device use, unrelated to each other:
+
+- **On-screen keyboard covering text fields.** No screen used `KeyboardAvoidingView`, so focusing a
+  `TextInput` let the keyboard simply overlap it — and the Save/Continue button below it — instead
+  of the layout resizing around it. Fixed with a shared `KeyboardAvoidingScreen` wrapper
+  (`behavior="height"`, the variant that works on this Android-only app) applied to every screen
+  that renders a `TextInput`, directly or via a nested card/form: `MedicineForm`, `ScheduleForm`,
+  `HouseholdOnboarding`, `HouseholdScreen`, `CaregiverGate`, `PrnScreen` (`PrnCard`'s override
+  reason), `InventoryScreen` (`InventoryCard`'s setup/adjust forms), `ExportScreen`
+  (`BackupRestoreCard`'s confirmation field), and `TodayView` (`TakenTimePrompt`/`DoseCorrection`).
+  Also adds `keyboardShouldPersistTaps` so buttons stay tappable while the keyboard is up.
+- **Build identity.** Per this repo's `CLAUDE.md` convention — every deployable app must expose
+  which build is running, from inside the app itself — `app.config.ts` now bakes the git SHA and
+  build timestamp into Expo's `extra` at `expo prebuild` time (works for the plain-Gradle CI build
+  in `.github/workflows/android-apk.yml`, which has no EAS remote-version tracking). `src/version.ts`
+  reads both via `expo-constants`, plus the real installed `nativeBuildVersion` via
+  `expo-application`, and all three now show on a "Build" card in Diagnostics — mirrors
+  `apps/web/src/version.ts`/`ProbePage.tsx`'s pattern. Neither has been watched on a real device from
+  this sandbox; typecheck, lint and the existing Jest suite (updated for the new Diagnostics card)
+  are green.
 
 This sandbox has no Android SDK, no emulator, and no physical device, so none of the following
 has actually been run, since the environment that wrote this scaffold has no Android SDK, no

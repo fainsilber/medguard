@@ -36,7 +36,14 @@ fire-and-forget refetches could race for it and throw "cannot start a transactio
 transaction"; both concurrency sources are now fixed at the `SyncEngine`/`ExpoSqliteDriver` level
 (see `apps/android/README.md`'s "Sync and household join"), still needing a fresh on-device confirm
 of its own. This is a Gradle build, not EAS build/submit — the Play Console / EAS-submit half of A6
-is still fully unstarted.
+is still fully unstarted. **2026-08-09:** two more same-day fixes from continued real-device use —
+no screen used `KeyboardAvoidingView`, so the on-screen keyboard could overlap a focused text field
+and the button below it instead of the layout resizing around it (fixed with a shared
+`KeyboardAvoidingScreen` wrapper applied to every form/text-input screen); and the app had no way to
+tell which build a device was running, closed per this repo's standing "every app exposes its build
+identity" convention (see root `CLAUDE.md`) — `app.config.ts` now bakes the git SHA and build
+timestamp into Expo's `extra`, read via `expo-constants` alongside the real installed
+`nativeBuildVersion` from `expo-application`, both shown on a "Build" card in Diagnostics.
 **Team model:** Claude builds; you guide, decide, review.
 
 ---

@@ -5,7 +5,7 @@
 **Supersedes:** Sprint Plan v1.0 (commit `3f18003`, kept in git history)
 **Team model:** Claude builds; you guide, decide, review.
 **Cadence:** 8 milestone sprints, no fixed dates. A sprint ends when its exit gate passes.
-**Progress:** Sprints 0–3 complete, deployed, and verified against the live API (last updated 2026-08-03). The two-real-phone check is the one thing left that only you can do. Next up: Sprint 4 — Durable Objects, real-time sync, the double-dose guard.
+**Progress:** Sprints 0–4 complete, deployed, and verified against the live API (last updated 2026-08-09). The two-real-phone check is the one thing left on Sprints 3–4 that only you can do. Next up: Sprint 5 — Web Push alarms & escalation, now being driven by the Android track as Sprint A4 (`docs/android-client-plan.md`) rather than built standalone on web first.
 
 ---
 

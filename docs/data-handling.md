@@ -7,9 +7,9 @@ That is protected health information in most jurisdictions and sensitive family 
 of them. This document exists so the handling is a deliberate, reviewable decision rather than
 whatever fell out of the implementation.
 
-**Status:** accurate as of Sprint 3 (2026-08-03). Real-time sync and push arrive in Sprints 4–5 and
-will extend, not replace, what is described here. The Android section below was added alongside
-the A0 scaffold (`docs/android-client-plan.md`) and describes device-local storage only — the
+**Status:** updated 2026-08-09. Real-time sync (Sprint 4) is deployed; push and alarms (Sprint 5) are
+still unbuilt, now driven by the Android track as Sprint A4. The Android section below describes
+device-local storage on a real, code-complete client (Sprints A0–A2), not a scaffold — the
 server-side FCM and dose-alarm work it depends on is still Sprint A4/Sprint 5, unbuilt.
 
 ---
@@ -96,8 +96,16 @@ A plain hash rather than a slow KDF is deliberate: these are high-entropy machin
 with no dictionary to defend against, so a KDF would cost latency and buy nothing. What the hash
 does buy is that a leaked database backup contains no working credential.
 
-Tokens are bearer credentials with no expiry today. Revocation (a "sign out this device" control)
-is not yet built — see gaps below.
+Tokens are bearer credentials with no expiry today, but revocation exists: `HouseholdScreen`'s
+device list can revoke another device, which deletes its `devices` row outright
+(`deviceRoutes.delete('/:deviceId')`, `apps/api/src/routes/devices.ts`) rather than merely marking
+it inactive, since the token itself is the only credential — leaving it live anywhere is a live
+credential to a child's medical record. The server side has no way to *tell* the revoked device
+this happened, though, which is its own gap — see "Revoked-device data retention" in
+`apps/android/README.md`: the revoked device's local copy of the medical data stays on it until the
+next failed sync round surfaces a `'revoked'` status and the caregiver takes the explicit two-step
+"Clear local data" action. Self-revocation (a device removing itself, e.g. "sign out this device")
+is not a separate flow — the same delete route serves both.
 
 ---
 
@@ -170,17 +178,19 @@ if it's easier than remembering to run this.
 Honest list, in rough priority order. None is a reason not to use the app today; all are worth
 closing before it holds a real protocol for a long stretch.
 
-1. **No token revocation.** A lost or stolen phone cannot be cut off — the token stays valid
-   indefinitely. Needs a device list with a revoke control, and the middleware to honour it. This is
-   the most serious of these.
+1. **A revoked device's local medical data isn't remotely wiped.** Revocation cuts off sync
+   immediately, but the revoked device's local copy of medicines, schedules and logs stays on it
+   until a caregiver notices the `'revoked'` status and completes the explicit "Clear local data"
+   confirm — see "Revoked-device data retention" in `apps/android/README.md`. There is no push-based
+   remote wipe. This is the most serious of these.
 2. **CORS reflects any origin.** Convenient while the PWA's deployment URL is still moving; should
    become an explicit allowlist before this is treated as production.
 3. **No audit log of reads.** Writes are attributable (every log records who and when). Nobody can
    tell who *read* what.
 4. **No application-layer encryption at rest**, on device or server. Both rely on platform
    encryption.
-5. **Backup/export is manual.** The CSV and printable summary from Sprint 2 are the only export;
-   there is no automated backup. Sprint 7 covers this properly.
+5. **Backup/export is manual.** The CSV, printable summary and full JSON backup/import/wipe (Sprint 2
+   and Sprint 7, landed early) are the only export path; there is no automated/scheduled backup.
 
 ---
 
