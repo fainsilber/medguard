@@ -18,3 +18,8 @@ export const requestIgnoreBatteryOptimizations = jest.fn().mockResolvedValue(und
 export const hasNotificationPolicyAccess = jest.fn().mockResolvedValue(true);
 export const requestNotificationPolicyAccess = jest.fn().mockResolvedValue(undefined);
 export const drainPendingActions = jest.fn().mockResolvedValue([]);
+// A fixed default is enough: `localClockGuard.ts`'s drift math only compares this against its own
+// anchor from a prior call, both taken microseconds apart within a single fast test run, so a
+// static value (like every other mock in this file) stays well inside tolerance without reaching
+// for ambient time here, which this file — unlike `apps/android/src/clock/**` — isn't exempt from.
+export const elapsedRealtimeMs = jest.fn().mockResolvedValue(0);

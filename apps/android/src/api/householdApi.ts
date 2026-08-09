@@ -13,7 +13,11 @@ import type { HouseholdSession } from '../identity/session.js';
  * to be converted back.
  */
 
-export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string };
+/** `code` is the raw server error code (`'unauthorized'`, say) alongside `error`'s translated,
+ * user-facing message — `packages/store/src/syncEngine.ts`'s `SyncApiResult` mirrors this exact
+ * shape so `syncApi.ts` needs no adapter, and threads `code` through so a caller like
+ * `SyncProvider` can react to *which* failure this was without parsing `error`'s prose. */
+export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string; code?: string };
 
 export interface DeviceInfo {
   id: string;
@@ -67,7 +71,12 @@ export async function request<T>(
     const payload: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
-      return { ok: false, error: messageFor((payload as { error?: unknown })?.error) };
+      const rawCode = (payload as { error?: unknown })?.error;
+      return {
+        ok: false,
+        error: messageFor(rawCode),
+        ...(typeof rawCode === 'string' ? { code: rawCode } : {}),
+      };
     }
     return { ok: true, value: payload as T };
   } catch {

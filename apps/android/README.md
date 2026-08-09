@@ -6,18 +6,19 @@ alarm-volume dose chime that fires on a **locked phone with the screen off**, au
 own, and requires zero touches to work.
 
 **Status: Sprint A2 (feature parity) code-complete — every screen exists and is wired into a real
-navigator, backed by a real repository/SQLite store.** A0's exit gate is code-reviewed, not
-re-confirmed on a real device this session; A1 (storage/sync port) and A2 are both code-complete.
-The chime has sounded on a real device once before (confirmed 2026-08-06). **This sandbox has no
-Android SDK, emulator, or physical device (confirmed: no `adb` on `$PATH`)**, so nothing below has
-been watched running on an actual phone this session — every claim here is backed by a passing
-typecheck, a passing lint, a passing Vitest/Jest test suite, or a successful Metro bundle, each
-cited specifically, never by "should work." As of 2026-08-07, getting an installable build no
-longer requires any of that hardware either: `.github/workflows/android-apk.yml` on `main` builds
-a sideloadable debug APK on a GitHub-hosted runner (see "Option C" below) — confirmed working
-end-to-end (a real successful run + artifact), but the resulting APK has not yet been installed
-and launched on a physical phone. That install-and-confirm-it-launches step is the next concrete
-gap, not another CI run.
+navigator, backed by a real repository/SQLite store.** A0's exit gate is code-reviewed; the chime
+itself (the "Play test chime now" button) is confirmed firing on a real device (2026-08-06, and
+again 2026-08-07's household-sync testing below) — the "Arm alarm in 15s" locked-phone path is
+still not re-confirmed this session. A1 (storage/sync port) and A2 are both code-complete. **This
+sandbox has no Android SDK, emulator, or physical device (confirmed: no `adb` on `$PATH`)**, so
+nothing below has been watched running on an actual phone from inside a Claude Code session —
+every claim made from in here is backed by a passing typecheck, a passing lint, a passing
+Vitest/Jest test suite, or a successful Metro bundle, each cited specifically, never by "should
+work." Real-device testing itself happens on the caregiver's own phone, off a sideloaded APK (see
+"Option C" below), with findings reported back and fixed in the next session — that's exactly what
+happened 2026-08-07: a caregiver installed the build, joined a household, and hit a real sync bug
+(see "Sync and household join" below) that no amount of in-sandbox testing could have caught, since
+it only reproduces against `expo-sqlite`'s real native connection.
 
 ### Sprint A2 — feature parity
 
@@ -103,7 +104,7 @@ tracking whether a transaction's `tx` argument actually called a write method
 | Alarm-volume audio through ringer-silent | Code confirms the mechanism | `DoseAlarmService.startChime()` builds `AudioAttributes.USAGE_ALARM` + `CONTENT_TYPE_SONIFICATION` and plays on `MediaPlayer`, which routes to the alarm stream regardless of ringer mode — this is the one Android API contract that makes "sounds through silent" true, not something to infer from a device test alone. |
 | Screen stays off, zero touches | Code confirms the mechanism | Nothing in `modules/medguard-alarms/android/**` acquires a `PowerManager.WakeLock`, sets `FLAG_TURN_SCREEN_ON`/`FLAG_KEEP_SCREEN_ON`/`setShowWhenLocked`, or calls `setTurnScreenOn` (grepped, zero matches). The ordinary dose path never builds a `PendingIntent.getActivity` at all — only escalation does, gated by `canUseFullScreenIntent()`. |
 | Full 45 seconds | Code confirms the mechanism | `chimeDurationSeconds` (PRD default 45, `DiagnosticsScreen.tsx`'s `onScheduleLockedPhoneAlarm`/`onPlayTestChime` both pass `45`) drives `stopHandler.postDelayed(runnable, durationSeconds * 1000L)` — the chime plays until that callback fires, not until some shorter internal timeout. |
-| Auto-stop, no lingering audio/notification | Code confirms the mechanism | The delayed `stopChimeAndSelf()` calls `mediaPlayer.stop()` + `release()`, `stopForeground(STOP_FOREGROUND_REMOVE)`, then `stopSelf()` — no user action is on that path. |
+| Auto-stop, no lingering audio | Code confirms the mechanism | The delayed `stopChimeAndSelf()` calls `mediaPlayer.stop()` + `release()`, then `stopForeground(STOP_FOREGROUND_DETACH)`/`stopSelf()` — no user action is on that path. The **notification** deliberately does not disappear with it — see below. |
 
 Each row is a claim about what the code does, verified by reading it, not a claim about what fired
 on a phone. The actual device test — "does it audibly wake someone at 3 AM, does the screen
@@ -131,12 +132,14 @@ against both backends — the proof that the extraction is behavior-preserving i
 a claim. `packages/store/src/repository.ts` and `tableDispatch.ts` joined the 100%-branch coverage
 gate in the root `vitest.config.ts`, same bar as `packages/shared`'s safety modules.
 
-**Unverified on-device, same caveat as A0:** `ExpoSqliteDriver` has been reviewed against
-`expo-sqlite`'s installed type declarations and typechecks cleanly, but has never actually run
-against real SQLite through the Expo runtime — this sandbox has no Android SDK, emulator, or
-device. `src/store/offlineFlow.test.ts` proves the flow against `SqliteStore` driven by
-`better-sqlite3` instead (the same substitution `icuSpike.test.ts` makes for Hermes), which is real
-coverage of the SQL and merge logic but not a substitute for an on-device run.
+**Now run against real SQLite through the Expo runtime, not just reviewed against types:** a
+caregiver's device surfaced a real bug in `ExpoSqliteDriver` on 2026-08-07 — see "Sync and
+household join" below. `src/store/offlineFlow.test.ts` still proves the create/schedule/log/
+decrement flow against `SqliteStore` driven by `better-sqlite3` (the same substitution
+`icuSpike.test.ts` makes for Hermes), which remains real coverage of the SQL and merge logic, but
+it's no longer the only evidence this driver has ever touched a real device — `expoSqliteDriver.test.ts`
+now also regression-tests the on-device failure mode directly, against a fake that models
+`expo-sqlite`'s actual rejection behavior rather than `better-sqlite3`'s.
 
 **Not done in this pass:** the pure derivation helpers the plan also calls for moving into
 `packages/shared` (`classifyOccurrence.ts`, `matchOccurrenceLog.ts`, `formatCountdown.ts`,
@@ -357,13 +360,115 @@ now fixed:**
 **Verified working end-to-end (build+upload) 2026-08-07**: [run #1](https://github.com/fainsilber/medguard/actions/runs/31153170066)
 off `main`, completed in ~11 minutes, produced a 57 MB `medguard-debug-apk` artifact — but per the
 bugs above, the app inside it never actually launched, and even a rebuilt release APK would have
-hit the dead API host next. A rerun of the fixed workflow, followed by an actual install-and-open
-on a physical phone — including adding a medicine while offline — is the still-open next step.
+hit the dead API host next. A later, fixed build was installed and opened on a physical phone the
+same day — see "Sync and household join" below for what that surfaced.
 Note: `workflow_dispatch` workflows are only dispatchable once the workflow file exists on the
 repo's **default branch** — a PR changing this file must be merged to `main` before the change can
 be triggered.
 
-## What hasn't been verified
+### Sync and household join (real-device findings, 2026-08-07)
+
+A caregiver installed the fixed build (above) and joined a household by code. The app log's own
+share-sheet export (`DiagnosticsScreen`'s "Share log", now named `medguard-app-log-<timestamp>.txt`
+instead of whatever generic name Android's plain-text share invented) showed sync failing on every
+attempt with `NativeDatabase.execAsync` rejections — `cannot start a transaction within a
+transaction` / `cannot rollback - no transaction is active`. Playing the test chime worked
+throughout, and revoking a household member worked (that action doesn't touch local SQLite the same
+way). Two distinct causes, found and fixed across two rounds against real device logs:
+
+- **`SyncEngine.runOnce()` could be entered concurrently.** `SyncProvider` calls it from three
+  independent triggers — mount, a new outbox entry, and the live socket reaching `'open'` — that
+  can land in the same tick. Dexie/IndexedDB (web) tolerates the resulting overlapping
+  `store.transaction()` calls; `expo-sqlite`'s single connection does not. Fixed by having
+  `runOnce()` coalesce concurrent callers onto one run, with a caller that arrives mid-run waiting
+  for a fresh rerun afterward rather than a stale one already in flight (`packages/store/src/syncEngine.ts`,
+  `packages/store/src/syncEngine.test.ts`).
+- **That alone didn't fix it — a second device log still showed the same error from a single,
+  non-overlapping sync run.** Real cause: `NotifyingStore` fires every subscribed `useLiveQuery`
+  refetch synchronously, but fire-and-forget, right after a write's transaction settles.
+  `SyncProvider` and `DiagnosticsScreen` both watch `syncOutbox` — the exact table `drainOutbox()`
+  writes on every synced entry — so that refetch's own `store.transaction()` call races the sync
+  engine's *next* write on `expo-sqlite`'s single, unqueued native connection. Fixed at the driver
+  level: `ExpoSqliteDriver.withTransaction()` (`src/store/expoSqliteDriver.ts`) now queues every
+  transaction onto a private promise chain, so any two calls to `store.transaction()` from any call
+  site — sync engine, a live query, a direct repository write — run strictly one at a time. This is
+  the general fix; the `SyncEngine` coalescing above is a smaller, complementary win (fewer
+  redundant sync rounds), not what actually stopped the crash. `expoSqliteDriver.test.ts` is the
+  regression test, built against a fake `SQLiteDatabase` that models the real rejection behavior
+  rather than `better-sqlite3`'s (which has no concept of it — see `sqliteTestDouble.ts`'s own
+  comment on this, written before the bug was ever hit on a real device).
+
+**Not yet re-confirmed**: the fixed driver has passing typecheck/lint/Vitest coverage (this
+session's tooling) but, like everything else in this file, hasn't been watched syncing successfully
+on the caregiver's actual phone yet — that needs a fresh build installed over the one that produced
+the logs above.
+
+### Locked-phone alarm, real-device findings (2026-08-08)
+
+A caregiver ran the full A0 exit gate for real: sync confirmed clean (no transaction errors), the
+alarm fired correctly through a locked, silenced phone. Two more findings:
+
+- **The notification disappeared once the 45s chime auto-stopped, instead of staying available for
+  Taken/Snooze.** Confirmed in `DoseAlarmService.kt`: `stopChimeAndSelf()` called
+  `stopForeground(STOP_FOREGROUND_REMOVE)`, which deletes the foreground notification the instant
+  the service stops — contradicting this very file's own manual-test script (step 6 above), which
+  expects the notification to still be there afterward. Fixed: the notification is now re-posted as
+  a plain, dismissible one (`setOngoing(false)`) immediately before `stopForeground(STOP_FOREGROUND_DETACH)`
+  — the chime and foreground service still stop exactly as before, but Taken/Snooze survive for a
+  caregiver who reaches the phone after the chime has already ended. Kotlin, so — same caveat as the
+  rest of `modules/medguard-alarms/` — not compiled or run this session; code-reviewed only.
+- **PRN "Clock unverified" gets stuck after any period the phone was actually locked.** Root cause
+  traced into React Native itself: `performance.now()` (what `src/clock/localClockGuard.ts` used as
+  its tamper-proof monotonic reference) is backed by `std::chrono::steady_clock`
+  (`ReactCommon/react/timing/primitives.h`), which on Android maps to `CLOCK_MONOTONIC` — a clock
+  that **stops advancing during real device sleep** (screen off, Doze), unlike `Date.now()`, which
+  keeps advancing in real time. So any normal lock/unlock cycle longer than
+  `CLOCK_SKEW_TOLERANCE_MS` (2 minutes) made the wall clock look like it had raced ahead of the
+  "monotonic" one — indistinguishable, by the guard's own math, from a caregiver winding the clock
+  forward — and since the guard deliberately never re-anchored mid-session (by design, so tampering
+  couldn't just be waited out), once tripped it stayed tripped for the rest of the session. This
+  made every guarded PRN medicine effectively unusable without an override on a phone that had ever
+  been locked, which given this app's job description ("locked phone, screen off") is close to
+  always. **Fixed**, with sign-off to implement given explicitly since this touches safety-critical
+  dose-gating logic: a new native `elapsedRealtimeMs` export (`MedGuardAlarmsModule.kt`, backed by
+  `SystemClock.elapsedRealtime()`) counts sleep time the same as `Date.now()` does, *and* — unlike
+  `performance.now()` — can't be moved by a caregiver changing the system clock, since it isn't the
+  system clock. `localClockGuard.ts` was reworked around it: a background refresh loop
+  (`startLocalClockGuard()`, started once by `PrnScreen`) samples it on an interval and on every
+  foreground resume, and — safely, only because this new clock source can't be spoofed the way
+  `performance.now()` could — re-anchors after every reading, so normal sleep never accumulates into
+  a false positive. `elapsedRealtimeMs` is mocked in `testUtils/mockMedguardAlarms.ts` for Jest; the
+  Kotlin side is still unbuilt/unrun from this sandbox, same caveat as everything native here.
+
+### Revoked-device data retention (real-device finding, 2026-08-08)
+
+The same caregiver revoked one of their own devices from `HouseholdScreen`'s device list to test
+the flow. It worked — the revoked device stopped syncing — but its local medical data (medicines,
+schedules, logs) stayed on it indefinitely, since `deviceRoutes.delete('/:deviceId')`
+(`apps/api/src/routes/devices.ts`) deletes only the server-side device row; nothing tells the
+revoked device to clear anything, and it has no way to be told anything once its own token stops
+working. Deliberately not auto-wiped on the first failed sync round — a caregiver's dosing history
+disappearing without a confirmed action is its own kind of harm, and a 401 could in principle be
+transient or misconfigured rather than a genuine revoke. Instead:
+
+- `SyncApiResult`/`ApiResult` (`packages/store/src/syncEngine.ts`, `src/api/householdApi.ts`) now
+  carry an optional raw server `code` alongside the existing translated `error` message, and
+  `SyncEngine` throws a new `SyncApiError` (message + `code`) on a failed bootstrap/pull/push
+  instead of a plain `Error` — so a caller can react to *which* failure this was instead of
+  string-matching a human-facing message. Purely additive; web's `SyncApi` is unaffected.
+  `syncEngine.test.ts` covers the `code` surviving the throw for both `drainOutbox()` and `pull()`.
+- `SyncProvider` now has a distinct `'revoked'` status (`SyncStatusBadge` shows "Removed") when a
+  sync round fails with `code: 'unauthorized'`, separate from the generic `'error'` status a
+  transient failure gets — and a new `RevokedDeviceBanner`, rendered alongside
+  `SafetyWarningBanner`, explains what happened and offers a two-step "Clear local data" confirm
+  (mirroring `PrnCard`'s override flow's care around a destructive action) that wipes local data
+  and forgets the session, the same effect as `HouseholdScreen`'s "Leave" but usable when this
+  device's own token no longer works well enough to call `leaveHousehold()` first.
+
+Not yet re-confirmed on an actual revoked device — the sync half of this (`SyncApiError`) has
+passing Vitest coverage; the Android-side banner/status wiring passed typecheck, lint, and the
+existing Jest suite unchanged, but has no dedicated component test yet and hasn't been watched
+firing on a real 401 from a real revoked token.
 
 This sandbox has no Android SDK, no emulator, and no physical device, so none of the following
 has actually been run, since the environment that wrote this scaffold has no Android SDK, no
@@ -401,13 +506,15 @@ emulator, and no physical device:
   functions, confirmed by reading the installed `expo-modules-core` sources
   (`node_modules/expo-modules-core/android/src/main/java/expo/modules/interfaces/permissions/Permissions.java`)
   rather than assumed from memory. Still unbuilt by Gradle, same caveat as everything else here.
-- **What is still unverified: the Kotlin has never been compiled by a real Gradle/Android
-  toolchain, and the A0 exit gate itself — the locked-phone chime — has not fired on a real
-  device.** That's the premise of the entire native client
+- **What is still unverified: the full locked-phone A0 exit gate — "Arm alarm in 15s," screen off,
+  zero touches, auto-stop — has not been confirmed firing on a real device this way.** The Kotlin
+  *has* now been compiled by a real Gradle/Android toolchain (Option C's CI workflow, `assembleRelease`)
+  and installed and launched on a physical phone (2026-08-07, "Sync and household join" above), and
+  the "Play test chime now" button on that install did play alarm-stream audio on the device — but
+  that's the always-visible, phone-unlocked sanity check, not the locked-phone gate itself. That's
+  still the premise of the entire native client
   (docs/android-client-plan.md: "Failing it early costs a week; failing it in A5 costs the
-  project"). Everything above rules out the class of bug that's obvious from tooling output
-  (bad XML, unresolvable imports); it does not substitute for the device test in "Testing the
-  exit gate on a real device" above.
+  project") and still needs its own confirm — "Testing the exit gate on a real device" above.
 
 ```bash
 npm install

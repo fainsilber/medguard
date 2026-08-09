@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/app/AppNavigator';
 import { CaregiverGate } from './src/identity/CaregiverGate';
+import { RevokedDeviceBanner } from './src/sync/RevokedDeviceBanner';
 import { SafetyWarningBanner } from './src/sync/SafetyWarningBanner';
 import { SyncProvider } from './src/sync/SyncProvider';
 import { SyncStatusBadge } from './src/sync/SyncStatusBadge';
@@ -29,6 +30,7 @@ export default function App(): React.JSX.Element {
               <Text style={styles.title}>MedGuard</Text>
               <SyncStatusBadge />
             </View>
+            <RevokedDeviceBanner />
             <SafetyWarningBanner />
             <NavigationContainer>
               <AppNavigator />
