@@ -18,6 +18,15 @@ android {
 }
 
 dependencies {
+  // Sprint A4's `MedGuardHeadlessService` uses `HeadlessJsTaskService`/`Arguments`/
+  // `HeadlessJsTaskConfig` directly. `expo-module-gradle-plugin` puts `expo-modules-core` on this
+  // module's classpath, but expo-modules-core's own dependency on react-android
+  // (node_modules/expo-modules-core/android/build.gradle) is declared `implementation`, not `api`
+  // — so it isn't exposed transitively, and this module needs the same declaration itself. No
+  // version pin, matching expo-modules-core exactly: React Native's own Gradle plugin aligns the
+  // version across the whole build.
+  implementation 'com.facebook.react:react-android'
+
   // Sprint A4. Compiled in unconditionally so `MedGuardMessagingService` builds even for the
   // sideloadable APK, which has no Firebase project (see `plugins/withMedGuardAlarms.ts`). The
   // *manifest* entry and the Google Services Gradle plugin are what stay conditional on a
