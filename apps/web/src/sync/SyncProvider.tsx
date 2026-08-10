@@ -155,8 +155,21 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     liveClient.start();
     void runSync();
 
+    // The browser's own signal that connectivity is back, independent of the WebSocket's state.
+    // It matters because the two can disagree: `LiveClient`'s reconnect only fires `runSync()`
+    // when its socket transitions to 'open', but a socket that never actually dropped — which a
+    // loopback/local connection can do even while `navigator.onLine` is false, confirmed against
+    // a real browser losing and regaining network here — never produces that transition, and
+    // nothing else would ever retry a sync that failed while offline (safety invariant 4: a
+    // local write must never be stuck waiting on the network to notice it should look again).
+    const handleOnline = () => {
+      if (!cancelled) void runSync();
+    };
+    window.addEventListener('online', handleOnline);
+
     return () => {
       cancelled = true;
+      window.removeEventListener('online', handleOnline);
       liveClient.stop();
       runSyncRef.current = async () => {};
     };

@@ -93,6 +93,14 @@ test('a dose logged while offline replays once back online, with zero log loss',
   await expect(page.getByText(/Last given by Mom/)).toBeVisible();
 
   await context.setOffline(false);
+  // Proves `SyncProvider`'s `window.addEventListener('online', …)` handler, not just the
+  // WebSocket's own reconnect: Chromium's `context.setOffline()` against a loopback connection
+  // blocks HTTP fetches (confirmed here via `ERR_INTERNET_DISCONNECTED`) but does not reliably
+  // close an already-open WebSocket, so `LiveClient` never observes a drop-and-reconnect and
+  // its 'open' transition — the only other trigger for a retry — never fires. Without the
+  // explicit `online` listener this hangs forever, not just slowly: confirmed by instrumenting
+  // a real run, which sat at "Sync error" for 45s with no further activity at all until the
+  // listener was added, after which "Synced" appeared within ~300ms of going back online.
   await expect(page.getByText('Synced')).toBeVisible({ timeout: 15_000 });
 
   // Proof the dose actually reached the server, not just that the local UI stopped complaining: a

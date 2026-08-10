@@ -30,8 +30,6 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',
-    // Push and notification tests in Sprint 5 need these granted up front.
-    permissions: ['notifications'],
   },
 
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
