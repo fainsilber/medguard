@@ -107,6 +107,17 @@ Neither credential is ever stored in a form that can be replayed:
   at issue. A device that loses its token must be re-invited; the server genuinely cannot recover
   it.
 
+- **Push credentials** (Sprint A4) — a Web Push subscription (endpoint plus its two public keys) or
+  an FCM registration token, stored in plaintext on the device's own `devices` row
+  (`push_credentials`). Plaintext because they are addresses, not secrets: the server has to *use*
+  them to send, so a hash would make them useless. They are still worth treating carefully — an
+  endpoint identifies a browser installation, and a leaked one lets a third party send that device
+  notifications (they cannot read anything, and on the Web Push path they cannot decrypt a payload
+  either, which needs the subscription's private key that never leaves the browser). Registration is
+  authenticated and scoped to the calling device: `POST /api/v1/devices/push` writes only the row
+  the bearer token resolves to. A dead credential is cleared, not deleted along with the device —
+  the row is the caregiver's login, and a rotated browser subscription must not sign anyone out.
+
 A plain hash rather than a slow KDF is deliberate: these are high-entropy machine-generated secrets
 with no dictionary to defend against, so a KDF would cost latency and buy nothing. What the hash
 does buy is that a leaked database backup contains no working credential.
@@ -198,13 +209,20 @@ closing before it holds a real protocol for a long stretch.
    until a caregiver notices the `'revoked'` status and completes the explicit "Clear local data"
    confirm — see "Revoked-device data retention" in `apps/android/README.md`. There is no push-based
    remote wipe. This is the most serious of these.
-2. **CORS reflects any origin.** Convenient while the PWA's deployment URL is still moving; should
+2. **A dose notification's text reaches the lock screen, and the phone's own notification history.**
+   Sprint A4's alerts name the medicine (a caregiver woken at 3 AM by "a dose is due" cannot act on
+   it), which means a medicine name is visible on a locked screen and retained in Android's
+   notification log until it is cleared. Deliberate, and the same trade every medication reminder
+   makes; worth knowing about if a phone is shared or seen by others. Shabbat-mode alerts carry the
+   same detail. Nothing else about the record — dosage history, notes, who logged what — ever leaves
+   the app.
+3. **CORS reflects any origin.** Convenient while the PWA's deployment URL is still moving; should
    become an explicit allowlist before this is treated as production.
-3. **No audit log of reads.** Writes are attributable (every log records who and when). Nobody can
+4. **No audit log of reads.** Writes are attributable (every log records who and when). Nobody can
    tell who *read* what.
-4. **No application-layer encryption at rest**, on device or server. Both rely on platform
+5. **No application-layer encryption at rest**, on device or server. Both rely on platform
    encryption.
-5. **Backup/export is manual.** The CSV, printable summary and full JSON backup/import/wipe (Sprint 2
+6. **Backup/export is manual.** The CSV, printable summary and full JSON backup/import/wipe (Sprint 2
    and Sprint 7, landed early) are the only export path; there is no automated/scheduled backup.
 
 ---

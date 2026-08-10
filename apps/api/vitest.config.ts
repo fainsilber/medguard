@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
+import { TEST_SERVICE_ACCOUNT_JSON } from './tests/fcmTestKey.js';
 
 const sharedSrc = fileURLToPath(new URL('../../packages/shared/src', import.meta.url));
 const migrationsDir = fileURLToPath(new URL('./migrations', import.meta.url));
@@ -25,6 +26,10 @@ export default defineConfig({
           VAPID_PUBLIC_KEY:
             'BH7wRMtDhX-_fcWE9FIRJC7yH7h9sFYekB5i6XMYh8EuXcr013vn7x0sS9Mv2UtVkLaQ4DiwljYTS715xigo_lM',
           VAPID_PRIVATE_KEY: 'DpbCd7ViYjhEg68WPbhMF7Dj9ERMmJmPG8TM16BPEkw',
+
+          // Sprint A4. Same reasoning as the VAPID keypair above: a throwaway service account so
+          // the FCM half of the fan-out is exercised in CI, where no Firebase project exists.
+          FCM_SERVICE_ACCOUNT: TEST_SERVICE_ACCOUNT_JSON,
         },
       },
     })),

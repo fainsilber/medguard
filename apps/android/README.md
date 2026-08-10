@@ -5,8 +5,9 @@ workspace exists to do the one thing a browser structurally cannot (PRD Delta D1
 alarm-volume dose chime that fires on a **locked phone with the screen off**, auto-stops on its
 own, and requires zero touches to work.
 
-**Status: Sprint A3 (the local alarm engine) code-complete, not yet device-confirmed** — see
-"Sprint A3" below. A0's locked-phone exit gate fired correctly on a real device 2026-08-08; A1
+**Status: Sprint A4 (the server alarm chain and the push backstop) code-complete 2026-08-09, not
+yet device-confirmed** — see "Sprint A4" below; Sprint A3's local alarm engine is likewise
+code-complete and awaiting the same real-device pass. A0's locked-phone exit gate fired correctly on a real device 2026-08-08; A1
 (storage/sync port) and A2 (feature parity) are code-complete and real-device-tested up through
 household join and sync. Continued real-device use since A0 found and fixed several bugs:
 revoked-device data retention, the on-screen keyboard overlapping focused text fields (every
@@ -23,6 +24,78 @@ work." Real-device testing itself happens on the caregiver's own phone, off a si
 happened 2026-08-07: a caregiver installed the build, joined a household, and hit a real sync bug
 (see "Sync and household join" below) that no amount of in-sandbox testing could have caught, since
 it only reproduces against `expo-sqlite`'s real native connection.
+
+### Sprint A4 — the push backstop and the headless drain
+
+**Code-complete (2026-08-09), not device-confirmed.** Most of A4 is server work
+(`apps/api`, see `docs/android-client-plan.md`'s A4 section); what lands in *this* workspace is the
+receiving half plus the `HeadlessJsTaskService` A3 deliberately deferred.
+
+**What the server now sends, and why this app needs it at all.** The local alarm is still primary:
+only it plays the 45-second chime, and only it works with no signal. The push covers the two cases
+a phone structurally cannot cover for itself — an **escalation** (a device cannot know whether
+*another* caregiver acknowledged, so only the household's Durable Object can decide to send one),
+and an **unarmed device** (exact alarms denied, notifications off, an OEM battery manager, the
+phone simply switched off when the dose was due).
+
+**`MedGuardMessagingService`** receives the data-only message and posts the notification. Data-only
+matters: with a `notification` block Android composes and posts the alert itself while the app is
+backgrounded, which means the wrong channel, no Taken/Snooze, and — on Shabbat — action buttons
+that must never exist (D5). Composition moved into a new `DoseNotifications` shared with
+`DoseAlarmService`, so a server alert and a local alarm are indistinguishable to a caregiver: same
+actions, same channel rules, same AD4 full-screen-intent handling for escalation. The notification
+id is derived from the `occurrenceKey`, which is what makes a late push *replace* the local
+notification rather than stack a second one beside it. **No chime is started from a push** — the
+chime belongs to the local alarm, and a device on this path is one whose local alarms are not
+firing, so it gets its channel's sound. Honest degradation rather than a pretend chime.
+
+**`MedGuardHeadlessService`** closes A3's known gap. A3 drained pending actions on app launch, on
+`AppState` → `'active'`, and on the native `onPendingAction` event — all of which need a JS runtime
+that already exists. A tap made with the process genuinely dead waited for the next app open. That
+cost only latency until A4; now it can cost a spurious escalation to the second caregiver for a
+dose that *was* given. `NotificationActionReceiver` therefore starts a headless runtime whenever
+`MedGuardAlarmsModule.hasLiveRuntime()` is false, and its JS task
+(`src/alarms/headlessTask.ts`, registered as `MedGuardPendingActions` in `index.ts`) runs the same
+`PendingActionApplier` the foreground path does. Kotlin still writes no `IntakeLog` (AD2). The task
+deliberately does **not** sync: the record is durable and in the outbox, and pushing it needs the
+session, a network round trip and retry handling inside a service Android may stop at any moment.
+
+**Registration.** `src/alarms/pushRegistration.ts` sends the FCM token to
+`POST /api/v1/devices/push` on every start (idempotent by design — Firebase rotates tokens without
+telling the app) and again whenever the new `onPushToken` event fires. Both the POST and the token
+read are injected, because `householdApi.ts` pulls in `expo-device` and through it React Native,
+which the Vitest project cannot load — the same discipline `AlarmEngine` applies to the native
+surface, and it keeps every branch testable off-device.
+
+**Firebase is optional, everywhere.** `plugins/withMedGuardAlarms.ts` adds the Google Services
+Gradle plugin and the `MedGuardMessagingService` manifest entry **only when a
+`google-services.json` is present**; `firebase-messaging` itself is a plain module dependency so
+the Kotlin compiles either way. Without the file, `getPushToken()` returns null, no credential is
+registered, and `alarmHealth` reports `no_server_backstop` — a **risk**, not a blocker, because
+local alarms are unaffected. This is what keeps `.github/workflows/android-apk.yml` (a
+GitHub-hosted runner with no secrets) producing a working sideloadable APK. Both paths were
+verified by running `expo prebuild` with and without the file and reading the generated manifest
+and Gradle files.
+
+`FOREGROUND_SERVICE_SHORT_SERVICE` is declared alongside the existing permissions: Android 14+
+requires one per foreground-service *type*, and without it the headless service throws on start —
+silently losing the tap it exists to rescue.
+
+**To turn the backstop on** (both halves are needed, and neither is in this repo):
+
+1. Create a Firebase project, add an Android app with this package name, download
+   `google-services.json` into `apps/android/` (gitignored).
+2. Firebase console → Project settings → Service accounts → generate a private key, then
+   `cd apps/api && npx wrangler secret put FCM_SERVICE_ACCOUNT` and paste the whole JSON.
+
+**Tests:** `src/alarms/pushRegistration.test.ts` and additions to `alarmHealth.test.ts` here; the
+substance is server-side in `apps/api/tests/alarms.test.ts` (the chain, the escalation boundary
+asserted as an exact instant, snooze deferral, the missed sweep, low stock), `fcm.test.ts` (the
+RS256 assertion verified against its own public key, data-only message shape, token caching, expiry
+classification) and `dispatch.test.ts`. **Nothing on this list proves the Kotlin**: there is no
+Android SDK in this sandbox, so `MedGuardMessagingService`, `MedGuardHeadlessService` and
+`DoseNotifications` are backed by review and by the two `expo prebuild` runs, not by a compile.
+That is the single biggest thing a real device would tell us that this session cannot.
 
 ### Sprint A3 — the local alarm engine
 
@@ -60,9 +133,10 @@ committed). `AlarmEngine.applyPendingActions()` also dedupes against an occurren
 before calling `recordDose()` — deliberately, since `recordDose()` is not idempotent, and the
 peek/ack redesign makes a repeated read the normal case rather than an edge case.
 
-**Drain triggers — the deliberate gap.** A `HeadlessJsTaskService` (the plan's original design for
-"the app process is fully dead") is **not** built here; it's deferred to A4, where the headless
-bootstrap gets built once and shared with the FCM data-message handler A4 needs regardless. A3
+**Drain triggers — the deliberate gap, closed in A4.** A `HeadlessJsTaskService` (the plan's
+original design for "the app process is fully dead") was **not** built in A3; it was deferred to
+A4, where the headless bootstrap gets built once and shared with the FCM data-message handler A4
+needs regardless. It now exists — see "Sprint A4" above. A3
 instead: drains on app launch, on `AppState` → `'active'`, and on a new native `onPendingAction`
 event (`Events("onPendingAction")` on `MedGuardAlarmsModule`, wired from
 `NotificationActionReceiver` to a live JS runtime when one exists) — which covers a merely-locked

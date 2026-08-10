@@ -16,3 +16,12 @@ android {
     abortOnError false
   }
 }
+
+dependencies {
+  // Sprint A4. Compiled in unconditionally so `MedGuardMessagingService` builds even for the
+  // sideloadable APK, which has no Firebase project (see `plugins/withMedGuardAlarms.ts`). The
+  // *manifest* entry and the Google Services Gradle plugin are what stay conditional on a
+  // `google-services.json` being present — so without one the class exists and is simply never
+  // instantiated, rather than the build failing for a household that only uses local alarms.
+  implementation 'com.google.firebase:firebase-messaging:24.0.0'
+}

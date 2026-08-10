@@ -12,5 +12,10 @@ node_modules/
 *.p12
 *.key
 *.mobileprovision
+
+# Sprint A4: the Firebase config for the FCM push backstop. Per-project and per-household, and
+# its absence is a supported state — `plugins/withMedGuardAlarms.ts` wires Firebase in only when
+# this file exists, so a build without it still produces a working APK with local alarms.
+google-services.json
 *.orig.*
 .env*.local

@@ -1,55 +1,163 @@
 import type { IsoInstant } from './clock.js';
 
 /**
- * The push payload contract between the Worker and the service worker.
+ * The push payload contract between the Worker and whatever displays the notification — the web
+ * app's service worker, or the Android app's `FirebaseMessagingService`.
  *
- * Defined here so both sides compile against the same shape — a mismatch would only show up
- * as a notification silently failing to render on a locked phone, which is the hardest
- * possible place to debug.
+ * Defined here so every side compiles against the same shape. A mismatch would only show up as a
+ * notification silently failing to render on a locked phone, which is the hardest possible place
+ * to debug — and for this app, a dose alert that never appears is the failure that matters most.
+ *
+ * Sprint 0's `ProbePushPayload` lived here until Sprint A4 replaced it. The probe answered
+ * "does a push reach a locked phone at all"; it has, on both platforms
+ * (`docs/platform-capabilities.md`), so what remains is the real thing.
  */
 
 /**
- * Notification options we want evidence about, rather than assumptions.
+ * Bumped when a field's meaning changes in a way an older client would render wrongly.
  *
- * `sound` is deliberately included: sprint plan v1.0 claimed a push could carry a custom
- * notification sound via the Android channel, and I believe it cannot — the Notification API's
- * `sound` property was never implemented and the channel belongs to the browser, not to us.
- * The probe sends it and reports whether the browser retained it, settling the question with
- * evidence instead of argument.
+ * A push outlives the app version that receives it: a caregiver's phone can hold a service worker
+ * from weeks ago, and there is no way to force it forward before the next dose alert. A client
+ * that doesn't recognise the version ignores the message rather than rendering a half-understood
+ * notification — a missing alert is at least visibly missing, where a wrong one is trusted.
  */
-export interface ProbeNotificationOptions {
-  tag?: string;
-  renotify?: boolean;
-  requireInteraction?: boolean;
-  silent?: boolean;
-  vibrate?: number[];
-  sound?: string;
+export const PUSH_PAYLOAD_VERSION = 1;
+
+interface PushPayloadBase {
+  v: typeof PUSH_PAYLOAD_VERSION;
+  /** Server send time. End-to-end delivery latency, and the age of an alert that arrived late. */
+  sentAtIso: IsoInstant;
 }
 
-export interface ProbePushPayload extends ProbeNotificationOptions {
-  kind: 'probe';
-  title: string;
-  body: string;
-  /** Server send time, so the client can report end-to-end delivery latency. */
-  sentAtIso: IsoInstant;
-  /** 1-based position within a burst, for the Shabbat 3-push test. */
+interface OccurrencePushBase extends PushPayloadBase {
+  /**
+   * An `occurrenceKey` — `${scheduleId}:${dueAt}`, from `schedule.ts`.
+   *
+   * Doubles as the notification tag on both clients, which is what makes a late server push
+   * *replace* the device's own local notification for the same dose instead of stacking a second
+   * one next to it (see "Local versus server alarms" in `docs/android-client-plan.md`).
+   */
+  occurrenceId: string;
+  medicineId: string;
+  /** Denormalized so the notification can render without a database read on a woken device. */
+  medicineName: string;
+  scheduleId: string;
+  dueAtIso: IsoInstant;
+  /** `Schedule.dosageQuantity`; rendered with the medicine's strength, never used in arithmetic. */
+  dosageQuantity: number;
+}
+
+/** The ordinary scheduled-dose alert, sent at the occurrence's due time. */
+export interface DosePushPayload extends OccurrencePushBase {
+  kind: 'dose';
+}
+
+/**
+ * The dose went unacknowledged past the household's `escalationAfterMinutes`, so every other
+ * caregiver is told. Escalation is server-only by construction: a phone cannot know whether
+ * somebody else's phone acknowledged.
+ */
+export interface EscalationPushPayload extends OccurrencePushBase {
+  kind: 'escalation';
+  /** How long the dose has been outstanding, so the notification can say it rather than imply it. */
+  minutesUnacknowledged: number;
+}
+
+/**
+ * Informational only — no action buttons, ever (delta D5). Tapping one on Shabbat would write
+ * data; reconciliation happens after Havdalah instead.
+ *
+ * `burstIndex`/`burstTotal` are meaningful for `webpush` devices only: a browser notification
+ * yields a ~1-2 second tone, so the web client approximates the PRD's 45-second chime out of a
+ * burst of pushes. A native device plays the real chime from a local alarm and receives exactly
+ * one of these (delta AD3).
+ */
+export interface ShabbatPushPayload extends OccurrencePushBase {
+  kind: 'shabbat';
   burstIndex: number;
   burstTotal: number;
 }
 
-/** Message the service worker posts back to any open page when a push arrives. */
-export interface ProbePushReceipt {
-  kind: 'probe-push-receipt';
-  sentAtIso: IsoInstant;
-  receivedAtIso: IsoInstant;
-  burstIndex: number;
-  burstTotal: number;
-  /** Which of the requested options the browser actually kept on the Notification object. */
-  retainedOptions: string[];
+/** PRD §2.4 — stock crossed the refill threshold, on every caregiver's device. */
+export interface LowStockPushPayload extends PushPayloadBase {
+  kind: 'low_stock';
+  medicineId: string;
+  medicineName: string;
+  /** Current derived quantity, from the adjustment ledger. */
+  remaining: number;
+  threshold: number;
+  /** Display only, e.g. "pills", "ml". */
+  unitName: string;
+}
+
+export type PushPayload =
+  | DosePushPayload
+  | EscalationPushPayload
+  | ShabbatPushPayload
+  | LowStockPushPayload;
+
+export type PushKind = PushPayload['kind'];
+
+/**
+ * The Android notification channel each kind belongs to.
+ *
+ * Ids are versioned because a channel's sound and importance are immutable once created — see
+ * `MedGuardChannels.kt`. Named here rather than in Kotlin so the server can put the channel id in
+ * the message and the two cannot drift; Kotlin still owns creating them.
+ */
+export const PUSH_CHANNEL_IDS: Record<PushKind, string> = {
+  dose: 'dose_standard_v1',
+  escalation: 'dose_escalation_v1',
+  shabbat: 'shabbat_v1',
+  low_stock: 'low_stock_v1',
+};
+
+/**
+ * Whether a notification of this kind carries "Taken" / "Snooze" buttons.
+ *
+ * Shabbat is the whole reason this is a function and not a constant: tapping an action writes a
+ * record, which is exactly what must not happen in mode (delta D5).
+ */
+export function pushHasDoseActions(payload: PushPayload): boolean {
+  return payload.kind === 'dose' || payload.kind === 'escalation';
 }
 
 /**
- * The Shabbat alert.
+ * The notification's text, composed once and shared.
+ *
+ * Both clients render the same words for the same event: the web service worker calls this
+ * directly, and the FCM message carries its output as `title`/`body` in the data map because
+ * Kotlin cannot call it. That indirection is deliberate — the alternative is a second copy of
+ * this wording in a language with no test over it, which is how "Dose due" and "Dose overdue"
+ * end up meaning different things on the two phones in one household.
+ */
+export function describePush(payload: PushPayload): { title: string; body: string } {
+  switch (payload.kind) {
+    case 'dose':
+      return {
+        title: `${payload.medicineName} — dose due`,
+        body: `${payload.dosageQuantity} due now`,
+      };
+    case 'escalation':
+      return {
+        title: `${payload.medicineName} — dose not confirmed`,
+        body: `Due ${payload.minutesUnacknowledged} minutes ago and still unconfirmed. Can you check?`,
+      };
+    case 'shabbat':
+      return {
+        title: `${payload.medicineName} — dose due`,
+        body: `${payload.dosageQuantity} due now. No action needed on the phone.`,
+      };
+    case 'low_stock':
+      return {
+        title: `${payload.medicineName} — running low`,
+        body: `${payload.remaining} ${payload.unitName} left (refill at ${payload.threshold}).`,
+      };
+  }
+}
+
+/**
+ * The Shabbat alert, on the web.
  *
  * A browser Notification can't play a custom sound or a long chime — a single push gets a
  * ~1-2 second system tone, nowhere near the PRD's 45-second Shabbat chime. So instead of one
@@ -71,6 +179,9 @@ export interface ProbePushReceipt {
  *      Android OS was coalescing or dropping some of the notifications rather than showing every
  *      one. Backed off to 10 pushes spanning 10s (~1.11s apart) — this is the current value.
  *
+ * Retired for `fcm` devices (delta AD3): a native client plays the real 45 seconds from a local
+ * alarm, so a burst there would be ten redundant notifications rather than one long chime.
+ *
  * Still open: the same test on iOS, and a real Shabbat dry run. (iOS push delivery itself was
  * separately confirmed working once the PWA is installed to the home screen — see
  * docs/platform-capabilities.md — but this exact burst spacing hasn't been tried there.)
@@ -80,25 +191,3 @@ export const SHABBAT_BURST_COUNT = 10;
 // (889ms) was tried and found too tight — the OS started dropping notifications rather than
 // showing all ten.
 export const SHABBAT_BURST_SPACING_MS = 1_111;
-
-/**
- * What the server actually did with one queued push — read by the probe UI (and, later, any
- * caregiver-facing delivery-status view) to tell "never sent" apart from "sent, but the phone
- * never showed it". That distinction is otherwise pure guesswork on a locked device.
- */
-export interface ProbeSendRecord {
-  burstIndex: number;
-  burstTotal: number;
-  dueAtIso: IsoInstant;
-  sentAtIso: IsoInstant;
-  /** Alarm accuracy: how late the Durable Object actually woke up relative to the scheduled time. */
-  latenessMs: number;
-  ok: boolean;
-  status: number;
-  error?: string;
-}
-
-export interface ProbePushLog {
-  pending: number;
-  sent: ProbeSendRecord[];
-}

@@ -8,5 +8,13 @@ export { applyPulledRecord, markSyncedLocally } from './tableDispatch.js';
 export type { PulledRecord } from './tableDispatch.js';
 export { LiveClient } from './liveClient.js';
 export type { LiveClientLog, LiveClientOptions, LiveClientStatus } from './liveClient.js';
+export { PendingActionApplier } from './pendingActions.js';
+export type {
+  PendingActionApplierDeps,
+  PendingActionEvent,
+  PendingActionLog,
+  PendingActionRecord,
+  PendingActionSource,
+} from './pendingActions.js';
 export { NotifyingStore } from './notifyingStore.js';
 export type { StoreChangeListener } from './notifyingStore.js';

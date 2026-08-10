@@ -1,18 +1,7 @@
-import {
-  MS_PER_DAY,
-  SINGLE_PATIENT_ID,
-  buildDoseSnooze,
-  deriveSnoozeState,
-  expandSchedules,
-  findLogForOccurrence,
-  fromIso,
-  occurrenceKey,
-  parseOccurrenceKey,
-  toIso,
-} from '@medguard/shared';
-import type { Clock, DoseSnooze, IdGenerator, IntakeLog, Occurrence } from '@medguard/shared';
+import { MS_PER_DAY, SINGLE_PATIENT_ID, toIso } from '@medguard/shared';
+import type { Clock, DoseSnooze, IdGenerator } from '@medguard/shared';
 import type { MedGuardRepository } from '@medguard/store';
-import { getLastSyncedAt } from '@medguard/store';
+import { PendingActionApplier, getLastSyncedAt } from '@medguard/store';
 import type { Store } from '@medguard/store';
 import type { ArmedAlarm, PendingActionRecord, ScheduleDoseAlarmInput } from '../../modules/medguard-alarms/src/index.js';
 import { diffAlarms } from './alarmReconciler.js';
@@ -62,6 +51,13 @@ export interface AlarmEngineDeps {
   ids: IdGenerator;
   userId: string;
   deviceId: string;
+  /**
+   * Whether the server can currently reach this device by push (Sprint A4). `undefined` means
+   * "not looked yet", which is deliberately not the same as `false`: registration is async and
+   * usually completes moments after launch, and reporting a missing backstop in that window
+   * would be a warning that fixes itself before a caregiver finishes reading it.
+   */
+  isPushRegistered?: () => boolean | undefined;
   log?: AlarmEngineLog;
 }
 
@@ -87,11 +83,24 @@ const SNOOZE_LOOKBACK_MS = MS_PER_DAY;
 
 export class AlarmEngine {
   private readonly log: AlarmEngineLog;
+  private readonly applier: PendingActionApplier;
   private inFlight: Promise<AlarmEngineState> | null = null;
-  private applyInFlight: Promise<number> | null = null;
 
   constructor(private readonly deps: AlarmEngineDeps) {
     this.log = deps.log ?? noopLog;
+    // The conversion of a captured tap into an `IntakeLog`/`DoseSnooze` lives in
+    // `@medguard/store` rather than here: the web client's service worker parks the same kind of
+    // intent, and one ledger-writing implementation is the whole point of delta AD2. Kotlin's
+    // `pending_actions` table is simply this app's `PendingActionSource`.
+    this.applier = new PendingActionApplier({
+      repository: deps.repository,
+      source: deps.native,
+      clock: deps.clock,
+      ids: deps.ids,
+      userId: deps.userId,
+      deviceId: deps.deviceId,
+      ...(deps.log ? { log: deps.log } : {}),
+    });
   }
 
   /**
@@ -194,182 +203,20 @@ export class AlarmEngine {
    *    second call for the same occurrence would mint a second inventory adjustment and
    *    double-decrement stock — and property 1 makes repeated reads normal, not exceptional.
    */
-  applyPendingActions(): Promise<number> {
-    // Coalesced for the same reason `reconcile()` is: `AlarmProvider` calls this from several
-    // independent triggers (mount, `AppState` -> 'active', the native `onPendingAction` event)
-    // that can land within milliseconds of each other on a real device — a cold launch triggered
-    // by tapping a notification fires the launch-time call and the resulting foreground/event
-    // triggers together. Uncoalesced, both calls read the same not-yet-acked entries and process
-    // them twice; for 'taken' that race is closed by `applyOne`'s existing-log check, but only if
-    // the first call's write commits before the second call's read — not guaranteed under
-    // concurrency, so this closes the race at the source instead of relying on that ordering.
-    this.applyInFlight ??= this.applyPendingActionsExclusive().finally(() => {
-      this.applyInFlight = null;
-    });
-    return this.applyInFlight;
-  }
-
-  private async applyPendingActionsExclusive(): Promise<number> {
-    const { native } = this.deps;
-
-    const pending = await native.readPendingActions();
-    if (pending.length === 0) {
-      return 0;
-    }
-
-    // Oldest tap first, so two taps on the same dose resolve in the order the caregiver made them.
-    const ordered = [...pending].sort((a, b) => a.tappedAtMs - b.tappedAtMs);
-
-    const applied: string[] = [];
-    for (const action of ordered) {
-      try {
-        await this.applyOne(action);
-        applied.push(action.id);
-      } catch (error) {
-        // Leave it un-acked and keep going: one unparseable or failing action must not block the
-        // rest, and a genuinely broken one is retried on the next drain rather than lost.
-        this.log.error('could not apply a captured notification action', {
-          id: action.id,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    if (applied.length > 0) {
-      await native.ackPendingActions(applied);
-    }
-
-    this.log.debug('pending actions applied', { read: pending.length, applied: applied.length });
+  async applyPendingActions(): Promise<number> {
+    const applied = await this.applier.applyPendingActions();
+    // Reconcile whether or not anything applied: a tap that turned into a dose has changed what
+    // should be armed, and one that was skipped as already-logged usually means another device
+    // beat us to it — which changes the horizon just the same.
     await this.reconcile();
-    return applied.length;
+    return applied;
   }
 
   /** The Today screen's Snooze button — the same path a notification-action snooze takes. */
   async snooze(key: string): Promise<DoseSnooze | undefined> {
-    const snooze = await this.recordSnoozeFor(key, this.deps.clock.nowMs());
+    const snooze = await this.applier.snooze(key);
     await this.reconcile();
     return snooze;
-  }
-
-  // -------------------------------------------------------------------------
-
-  private async applyOne(action: PendingActionRecord): Promise<void> {
-    if (action.action === 'snooze') {
-      await this.recordSnoozeFor(action.occurrenceKey, action.tappedAtMs);
-      return;
-    }
-
-    const { repository, ids, userId, deviceId } = this.deps;
-    const occurrence = await this.resolveOccurrence(action.occurrenceKey);
-    if (!occurrence) {
-      // A schedule revised or stopped between the tap and the drain. Nothing to log against, and
-      // inventing an occurrence would be worse than dropping the tap.
-      this.log.error('no occurrence for a captured action', { occurrenceKey: action.occurrenceKey });
-      return;
-    }
-
-    const logs = await repository.logsForPatient(SINGLE_PATIENT_ID);
-    if (findLogForOccurrence(logs, occurrence) !== undefined) {
-      // Already recorded — by the UI, by another device's sync, or by a previous drain that
-      // committed and then died before acknowledging. Skipping is what makes the retry safe.
-      this.log.debug('skipping an already-logged occurrence', { occurrenceKey: action.occurrenceKey });
-      return;
-    }
-
-    const log: IntakeLog = {
-      id: ids.next(),
-      patientId: occurrence.patientId,
-      medicineId: occurrence.medicineId,
-      scheduleId: occurrence.scheduleId,
-      type: 'scheduled',
-      status: 'taken',
-      scheduledTime: occurrence.dueAt,
-      // The tap instant, never the drain instant: `actualTime` starts the rolling-24h cap window,
-      // so recording the wrong moment misstates both the history and the safety arithmetic.
-      actualTime: toIso(action.tappedAtMs),
-      quantityTaken: occurrence.dosageQuantity,
-      loggedByUserId: userId,
-      loggedByDeviceId: deviceId,
-      syncStatus: 'pending',
-    };
-
-    await repository.recordDose(log);
-  }
-
-  private async recordSnoozeFor(key: string, atMs: number): Promise<DoseSnooze | undefined> {
-    // Same well-formedness check the server's `occurrenceKeySchema` enforces on `doseSnoozes`
-    // pushes — deliberately just "parses as scheduleId:dueAt", not "the schedule still exists"
-    // (unlike `resolveOccurrence`), since a snooze recorded a moment before a schedule was edited
-    // is still a legitimate historical fact. Without this, a garbage key — the A0 Diagnostics
-    // "Arm alarm in 15s" test button arms with a bare device-generated UUID, never a real
-    // occurrenceKey, precisely because it isn't meant to be actioned — reaches `recordSnooze()`
-    // unchecked, and the resulting record fails the server's schema forever: `pushSchema` only
-    // returns a per-record `rejected` entry for a *table-schema* failure, but a malformed
-    // `occurrenceId` here still passes the outer request shape, so it lands in the outbox and
-    // then the whole batch keeps re-failing in `SyncEngine.drainOutbox()` on every retry. The
-    // 'taken' path in `applyOne` already refuses the same class of bad key via `resolveOccurrence`;
-    // this mirrors that for 'snooze', which had no equivalent guard.
-    if (parseOccurrenceKey(key) === undefined) {
-      this.log.error('refusing to snooze — not a real occurrence key', { occurrenceKey: key });
-      return undefined;
-    }
-
-    const { repository, clock, ids, userId, deviceId } = this.deps;
-
-    const settings = await repository.getHouseholdSettings();
-    if (!settings) {
-      return undefined;
-    }
-
-    const existing = await repository.snoozesForOccurrence(key);
-    const state = deriveSnoozeState(existing, key);
-    if (!state.canSnooze) {
-      // The bound is reached. Deliberately silent rather than an error: the occurrence simply
-      // stays overdue and keeps ringing, which is the fail-closed direction for a missed dose.
-      this.log.debug('snooze refused — bound reached', { occurrenceKey: key, count: state.count });
-      return undefined;
-    }
-
-    return repository.recordSnooze(
-      buildDoseSnooze(key, settings.snoozeMinutes, state.count, { clock, ids, userId, deviceId }, atMs),
-    );
-  }
-
-  /**
-   * Rebuilds the `Occurrence` behind an `occurrenceKey`, by re-expanding just its schedule across
-   * the day the dose was due.
-   *
-   * The key carries only the schedule id and the instant, but `recordDose` needs the patient,
-   * medicine and dosage too — and re-deriving them through `expandSchedules` rather than reading
-   * them off the schedule row directly means a dose recorded from a notification goes through the
-   * exact same DST-aware expansion as one recorded in the UI.
-   */
-  private async resolveOccurrence(key: string): Promise<Occurrence | undefined> {
-    const parsed = parseOccurrenceKey(key);
-    if (!parsed) {
-      return undefined;
-    }
-
-    const { repository } = this.deps;
-    const settings = await repository.getHouseholdSettings();
-    if (!settings) {
-      return undefined;
-    }
-
-    const schedules = await repository.allSchedules();
-    const schedule = schedules.find((candidate) => candidate.id === parsed.scheduleId);
-    if (!schedule) {
-      return undefined;
-    }
-
-    const dueMs = fromIso(parsed.dueAt);
-    const occurrences = expandSchedules(
-      [schedule],
-      { fromMs: dueMs - MS_PER_DAY, toMs: dueMs + MS_PER_DAY },
-      settings.timeZone,
-    );
-
-    return occurrences.find((occurrence) => occurrenceKey(occurrence) === key);
   }
 
   private async readPermissions(): Promise<AlarmPermissions> {
@@ -386,11 +233,14 @@ export class AlarmEngine {
       native.hasNotificationPolicyAccess(),
     ]);
 
+    const pushRegistered = this.deps.isPushRegistered?.();
+
     return {
       canScheduleExactAlarms,
       hasNotificationPermission,
       isIgnoringBatteryOptimizations,
       hasNotificationPolicyAccess,
+      ...(pushRegistered === undefined ? {} : { hasPushRegistration: pushRegistered }),
     };
   }
 

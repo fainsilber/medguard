@@ -31,3 +31,10 @@ export const ackPendingActions = jest.fn().mockResolvedValue(undefined);
 // static value (like every other mock in this file) stays well inside tolerance without reaching
 // for ambient time here, which this file — unlike `apps/android/src/clock/**` — isn't exempt from.
 export const elapsedRealtimeMs = jest.fn().mockResolvedValue(0);
+/**
+ * Sprint A4. Null by default, matching a build with no `google-services.json` — the state the
+ * sideloadable APK is actually in, and the one whose degradation path is worth exercising by
+ * default rather than by exception.
+ */
+export const getPushToken = jest.fn().mockResolvedValue(null);
+export const addPushTokenListener = jest.fn().mockReturnValue({ remove: jest.fn() });

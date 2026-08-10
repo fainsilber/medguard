@@ -1,5 +1,11 @@
 import type { ConfigPlugin } from 'expo/config-plugins';
-import { AndroidConfig, withAndroidManifest, withDangerousMod } from 'expo/config-plugins';
+import {
+  AndroidConfig,
+  withAndroidManifest,
+  withAppBuildGradle,
+  withDangerousMod,
+  withProjectBuildGradle,
+} from 'expo/config-plugins';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -25,6 +31,10 @@ const PERMISSIONS = [
   // The chime's foreground service.
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
+  // Sprint A4's headless drain (`MedGuardHeadlessService`). Android 14+ requires a permission
+  // per foreground-service *type*, and without this one the service throws on start — which
+  // would silently lose the lock-screen tap it exists to rescue.
+  'android.permission.FOREGROUND_SERVICE_SHORT_SERVICE',
   // Battery-optimization exemption prompt (AD7, onboarding checklist).
   'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
   // Escalation-only, and only usable when canUseFullScreenIntent() says so at runtime (AD4).
@@ -126,26 +136,116 @@ const withAlarmManifestEntries: ConfigPlugin = (config) =>
       } as never,
     );
 
-    application.service.push({
-      $: {
-        'android:name': 'com.medguard.alarms.DoseAlarmService',
-        'android:enabled': 'true' as unknown as boolean,
-        'android:exported': 'false' as unknown as boolean,
-        // Not "dataSync" or "mediaProcessing": Android 15 caps those at six hours per 24h.
-        // A 45-second chime is exactly the case "mediaPlayback" exists for
-        // (docs/android-client-plan.md, "The chime").
-        'android:foregroundServiceType': 'mediaPlayback',
-      },
-    } as never);
+    application.service.push(
+      {
+        $: {
+          'android:name': 'com.medguard.alarms.DoseAlarmService',
+          'android:enabled': 'true' as unknown as boolean,
+          'android:exported': 'false' as unknown as boolean,
+          // Not "dataSync" or "mediaProcessing": Android 15 caps those at six hours per 24h.
+          // A 45-second chime is exactly the case "mediaPlayback" exists for
+          // (docs/android-client-plan.md, "The chime").
+          'android:foregroundServiceType': 'mediaPlayback',
+        },
+      } as never,
+      {
+        // Sprint A4: the headless JS runtime that converts a lock-screen tap into a dose when the
+        // app process is dead. "shortService" is the type for exactly this — a brief, bounded
+        // piece of work the user just asked for — and it is not subject to Android 15's six-hour
+        // cap because it cannot run long enough to reach it.
+        $: {
+          'android:name': 'com.medguard.alarms.MedGuardHeadlessService',
+          'android:enabled': 'true' as unknown as boolean,
+          'android:exported': 'false' as unknown as boolean,
+          'android:foregroundServiceType': 'shortService',
+        },
+      } as never,
+    );
+
+    if (hasGoogleServicesFile(config)) {
+      application.service.push({
+        // Registered only when there is a Firebase project to talk to. Declaring the service
+        // without `google-services.json` would leave a receiver Firebase can never initialise.
+        $: {
+          'android:name': 'com.medguard.alarms.MedGuardMessagingService',
+          'android:enabled': 'true' as unknown as boolean,
+          'android:exported': 'false' as unknown as boolean,
+        },
+        'intent-filter': [
+          {
+            action: [{ $: { 'android:name': 'com.google.firebase.MESSAGING_EVENT' } }],
+          },
+        ],
+      } as never);
+    }
 
     return modConfig;
   });
+
+/**
+ * Firebase Cloud Messaging (Sprint A4) is wired in **only when a `google-services.json` is
+ * present**, and everything below it degrades honestly when it isn't.
+ *
+ * This is deliberate, not a shortcut. The household's local alarms are the primary mechanism and
+ * need no Firebase project at all; the server push is a backstop. Making Firebase mandatory would
+ * mean the sideloadable APK (`.github/workflows/android-apk.yml`, which builds on a GitHub-hosted
+ * runner with no secrets) could no longer be built by anyone who has not first created a Firebase
+ * project — trading a working build for a feature that only matters once the API also has a
+ * service-account secret. With the file absent, `getPushToken()` returns null, the device
+ * registers no push credential, and `alarmHealth` reports that the server backstop is unavailable
+ * rather than pretending it is there.
+ */
+function hasGoogleServicesFile(config: Parameters<ConfigPlugin>[0]): boolean {
+  const declared = config.android?.googleServicesFile;
+  if (declared) {
+    return fs.existsSync(path.resolve(process.cwd(), declared));
+  }
+  return fs.existsSync(path.resolve(process.cwd(), 'google-services.json'));
+}
+
+/** The Google Services Gradle plugin, which is what turns `google-services.json` into a config. */
+const withFirebaseGradle: ConfigPlugin = (config) => {
+  let result = withProjectBuildGradle(config, (modConfig) => {
+    if (
+      modConfig.modResults.language === 'groovy' &&
+      !modConfig.modResults.contents.includes('com.google.gms:google-services')
+    ) {
+      modConfig.modResults.contents = modConfig.modResults.contents.replace(
+        /dependencies\s*{/,
+        (match) => `${match}\n        classpath('com.google.gms:google-services:4.4.2')`,
+      );
+    }
+    return modConfig;
+  });
+
+  result = withAppBuildGradle(result, (modConfig) => {
+    const { contents } = modConfig.modResults;
+    if (modConfig.modResults.language !== 'groovy') {
+      return modConfig;
+    }
+    if (!contents.includes("apply plugin: 'com.google.gms.google-services'")) {
+      modConfig.modResults.contents = `${contents}\napply plugin: 'com.google.gms.google-services'\n`;
+    }
+    if (!modConfig.modResults.contents.includes('firebase-messaging')) {
+      modConfig.modResults.contents = modConfig.modResults.contents.replace(
+        /dependencies\s*{/,
+        (match) => `${match}\n    implementation("com.google.firebase:firebase-messaging:24.0.0")`,
+      );
+    }
+    return modConfig;
+  });
+
+  return result;
+};
 
 const withMedGuardAlarms: ConfigPlugin = (config) => {
   let result = config;
   result = AndroidConfig.Permissions.withPermissions(result, [...PERMISSIONS]);
   result = withAlarmManifestEntries(result);
   result = withDataExtractionResources(result);
+  if (hasGoogleServicesFile(config)) {
+    result = withFirebaseGradle(result);
+  }
   return result;
 };
 

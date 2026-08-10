@@ -6,6 +6,7 @@ import type {
   MedGuardAlarmsModuleEvents,
   PendingActionEvent,
   PendingActionRecord,
+  PushTokenEvent,
   ScheduleDoseAlarmInput,
 } from './MedGuardAlarms.types';
 
@@ -14,6 +15,7 @@ export type {
   MedGuardChannelId,
   PendingActionEvent,
   PendingActionRecord,
+  PushTokenEvent,
   ScheduleDoseAlarmInput,
 } from './MedGuardAlarms.types';
 
@@ -33,6 +35,7 @@ interface MedGuardAlarmsNativeModule {
   showStatusNotification(title: string, body: string): Promise<void>;
   clearStatusNotification(): Promise<void>;
   addListener(event: 'onPendingAction', listener: (payload: PendingActionEvent) => void): EventSubscription;
+  addListener(event: 'onPushToken', listener: (payload: PushTokenEvent) => void): EventSubscription;
   /** Fires immediately: the standalone chime demo for the A0 exit gate and manual QA item 1. */
   playTestChime(chimeDurationSeconds: number): Promise<void>;
   canScheduleExactAlarms(): Promise<boolean>;
@@ -69,6 +72,12 @@ interface MedGuardAlarmsNativeModule {
    * identical to a caregiver winding the wall clock forward.
    */
   elapsedRealtimeMs(): Promise<number>;
+  /**
+   * The FCM registration token, or `null` when this build has no Firebase project configured or
+   * Firebase has not issued one yet. Null is a supported state — local alarms are primary, and a
+   * device with no token simply has no server backstop, which `alarmHealth` says out loud.
+   */
+  getPushToken(): Promise<string | null>;
 }
 
 const nativeModule = requireNativeModule<MedGuardAlarmsNativeModule>('MedGuardAlarms');
@@ -130,5 +139,16 @@ export const readPendingActions = (): Promise<PendingActionRecord[]> => nativeMo
 export const ackPendingActions = (ids: string[]): Promise<void> => nativeModule.ackPendingActions(ids);
 
 export const elapsedRealtimeMs = (): Promise<number> => nativeModule.elapsedRealtimeMs();
+
+export const getPushToken = (): Promise<string | null> => nativeModule.getPushToken();
+
+/**
+ * Fires when Firebase rotates this device's registration token — after a reinstall, a restore, or
+ * on its own schedule. Best-effort: the token is also written to native storage, because
+ * `onNewToken` frequently fires with no JS runtime alive at all.
+ */
+export const addPushTokenListener = (
+  listener: (event: PushTokenEvent) => void,
+): EventSubscription => nativeModule.addListener('onPushToken', listener);
 
 export type { MedGuardAlarmsModuleEvents };

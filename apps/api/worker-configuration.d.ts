@@ -6,6 +6,7 @@ interface __BaseEnv_Env {
 	VAPID_PUBLIC_KEY: string;
 	VAPID_PRIVATE_KEY: string;
 	VAPID_SUBJECT: string;
+	FCM_SERVICE_ACCOUNT: string;
 	HOUSEHOLD: DurableObjectNamespace<import("./src/index").HouseholdDO>;
 }
 declare namespace Cloudflare {

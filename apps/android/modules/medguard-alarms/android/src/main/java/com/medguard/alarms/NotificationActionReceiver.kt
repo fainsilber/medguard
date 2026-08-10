@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.ContextCompat
 
 /**
  * Handles the "Taken" / "Snooze" notification actions. May run with the app process dead and
@@ -16,10 +17,9 @@ import android.content.Intent
  *
  * Two paths get it there, and the order matters. If a JS runtime happens to be alive — the common
  * case for a phone that is merely locked rather than freshly booted — `emitPendingAction` hands
- * the tap over immediately and the dose is logged and synced within seconds. If it is not, the
- * `PendingActionStore` row above is the whole record, and it is applied at the next app launch or
- * foreground. A `HeadlessJsTaskService` would close that last gap; it is deferred to A4, where the
- * headless bootstrap gets built once and shared with the FCM data-message handler A4 needs anyway.
+ * the tap over immediately and the dose is logged and synced within seconds. If it is not,
+ * Sprint A4's `MedGuardHeadlessService` starts one with no UI and drains through the same code.
+ * The durable row is still written first either way: neither path is trusted to be the record.
  */
 class NotificationActionReceiver : BroadcastReceiver() {
     companion object {
@@ -44,7 +44,21 @@ class NotificationActionReceiver : BroadcastReceiver() {
         // lines the tap is still on disk; if they were swapped, a JS listener that received the
         // event and then died would leave no record anywhere that the caregiver had acted.
         PendingActionStore.add(context, occurrenceKey, action, tappedAtMs)
-        MedGuardAlarmsModule.emitPendingAction(occurrenceKey, action, tappedAtMs)
+
+        if (MedGuardAlarmsModule.hasLiveRuntime()) {
+            MedGuardAlarmsModule.emitPendingAction(occurrenceKey, action, tappedAtMs)
+        } else {
+            // No JS runtime at all — the app process is dead, which is the normal state for a
+            // phone that has been locked for hours. Start one headlessly rather than leaving the
+            // tap until the caregiver next opens the app: from Sprint A4 that delay can cost a
+            // spurious escalation to the other caregiver for a dose that was actually given.
+            runCatching {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, MedGuardHeadlessService::class.java),
+                )
+            }
+        }
 
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
         if (notificationId != -1) {

@@ -18,6 +18,24 @@ const allGranted: AlarmPermissions = {
 };
 
 describe('deriveAlarmHealth', () => {
+  it('says nothing about the server backstop until registration has been attempted', () => {
+    // `undefined`, not `false`: registration is asynchronous and normally completes moments after
+    // launch, so warning in that window would be a warning that fixes itself unread.
+    expect(deriveAlarmHealth(allGranted, 1).risks).toEqual([]);
+  });
+
+  it('flags a device the server cannot reach — no escalation would ever arrive on it', () => {
+    const health = deriveAlarmHealth({ ...allGranted, hasPushRegistration: false }, 1);
+
+    expect(health.risks).toEqual(['no_server_backstop']);
+    // A risk, not a blocker: local alarms are primary and still fire.
+    expect(health.armed).toBe(true);
+  });
+
+  it('clears the flag once the device is registered', () => {
+    expect(deriveAlarmHealth({ ...allGranted, hasPushRegistration: true }, 1).risks).toEqual([]);
+  });
+
   it('reports a fully-permitted device as armed with no complaints', () => {
     expect(deriveAlarmHealth(allGranted, 4)).toEqual({
       blockers: [],

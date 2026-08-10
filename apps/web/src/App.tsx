@@ -7,9 +7,10 @@ import { MedicineList } from './features/medicines/MedicineList.js';
 import { PrnScreen } from './features/prnDoses/PrnScreen.js';
 import { TodayView } from './features/today/TodayView.js';
 import { CaregiverGate } from './identity/CaregiverGate.js';
-import { ProbePage } from './probe/ProbePage.js';
+import { DiagnosticsPage } from './diagnostics/DiagnosticsPage.js';
 import { RevokedDeviceBanner } from './sync/RevokedDeviceBanner.js';
 import { SafetyWarningBanner } from './sync/SafetyWarningBanner.js';
+import { PushProvider } from './push/PushProvider.js';
 import { SyncProvider } from './sync/SyncProvider.js';
 import { SyncStatusBadge } from './sync/SyncStatusBadge.js';
 import { buttonClass, primaryButtonClass } from './ui/primitives.js';
@@ -21,8 +22,9 @@ interface TabDefinition {
 }
 
 /**
- * The Sprint 0 capability probe stays reachable rather than being deleted: it's still how the
- * Shabbat/alarm design in later sprints gets verified against real devices, not just the spec.
+ * Diagnostics stays a tab rather than a hidden route: which build is running, whether this device
+ * is actually registered for dose alerts, and the app log are the three things a caregiver has to
+ * be able to read out when something is wrong, without anyone talking them through a URL.
  */
 const TABS: TabDefinition[] = [
   { id: 'today', label: 'Today', Screen: TodayView },
@@ -31,7 +33,7 @@ const TABS: TabDefinition[] = [
   { id: 'inventory', label: 'Inventory', Screen: InventoryScreen },
   { id: 'export', label: 'Export', Screen: ExportScreen },
   { id: 'household', label: 'Household', Screen: HouseholdScreen },
-  { id: 'diagnostics', label: 'Diagnostics', Screen: ProbePage },
+  { id: 'diagnostics', label: 'Diagnostics', Screen: DiagnosticsPage },
 ];
 
 function AppShell() {
@@ -75,7 +77,9 @@ export function App() {
   return (
     <CaregiverGate>
       <SyncProvider>
-        <AppShell />
+        <PushProvider>
+          <AppShell />
+        </PushProvider>
       </SyncProvider>
     </CaregiverGate>
   );
