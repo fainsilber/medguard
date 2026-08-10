@@ -250,4 +250,46 @@ describe('SyncProvider', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(getHouseholdSession()).toBeNull();
   });
+
+  it("retries a sync on the browser's own 'online' event, not only on a WebSocket reconnect", async () => {
+    // The gap this closes: a WebSocket can survive a network outage without the browser ever
+    // reporting it 'closed' (observed against a real loopback connection under Chromium's
+    // offline emulation — apps/web/e2e/live-sync.spec.ts), so `LiveClient`'s 'open' transition,
+    // the *other* trigger for a sync retry, may simply never fire. Without a listener for the
+    // browser's own connectivity signal, a device stuck like this never recovers on its own.
+    setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+
+    let failPull = false;
+    stubFetch((url) => {
+      // A fresh device has no cursor yet, so its first pull is a bootstrap, not a delta pull.
+      if ((url.includes('/sync/pull') || url.includes('/sync/bootstrap')) && failPull) {
+        throw new Error('network unreachable');
+      }
+      return jsonResponse({ cursor: 0, records: [], hasMore: false });
+    });
+
+    await renderWithRepository(
+      <SyncProvider>
+        <SyncStatusBadge />
+      </SyncProvider>,
+      { clock: fixedClock('2026-08-03T12:00:00.000Z') },
+    );
+
+    // Connects normally first, matching the real scenario: the socket was genuinely open before
+    // the outage, and — per `FakeWebSocket` here standing in for the confirmed real behaviour —
+    // simply never emits a `close` when the network drops, so it is still 'open' throughout.
+    FakeWebSocket.latest().open();
+    await screen.findByText('Synced');
+
+    failPull = true;
+    // A broadcast arriving mid-outage is what a real sync attempt during one looks like from
+    // this component's side — it fails, and the socket is never told it should close.
+    FakeWebSocket.latest().message({ type: 'sync', cursor: 1 });
+    await screen.findByText('Sync error');
+
+    failPull = false;
+    window.dispatchEvent(new Event('online'));
+
+    await screen.findByText('Synced');
+  });
 });

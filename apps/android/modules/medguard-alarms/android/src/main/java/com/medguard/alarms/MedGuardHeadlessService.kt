@@ -24,8 +24,12 @@ import com.facebook.react.jstasks.HeadlessJsTaskConfig
  * tested repository transaction, exactly as it does at app launch.
  */
 class MedGuardHeadlessService : HeadlessJsTaskService() {
-    override fun getTaskConfig(intent: Intent): HeadlessJsTaskConfig =
-        HeadlessJsTaskConfig(
+    // Both types nullable to match HeadlessJsTaskService's actual signature exactly — Kotlin
+    // requires an exact match to count as an override, and `Intent`/`HeadlessJsTaskConfig`
+    // (non-null) does not satisfy `Intent?`/`HeadlessJsTaskConfig?`.
+    override fun getTaskConfig(intent: Intent?): HeadlessJsTaskConfig? {
+        if (intent == null) return null
+        return HeadlessJsTaskConfig(
             TASK_NAME,
             intent.extras?.let { Arguments.fromBundle(it) } ?: Arguments.createMap(),
             TASK_TIMEOUT_MS,
@@ -33,6 +37,7 @@ class MedGuardHeadlessService : HeadlessJsTaskService() {
             // registered, and "no runtime" and "no visible activity" are not the same state.
             true,
         )
+    }
 
     companion object {
         /** Must match `AppRegistry.registerHeadlessTask` in `apps/android/index.ts`. */
