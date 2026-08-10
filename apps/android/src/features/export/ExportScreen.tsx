@@ -43,7 +43,9 @@ export function ExportScreen(): React.JSX.Element {
 
   const rows = useMemo(() => {
     if (!logs) return undefined;
-    return [...effectiveLogs(logs)].sort((a, b) => fromIso(a.actualTime) - fromIso(b.actualTime));
+    // Newest first — a caregiver checking the log wants to see what just happened, not scroll
+    // past months of history to reach today.
+    return [...effectiveLogs(logs)].sort((a, b) => fromIso(b.actualTime) - fromIso(a.actualTime));
   }, [logs]);
 
   const [sharing, setSharing] = useState(false);

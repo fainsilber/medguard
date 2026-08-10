@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AppState } from 'react-native';
 import * as MedGuardAlarms from '../../modules/medguard-alarms/src';
@@ -18,6 +18,7 @@ import { AlarmEngine } from './AlarmEngine.js';
 import { registerForPush } from './pushRegistration.js';
 import type { AlarmEngineState } from './AlarmEngine.js';
 import type { AlarmHealth, SyncStaleness } from './alarmHealth.js';
+import type { PushRegistrationOutcome } from './pushRegistration.js';
 
 const log = appLog('alarms');
 
@@ -37,6 +38,10 @@ interface AlarmContextValue {
   health: AlarmHealth | undefined;
   staleness: SyncStaleness | undefined;
   snooze: (occurrenceKey: string) => Promise<void>;
+  /** Undefined until the first registration attempt finishes (see `isPushRegistered` below). */
+  pushRegistration: PushRegistrationOutcome | undefined;
+  /** Lets a caregiver retry from the UI — e.g. after fixing a household sign-in problem. */
+  retryPushRegistration: () => Promise<void>;
 }
 
 const AlarmReactContext = createContext<AlarmContextValue | null>(null);
@@ -55,6 +60,7 @@ export function AlarmProvider({ children }: { children: ReactNode }) {
   // shows up in the same place every other degradation does. Undefined until the first attempt
   // finishes — see `isPushRegistered` on `AlarmEngineDeps` for why that is not `false`.
   const pushRegisteredRef = useRef<boolean | undefined>(undefined);
+  const [pushRegistration, setPushRegistration] = useState<PushRegistrationOutcome | undefined>(undefined);
 
   const engineRef = useRef<AlarmEngine | null>(null);
   if (!engineRef.current) {
@@ -139,53 +145,66 @@ export function AlarmProvider({ children }: { children: ReactNode }) {
    * which is what the `onPushToken` listener covers. Every outcome is reported through alarm
    * health rather than raised as an error: a household with no Firebase project configured is a
    * supported configuration, not a broken one.
+   *
+   * `registerPush` is also handed out through context as `retryPushRegistration`, so a caregiver
+   * who lands on "not registered" (e.g. `AlarmSetupChecklist`'s "Server alerts" row) can retry it
+   * on demand instead of waiting for the next token rotation or app launch.
    */
+  const registrationCancelledRef = useRef(false);
+
+  const registerPush = useCallback(async () => {
+    const session = await getHouseholdSession();
+    if (!session || registrationCancelledRef.current) {
+      return;
+    }
+
+    const outcome = await registerForPush({
+      apiBaseUrl: getApiBaseUrl(),
+      deviceToken: session.deviceToken,
+      getPushToken: MedGuardAlarms.getPushToken,
+      post: (url, options) => request('POST', url, options),
+    });
+    if (registrationCancelledRef.current) {
+      return;
+    }
+
+    pushRegisteredRef.current = outcome.kind === 'registered';
+    setPushRegistration(outcome);
+    if (outcome.kind !== 'registered') {
+      log.debug('no server push backstop on this device', { outcome: outcome.kind });
+    }
+    // Re-derive health so the banner and the ongoing notification reflect what just happened.
+    const next = await engineRef.current!.reconcile();
+    if (!registrationCancelledRef.current) {
+      setState(next);
+    }
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
-
-    const register = async () => {
-      const session = await getHouseholdSession();
-      if (!session || cancelled) {
-        return;
-      }
-
-      const outcome = await registerForPush({
-        apiBaseUrl: getApiBaseUrl(),
-        deviceToken: session.deviceToken,
-        getPushToken: MedGuardAlarms.getPushToken,
-        post: (url, options) => request('POST', url, options),
-      });
-      if (cancelled) {
-        return;
-      }
-
-      pushRegisteredRef.current = outcome.kind === 'registered';
-      if (outcome.kind !== 'registered') {
-        log.debug('no server push backstop on this device', { outcome: outcome.kind });
-      }
-      // Re-derive health so the banner and the ongoing notification reflect what just happened.
-      void engineRef.current!.reconcile().then((next) => {
-        if (!cancelled) {
-          setState(next);
-        }
-      });
-    };
-
-    void register();
-    const tokenSubscription = MedGuardAlarms.addPushTokenListener(() => void register());
+    registrationCancelledRef.current = false;
+    void registerPush();
+    const tokenSubscription = MedGuardAlarms.addPushTokenListener(() => void registerPush());
 
     return () => {
-      cancelled = true;
+      registrationCancelledRef.current = true;
       tokenSubscription.remove();
     };
-  }, []);
+  }, [registerPush]);
 
   const snooze = async (occurrenceKey: string) => {
     await engineRef.current!.snooze(occurrenceKey);
   };
 
   return (
-    <AlarmReactContext.Provider value={{ health: state?.health, staleness: state?.staleness, snooze }}>
+    <AlarmReactContext.Provider
+      value={{
+        health: state?.health,
+        staleness: state?.staleness,
+        snooze,
+        pushRegistration,
+        retryPushRegistration: registerPush,
+      }}
+    >
       {children}
     </AlarmReactContext.Provider>
   );

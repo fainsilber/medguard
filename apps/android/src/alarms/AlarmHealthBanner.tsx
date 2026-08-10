@@ -30,10 +30,13 @@ export function AlarmHealthBanner(): React.JSX.Element | null {
     return null;
   }
 
-  // Blockers are the only case worth an explicit fix flow: a risk (battery optimisation, DND)
-  // and staleness both resolve themselves once the underlying condition clears, but a blocker
-  // needs a caregiver to actually go grant something.
-  const showFixAction = health.blockers.length > 0;
+  // Blockers always need a caregiver to go grant something. Most risks (battery optimisation,
+  // DND) and staleness instead resolve themselves once the underlying condition clears — but
+  // `no_server_backstop` is the odd one out: it doesn't ever clear on its own (the server has no
+  // way to know this device exists until it registers), and unlike a permission grant, retrying
+  // it is exactly what `AlarmSetupChecklist`'s "Server alerts" row does. So it earns a fix flow
+  // too, even though it's a risk rather than a blocker.
+  const showFixAction = health.blockers.length > 0 || health.risks.includes('no_server_backstop');
 
   return (
     <View style={styles.banner} accessibilityRole="alert">

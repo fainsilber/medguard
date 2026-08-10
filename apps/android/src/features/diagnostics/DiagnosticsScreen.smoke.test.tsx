@@ -1,4 +1,5 @@
 import { waitFor } from '@testing-library/react-native';
+import { AlarmProvider } from '../../alarms/AlarmProvider.js';
 import { SyncProvider } from '../../sync/SyncProvider.js';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import { DiagnosticsScreen } from './DiagnosticsScreen.js';
@@ -14,12 +15,18 @@ import { DiagnosticsScreen } from './DiagnosticsScreen.js';
  * `NotifyingStore` notified on every transaction, not just writes), spinning a CPU core to 100%
  * until OOM. Fixed in `packages/store/src/notifyingStore.ts` — only a transaction that actually
  * writes now notifies.
+ *
+ * Wrapped in `AlarmProvider` too, matching `App.tsx`'s real nesting (just inside `SyncProvider`):
+ * `DiagnosticsScreen` renders `AlarmSetupChecklist`, which reads `useAlarmHealth()` and throws
+ * outside a provider.
  */
 describe('DiagnosticsScreen', () => {
   it('renders once the repository has finished initializing', async () => {
     const { getByText, queryByText } = renderWithRepository(
       <SyncProvider>
-        <DiagnosticsScreen />
+        <AlarmProvider>
+          <DiagnosticsScreen />
+        </AlarmProvider>
       </SyncProvider>,
       { dbName: 'diagnostics-smoke.db' },
     );

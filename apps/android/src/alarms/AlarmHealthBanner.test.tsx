@@ -5,15 +5,18 @@ import { fireEvent, waitFor } from '@testing-library/react-native';
 // straight on the export rather than through `jest.spyOn` — and are reset explicitly afterward,
 // since a mock cleared instead of reset would resolve `undefined` and break every later test.
 import * as MedGuardAlarms from '../../modules/medguard-alarms/src';
+import { clearHouseholdSession, setHouseholdSession } from '../identity/session.js';
 import { renderWithRepository } from '../testUtils/renderWithRepository.js';
 import { seedLastSyncedAt } from '../testUtils/seedAlarmData.js';
 import { AlarmHealthBanner } from './AlarmHealthBanner.js';
 import { AlarmProvider } from './AlarmProvider.js';
 
-afterEach(() => {
+afterEach(async () => {
   (MedGuardAlarms.canScheduleExactAlarms as jest.Mock).mockResolvedValue(true);
   (MedGuardAlarms.isIgnoringBatteryOptimizations as jest.Mock).mockResolvedValue(true);
   (MedGuardAlarms.requestScheduleExactAlarm as jest.Mock).mockResolvedValue(undefined);
+  (MedGuardAlarms.getPushToken as jest.Mock).mockResolvedValue(null);
+  await clearHouseholdSession();
 });
 
 function renderBanner(dbName: string) {
@@ -77,5 +80,38 @@ describe('AlarmHealthBanner', () => {
 
     await waitFor(() => expect(getByText('MedGuard alarms may be delayed')).toBeTruthy(), WAIT_OPTIONS);
     expect(queryByText('Fix this')).toBeNull();
+  });
+
+  it('offers a fix action for the no_server_backstop risk, and retrying calls registration again', async () => {
+    // Unlike battery/DND, this risk doesn't require a native permission grant — it's a network
+    // call the caregiver can just retry, so it gets a "Fix this" flow the other risks don't.
+    const dbName = 'alarm-banner-push-risk.db';
+    await seedLastSyncedAt(dbName, '2026-01-15T08:00:00.000Z');
+    await setHouseholdSession({
+      deviceToken: 'device-token',
+      householdId: 'household-1',
+      userId: 'user-1',
+      deviceId: 'device-1',
+    });
+    // A token exists but there's no real server in this test, so the POST fails — that's still
+    // "not registered", just via `failed` rather than `no_token`.
+    (MedGuardAlarms.getPushToken as jest.Mock).mockResolvedValue('fcm-registration-token');
+
+    const { getByText } = renderBanner(dbName);
+
+    await waitFor(() => expect(getByText('MedGuard alarms may be delayed')).toBeTruthy(), WAIT_OPTIONS);
+    await waitFor(() => expect(getByText('Fix this')).toBeTruthy(), WAIT_OPTIONS);
+
+    fireEvent.press(getByText('Fix this'));
+    await waitFor(() => expect(getByText('Server alerts')).toBeTruthy(), WAIT_OPTIONS);
+    expect(getByText('not registered')).toBeTruthy();
+
+    const callsBeforeRetry = (MedGuardAlarms.getPushToken as jest.Mock).mock.calls.length;
+    fireEvent.press(getByText('Retry'));
+
+    await waitFor(
+      () => expect((MedGuardAlarms.getPushToken as jest.Mock).mock.calls.length).toBeGreaterThan(callsBeforeRetry),
+      WAIT_OPTIONS,
+    );
   });
 });

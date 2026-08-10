@@ -134,7 +134,7 @@ type TabParamList = {
   Medicines: undefined;
   'As needed': undefined;
   Inventory: undefined;
-  Export: undefined;
+  Log: undefined;
   Household: undefined;
   Diagnostics: undefined;
 };
@@ -153,7 +153,7 @@ const TAB_ICONS: Record<keyof TabParamList, string> = {
   Medicines: '💊',
   'As needed': '⏱️',
   Inventory: '📦',
-  Export: '📤',
+  Log: '📤',
   Household: '🏠',
   Diagnostics: '🛠️',
 };
@@ -175,7 +175,7 @@ export function AppNavigator(): React.JSX.Element {
       />
       <Tab.Screen name="As needed" component={PrnScreen} options={{ tabBarIcon: makeTabBarIcon('As needed') }} />
       <Tab.Screen name="Inventory" component={InventoryScreen} options={{ tabBarIcon: makeTabBarIcon('Inventory') }} />
-      <Tab.Screen name="Export" component={ExportScreen} options={{ tabBarIcon: makeTabBarIcon('Export') }} />
+      <Tab.Screen name="Log" component={ExportScreen} options={{ tabBarIcon: makeTabBarIcon('Log') }} />
       <Tab.Screen name="Household" component={HouseholdScreen} options={{ tabBarIcon: makeTabBarIcon('Household') }} />
       <Tab.Screen
         name="Diagnostics"
