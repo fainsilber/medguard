@@ -11,6 +11,8 @@ import {
   requestScheduleExactAlarm,
 } from '../../modules/medguard-alarms/src';
 import { Button, colors } from '../ui/primitives.js';
+import { useAlarmHealth } from './AlarmProvider.js';
+import type { PushRegistrationOutcome } from './pushRegistration.js';
 
 /**
  * The guided setup checklist AD7 owes: everything a caregiver can grant, plus an honest statement
@@ -22,15 +24,18 @@ import { Button, colors } from '../ui/primitives.js';
  * proactively) and `AlarmHealthBanner` (surfaced reactively, only when something is actually
  * wrong) — one component rather than two copies of four permission rows.
  *
- * Reads permission state directly from the native module rather than through `useAlarmHealth()`,
- * so a caregiver mid-fix sees each grant land immediately rather than waiting for the next
- * `AlarmEngine.reconcile()` pass to notice.
+ * Reads the four OS permission rows directly from the native module rather than through
+ * `useAlarmHealth()`, so a caregiver mid-fix sees each grant land immediately rather than waiting
+ * for the next `AlarmEngine.reconcile()` pass to notice. The "Server alerts" row is the exception:
+ * push registration isn't a native permission, it's a network call, so it reads and retries
+ * through `useAlarmHealth()`'s `pushRegistration`/`retryPushRegistration`.
  */
 export function AlarmSetupChecklist(): React.JSX.Element {
   const [exactAlarmsArmed, setExactAlarmsArmed] = useState<boolean | null>(null);
   const [batteryExempt, setBatteryExempt] = useState<boolean | null>(null);
   const [notificationsGranted, setNotificationsGranted] = useState<boolean | null>(null);
   const [dndBypassGranted, setDndBypassGranted] = useState<boolean | null>(null);
+  const { pushRegistration, retryPushRegistration } = useAlarmHealth();
 
   const refresh = useCallback(() => {
     canScheduleExactAlarms().then(setExactAlarmsArmed);
@@ -89,6 +94,14 @@ export function AlarmSetupChecklist(): React.JSX.Element {
         onRequest={onRequestDndAccess}
         actionLabel="Grant"
       />
+      <ChecklistRow
+        label="Server alerts"
+        granted={pushRegistration === undefined ? null : pushRegistration.kind === 'registered'}
+        detail={describePushRegistration(pushRegistration)}
+        onRequest={() => void retryPushRegistration()}
+        actionLabel="Retry"
+        statusLabels={{ granted: 'registered', notGranted: 'not registered' }}
+      />
 
       <View style={{ gap: 4, paddingTop: 4 }}>
         <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>
@@ -112,12 +125,14 @@ function ChecklistRow({
   detail,
   onRequest,
   actionLabel,
+  statusLabels = { granted: 'granted', notGranted: 'not granted' },
 }: {
   label: string;
   granted: boolean | null;
   detail: string;
   onRequest: () => void;
   actionLabel: string;
+  statusLabels?: { granted: string; notGranted: string };
 }): React.JSX.Element {
   return (
     <View style={{ gap: 4 }}>
@@ -130,11 +145,26 @@ function ChecklistRow({
             color: granted === false ? colors.locked : granted === true ? colors.safe : colors.textMuted,
           }}
         >
-          {granted === null ? 'checking…' : granted ? 'granted' : 'not granted'}
+          {granted === null ? 'checking…' : granted ? statusLabels.granted : statusLabels.notGranted}
         </Text>
       </View>
       <Text style={{ fontSize: 12, color: colors.textMuted }}>{detail}</Text>
       {granted === false ? <Button label={actionLabel} onPress={onRequest} /> : null}
     </View>
   );
+}
+
+/** Wording for the "Server alerts" row — mirrors `RISK_WORDING.no_server_backstop` in tone. */
+function describePushRegistration(outcome: PushRegistrationOutcome | undefined): string {
+  if (!outcome) {
+    return 'Lets the server send an escalation to this device if a dose goes unconfirmed.';
+  }
+  switch (outcome.kind) {
+    case 'registered':
+      return 'This device will receive an escalation from the server if a dose goes unconfirmed.';
+    case 'no_token':
+      return 'No push token yet — this build may have no Firebase project configured, or Firebase has not issued one yet.';
+    case 'failed':
+      return `Registration failed: ${outcome.error}`;
+  }
 }
