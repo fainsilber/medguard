@@ -35,7 +35,7 @@ const config: ExpoConfig = {
   // `expo prebuild` falls back to the stock Expo/Android launcher icon.
   icon: './assets/icon.png',
   android: {
-    package: 'com.medguard.app',
+    package: 'il.co.fainsilber.med',
     // Android's auto-backup would otherwise copy the on-device dosing history into the
     // user's Google Drive by default (docs/android-client-plan.md, "data-handling
     // requirements"; docs/data-handling.md). The plugin also sets explicit
