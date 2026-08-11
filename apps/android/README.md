@@ -534,14 +534,14 @@ Once the app is installed and Metro connects:
    `onPendingAction` event should apply it within seconds, before any relaunch is even needed —
    worth confirming both timings. To inspect the durable capture directly before it's applied:
    `adb logcat | grep medguard_pending_actions` or
-   `adb shell run-as com.medguard.app cat /data/data/com.medguard.app/shared_prefs/medguard_pending_actions.xml`
+  `adb shell run-as il.co.fainsilber.med cat /data/data/il.co.fainsilber.med/shared_prefs/medguard_pending_actions.xml`
    — it should go empty once `ackPendingActions` runs.
 
 Useful commands while testing:
 
 ```bash
 adb logcat | grep -i medguard          # this app's log lines
-adb shell dumpsys alarm | grep -A5 com.medguard.app   # confirm the alarm is actually scheduled
+adb shell dumpsys alarm | grep -A5 il.co.fainsilber.med   # confirm the alarm is actually scheduled
 adb shell dumpsys deviceidle whitelist | grep medguard # confirm battery-optimization exemption
 ```
 
