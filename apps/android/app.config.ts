@@ -1,4 +1,6 @@
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { ExpoConfig } from 'expo/config';
 
 /**
@@ -15,6 +17,34 @@ function gitShortSha(): string {
     return 'unknown';
   }
 }
+
+/**
+ * The path to `google-services.json` when a Firebase project has been configured, `undefined`
+ * otherwise.
+ *
+ * Two separate things read this file and both have to agree, which is why it is stated here
+ * rather than left implicit:
+ *
+ *  - `plugins/withMedGuardAlarms.ts` uses its presence to decide whether to apply the Google
+ *    Services Gradle plugin and the `firebase-messaging` dependency at all.
+ *  - Expo's own `withGoogleServicesFile` base mod is what actually *copies* the file into the
+ *    generated `android/app/`, and it only runs when `android.googleServicesFile` is set. Leave
+ *    it unset and prebuild produces a project that applies `com.google.gms.google-services`
+ *    with no JSON for it to read, so `assembleRelease` dies with "File google-services.json is
+ *    missing" — the Firebase-enabled build fails outright while the file sits one directory up.
+ *
+ * Conditional rather than a constant because declaring a path to a file that isn't there makes
+ * prebuild throw, and "no Firebase project" is a supported state everywhere else in this app
+ * (see the long comment on `hasGoogleServicesFile` in the plugin). Resolved against this config's
+ * own directory, not `process.cwd()`, so the answer doesn't depend on where prebuild was invoked
+ * from.
+ */
+function resolveGoogleServicesFile(): string | undefined {
+  const relativePath = './google-services.json';
+  return fs.existsSync(path.resolve(__dirname, relativePath)) ? relativePath : undefined;
+}
+
+const googleServicesFile = resolveGoogleServicesFile();
 
 /**
  * Continuous native generation: no committed `android/` directory. Every manifest entry the
@@ -36,6 +66,10 @@ const config: ExpoConfig = {
   icon: './assets/icon.png',
   android: {
     package: 'il.co.fainsilber.med',
+    // Spread, not `googleServicesFile: …` — `exactOptionalPropertyTypes` rejects an explicit
+    // `undefined` on an optional property, and leaving the key off entirely is what Expo wants
+    // for the no-Firebase build regardless.
+    ...(googleServicesFile ? { googleServicesFile } : {}),
     // Android's auto-backup would otherwise copy the on-device dosing history into the
     // user's Google Drive by default (docs/android-client-plan.md, "data-handling
     // requirements"; docs/data-handling.md). The plugin also sets explicit
