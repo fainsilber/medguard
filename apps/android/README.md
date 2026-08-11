@@ -84,9 +84,17 @@ silently losing the tap it exists to rescue.
 **To turn the backstop on** (both halves are needed, and neither is in this repo):
 
 1. Create a Firebase project, add an Android app with this package name, download
-   `google-services.json` into `apps/android/` (gitignored).
+   `google-services.json` into `apps/android/` (gitignored). `app.config.ts` picks it up
+   automatically — it sets `android.googleServicesFile` only when the file is actually there,
+   which is what makes prebuild copy it into the generated `android/app/`. Declaring the path
+   unconditionally would instead make prebuild throw for everyone without a Firebase project.
 2. Firebase console → Project settings → Service accounts → generate a private key, then
    `cd apps/api && npx wrangler secret put FCM_SERVICE_ACCOUNT` and paste the whole JSON.
+
+For a **CI-built APK** with the backstop, add the same `google-services.json` contents as a
+GitHub Actions repository secret named `GOOGLE_SERVICES_JSON`; `.github/workflows/android-apk.yml`
+writes it back to disk before prebuild. Leave the secret unset and the workflow builds the
+local-alarms-only APK exactly as before.
 
 **Tests:** `src/alarms/pushRegistration.test.ts` and additions to `alarmHealth.test.ts` here; the
 substance is server-side in `apps/api/tests/alarms.test.ts` (the chain, the escalation boundary
