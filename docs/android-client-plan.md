@@ -653,10 +653,104 @@ Extends the existing list in `medguard-sprint-plan.md` rather than replacing it.
 5. **After a reboot**, and **after a timezone change mid-schedule.** Both are silent failures.
 6. **Is the native chime actually loud enough to wake you at 3 AM?** The web burst took four rounds
    of tuning to answer this; the native chime deserves the same scrutiny, not an assumption that
-   45 seconds of alarm audio settles it.
+   45 seconds of alarm audio settles it. ✅ **Confirmed 2026-08-11** — audible at 50% alarm-stream
+   volume across several real dose-alarm firings this week. No tuning change needed.
 7. **The OEM battery-manager gauntlet** — whichever of Xiaomi / Huawei / Samsung / Oppo is actually
    in the household, with the setup checklist followed and then deliberately *not* followed, to see
    what the degraded state looks like.
+
+---
+
+## Compressed reliability verification (emulator + adb)
+
+Items 2, 4, and 5 above don't inherently need 25 real hours or physical hardware — they need
+*Doze/process-death edge cases to occur*, and `adb` can force those directly instead of waiting for
+them. This is Android's own documented technique for Doze testing, not a workaround. Run it against
+an emulator (Google Play or Google APIs system image, any API level ≥ 31) rather than a real phone;
+no USB, no waiting, no sandbox-without-an-SDK problem.
+
+**What this does and doesn't prove.** `AlarmScheduler.kt` arms every dose with
+`AlarmManager.setAlarmClock()`, not `setExactAndAllowWhileIdle` — the strongest exemption AOSP
+offers; the OS treats the app as having a user-visible alarm clock and is contractually obligated to
+fire it even in deep Doze. So this procedure isn't testing "does Doze eat the alarm" (that should
+structurally never happen on stock AOSP); it's testing everything *downstream* of the OS honoring
+that contract: does the headless JS task cold-start correctly when the process was killed, does the
+notification/full-screen-intent still render, does the chime stream still play, does nothing
+duplicate or drop across many cycles. **It cannot exercise item 7.** OEM battery managers
+(MIUI/EMUI/One UI/ColorOS) layer their own non-AOSP killers on top of this and are exactly what a
+generic emulator system image doesn't have — that check still needs the real device(s).
+
+### Setup
+
+1. Android Studio → Device Manager → create a Pixel-class AVD, **Google Play** system image (not
+   "Google APIs" — Play images are closer to what a real device enforces), API 33+ to match
+   `POST_NOTIFICATIONS`/`USE_EXACT_ALARM` behavior.
+2. Build and install a debug build onto it:
+   ```
+   cd apps/android
+   npx expo prebuild --platform android
+   npx expo run:android
+   ```
+3. In the running app: **Diagnostics tab** → grant notification permission and confirm
+   "can schedule exact alarms" via the existing buttons there — `USE_EXACT_ALARM` is install-time
+   granted on API 33+, so this is normally already true; the checklist button just confirms it. Also
+   run **"Ignore battery optimizations"** — the real two-phone test needs this granted, so the drill
+   should too.
+4. Arm a real dose 60–90 seconds out using the Diagnostics tab's existing locked-phone alarm spike
+   (`onScheduleLockedPhoneAlarm`), or an actual medication schedule if testing the full receive path
+   including sync. Lock the emulator (power button icon in the emulator toolbar, or `adb shell input
+   keyevent KEYCODE_POWER`).
+
+### Forcing Doze cycles
+
+```
+# Tell the OS the device is unplugged — Doze eligibility requires this.
+adb shell dumpsys battery unplug
+
+# Jump straight to deep idle instead of waiting through the screen-off + stationary detection.
+adb shell dumpsys deviceidle force-idle
+
+# Confirm the state took effect.
+adb shell dumpsys deviceidle | grep mState
+
+# Step the Doze state machine forward one stage at a time (IDLE_PENDING -> IDLE ->
+# IDLE_MAINTENANCE -> IDLE -> ...). Each call simulates the OS reaching the next natural
+# transition. Run this in a loop with a short sleep to cycle through many hours' worth of
+# transitions in minutes:
+for i in $(seq 1 20); do
+  adb shell cmd deviceidle step deep
+  sleep 5
+done
+
+# Undo when finished — leaving the emulator forced into idle affects anything else you test after.
+adb shell dumpsys deviceidle unforce
+adb shell dumpsys battery reset
+```
+
+Watch `adb logcat` (filter on the app's package, `il.co.fainsilber.med`, and on `AlarmManager`) while
+this runs, and check the app's own exportable log afterward (Diagnostics → Share log) for the
+alarm's actual fire time against what was armed, and for the headless task's pending-action write.
+
+### Force-stop and reboot (items 4 and 5)
+
+```
+# Simulate the app process being killed while an alarm is armed.
+adb shell am force-stop il.co.fainsilber.med
+# ...then let the armed alarm fire, tap the lock-screen "Taken" action, and confirm in the exported
+# log that the dose landed with the *tap* timestamp, not a later drain timestamp.
+
+# Reboot — confirm alarms still fire after BOOT_COMPLETED re-arms them, without reopening the app.
+adb reboot
+
+# Timezone change mid-schedule.
+adb shell service call alarm 3 s16 Asia/Jerusalem   # or another zone, then back
+```
+
+### What still needs a real device
+
+Item 7 (the OEM gauntlet) and any residual doubt about item 2 that this procedure doesn't resolve —
+run those on the two real phones before treating A4's exit gate as fully closed. Everything else
+above should give strong confidence in well under an hour instead of a blind 25-hour wait.
 
 ---
 
