@@ -4,12 +4,15 @@ import {
   assessDose,
   blockReasonFor,
   formatCountdown,
+  formatLocalDate,
   formatLocalTime,
   fromIso,
   isDosePermitted,
   lastAdministeredDose,
+  resolveLocal,
+  toIso,
 } from '@medguard/shared';
-import type { BlockReason, ClockTrust, DoseSafety, IntakeLog, Medicine } from '@medguard/shared';
+import type { BlockReason, ClockTrust, DoseSafety, IntakeLog, IsoInstant, Medicine } from '@medguard/shared';
 import {
   useClock,
   useCurrentDeviceId,
@@ -57,6 +60,8 @@ const STATE_LABEL: Record<DoseSafety['state'], string> = {
  */
 type OverridePhase = 'closed' | 'reason' | 'confirm';
 
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 export function PrnCard({
   medicine,
   logs,
@@ -78,6 +83,9 @@ export function PrnCard({
   const [overridePhase, setOverridePhase] = useState<OverridePhase>('closed');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [customTime, setCustomTime] = useState('');
+  const [timeError, setTimeError] = useState<string | null>(null);
 
   const safety = assessDose({
     medicine,
@@ -91,7 +99,7 @@ export function PrnCard({
     setReason('');
   };
 
-  const give = async (override?: { reason: string; blockedBy: BlockReason }) => {
+  const give = async (actualTimeIso: IsoInstant, override?: { reason: string; blockedBy: BlockReason }) => {
     setSaving(true);
     try {
       await repository.recordDose({
@@ -100,7 +108,7 @@ export function PrnCard({
         medicineId: medicine.id,
         type: 'prn',
         status: 'taken',
-        actualTime: clock.nowIso(),
+        actualTime: actualTimeIso,
         quantityTaken: 1,
         loggedByUserId: userId,
         loggedByDeviceId: deviceId,
@@ -116,12 +124,28 @@ export function PrnCard({
           : {}),
       });
       resetOverride();
+      setShowTimePicker(false);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleGive = () => void give();
+  const handleGive = () => void give(clock.nowIso());
+
+  const openTimePicker = () => {
+    setCustomTime(formatLocalTime(timeZone, clock.nowMs()));
+    setTimeError(null);
+    setShowTimePicker(true);
+  };
+
+  const handleCustomGive = () => {
+    if (!TIME_PATTERN.test(customTime)) {
+      setTimeError('Enter a time as HH:MM, e.g. 08:15.');
+      return;
+    }
+    const resolved = resolveLocal(timeZone, formatLocalDate(timeZone, clock.nowMs()), customTime);
+    void give(toIso(resolved.instantMs));
+  };
 
   const handleReasonContinue = () => {
     if (!reason.trim()) return;
@@ -131,7 +155,7 @@ export function PrnCard({
   const handleConfirmOverride = () => {
     const blockedBy = blockReasonFor(safety);
     if (!blockedBy) return; // unreachable: this button only renders when safety is blocked
-    void give({ reason: reason.trim(), blockedBy });
+    void give(clock.nowIso(), { reason: reason.trim(), blockedBy });
   };
 
   const permitted = isDosePermitted(safety);
@@ -172,13 +196,47 @@ export function PrnCard({
         </Text>
       )}
 
-      {permitted && (
-        <Button
-          label={saving ? 'Recording…' : 'Give dose'}
-          variant="primary"
-          disabled={saving}
-          onPress={handleGive}
-        />
+      {permitted && !showTimePicker && (
+        <View style={sharedStyles.row}>
+          <Button
+            label={saving ? 'Recording…' : 'Give dose'}
+            variant="primary"
+            disabled={saving}
+            onPress={handleGive}
+          />
+          <Button label="Different time…" disabled={saving} onPress={openTimePicker} />
+        </View>
+      )}
+
+      {permitted && showTimePicker && (
+        <View style={cardStyles.overridePanel}>
+          <Text style={sharedStyles.label}>When was it actually given?</Text>
+          <View style={sharedStyles.row}>
+            <TextInput
+              style={[sharedStyles.input, cardStyles.timeInput]}
+              value={customTime}
+              editable={!saving}
+              onChangeText={(value) => {
+                setCustomTime(value);
+                setTimeError(null);
+              }}
+              placeholder="08:15"
+              accessibilityLabel="Time given"
+            />
+            <Button
+              label={saving ? 'Recording…' : 'Save'}
+              variant="primary"
+              disabled={saving || !customTime}
+              onPress={handleCustomGive}
+            />
+            <Button label="Cancel" disabled={saving} onPress={() => setShowTimePicker(false)} />
+          </View>
+          {timeError ? (
+            <Text style={sharedStyles.errorText} accessibilityRole="alert">
+              {timeError}
+            </Text>
+          ) : null}
+        </View>
       )}
 
       {!permitted && overridePhase === 'closed' && (
@@ -241,5 +299,6 @@ const cardStyles = StyleSheet.create({
   },
   confirmPanel: { borderWidth: 1 },
   reasonInput: { minHeight: 60, textAlignVertical: 'top' },
+  timeInput: { width: 100 },
   confirmText: { fontSize: 13, fontWeight: '600', color: colors.locked },
 });

@@ -290,6 +290,27 @@ describe('the double-dose race', () => {
     expect(outcomeFor(resend, log.id)).toBe('duplicate');
     expect(resend.blocked).toEqual([]);
   });
+
+  it('never lets a dose correction be blocked by the stale timestamp of the log it supersedes', async () => {
+    const session = await createHousehold();
+    await push(session, [{ table: 'medicines', record: medicine({ minHoursBetweenDoses: 4 }) }]);
+
+    const original = intakeLog({ actualTime: '2026-08-03T14:00:00.000Z' });
+    await push(session, [{ table: 'intakeLogs', record: original }]);
+
+    // Correcting the dose 30 minutes earlier: with the original still sitting in comparison
+    // history at its later, un-superseded actualTime, the corrected (earlier) "now" would see the
+    // original as a future dose still inside the cooldown window and get blocked against itself.
+    const corrected = intakeLog({
+      id: '99999999-9999-4999-8999-999999999999',
+      actualTime: '2026-08-03T13:30:00.000Z',
+      supersedesId: original.id,
+    });
+    const result = await push(session, [{ table: 'intakeLogs', record: corrected }]);
+
+    expect(outcomeFor(result, corrected.id)).toBe('applied');
+    expect(result.blocked).toEqual([]);
+  });
 });
 
 describe('live channel', () => {
