@@ -91,7 +91,7 @@ export function ExportScreen(): React.JSX.Element {
         keyboardShouldPersistTaps="handled"
       >
         <Card>
-          <Text style={sharedStyles.title}>Export</Text>
+          <Text style={sharedStyles.title}>Log</Text>
           <Text style={sharedStyles.subtitle}>
             Keep a CSV copy for hospital visits — this app is a helper, not the only record.
           </Text>

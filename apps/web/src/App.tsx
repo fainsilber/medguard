@@ -31,7 +31,7 @@ const TABS: TabDefinition[] = [
   { id: 'medicines', label: 'Medicines', Screen: MedicineList },
   { id: 'prn', label: 'As needed', Screen: PrnScreen },
   { id: 'inventory', label: 'Inventory', Screen: InventoryScreen },
-  { id: 'export', label: 'Export', Screen: ExportScreen },
+  { id: 'export', label: 'Log', Screen: ExportScreen },
   { id: 'household', label: 'Household', Screen: HouseholdScreen },
   { id: 'diagnostics', label: 'Diagnostics', Screen: DiagnosticsPage },
 ];

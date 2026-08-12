@@ -35,7 +35,9 @@ export function ExportScreen() {
 
   const rows = useMemo(() => {
     if (!logs) return undefined;
-    return [...effectiveLogs(logs)].sort((a, b) => fromIso(a.actualTime) - fromIso(b.actualTime));
+    // Newest first — a caregiver checking the log wants to see what just happened, not scroll
+    // past months of history to reach today.
+    return [...effectiveLogs(logs)].sort((a, b) => fromIso(b.actualTime) - fromIso(a.actualTime));
   }, [logs]);
 
   if (!medicines || !logs || !householdSettings || !rows) {
@@ -61,7 +63,7 @@ export function ExportScreen() {
   return (
     <div className="flex flex-col gap-3">
       <Card className="print:hidden">
-        <h2 className="text-lg font-semibold">Export</h2>
+        <h2 className="text-lg font-semibold">Log</h2>
         <p className="text-sm text-slate-400">
           Keep a CSV or paper copy for hospital visits — this app is a helper, not the only record.
         </p>

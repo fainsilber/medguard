@@ -23,7 +23,7 @@ test('export a backup, clear all data, and restore it from the file', async ({ p
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Ondansetron', { exact: false })).toBeVisible();
 
-  await nav.getByRole('button', { name: 'Export' }).click();
+  await nav.getByRole('button', { name: 'Log' }).click();
 
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download full backup' }).click();
@@ -53,7 +53,7 @@ test('export a backup, clear all data, and restore it from the file', async ({ p
   await expect(page.getByText('Ondansetron', { exact: false })).not.toBeVisible();
 
   // Restore from the exact file just downloaded.
-  await nav.getByRole('button', { name: 'Export' }).click();
+  await nav.getByRole('button', { name: 'Log' }).click();
   await page.getByLabel('Import backup file').setInputFiles({
     name: 'medguard-backup.json',
     mimeType: 'application/json',
@@ -83,7 +83,7 @@ test('rejects a file that is not a MedGuard backup, without touching existing da
   await page.getByLabel('Strength').fill('20mg');
   await page.getByRole('button', { name: 'Save' }).click();
 
-  await nav.getByRole('button', { name: 'Export' }).click();
+  await nav.getByRole('button', { name: 'Log' }).click();
   await page.getByLabel('Import backup file').setInputFiles({
     name: 'not-a-backup.json',
     mimeType: 'application/json',
