@@ -9,6 +9,7 @@ import {
   expandSchedules,
   findLogForOccurrence,
   fromIso,
+  isShabbatModeAt,
   occurrenceKey,
   toIso,
   uuidIdGenerator,
@@ -23,6 +24,7 @@ import type {
   Medicine,
   Occurrence,
   Schedule,
+  ShabbatConfig,
 } from '@medguard/shared';
 import { dispatchToHousehold } from '../push/dispatch.js';
 import { applyRecord } from '../sync/repository.js';
@@ -431,7 +433,7 @@ export class DoseAlarmChain {
 
     for (const row of due) {
       if (nowMs >= row.missed_at_ms) {
-        await this.markMissed(householdId, row);
+        await this.markMissed(householdId, row, nowMs);
         continue;
       }
 
@@ -503,8 +505,8 @@ export class DoseAlarmChain {
    * `actualTime` is the moment the dose *became* missed rather than the moment this DO happened
    * to wake up, so a late alarm cannot move a timestamp in the medical record.
    */
-  private async markMissed(householdId: string, row: DoseAlarmRow): Promise<void> {
-    if (await this.isShabbatMode()) {
+  private async markMissed(householdId: string, row: DoseAlarmRow, nowMs: number): Promise<void> {
+    if (await this.isShabbatMode(householdId, nowMs)) {
       return;
     }
 
@@ -537,11 +539,34 @@ export class DoseAlarmChain {
    * reconciles after Havdalah, so a machine-written `missed` would be both wrong and a record a
    * caregiver then has to correct.
    *
-   * Always false until Sprint A5 computes zmanim windows server-side — this is the single place
-   * that will need to change, deliberately, rather than a check scattered through the chain.
+   * Fails closed the honest way: no `shabbat_config` row, or auto-Shabbat not enabled, means the
+   * household has never opted in, so the sweep runs normally rather than silently going quiet.
    */
-  private isShabbatMode(): Promise<boolean> {
-    return Promise.resolve(false);
+  private async isShabbatMode(householdId: string, nowMs: number): Promise<boolean> {
+    const [windows, config] = await Promise.all([
+      this.readWindows(householdId),
+      this.readShabbatConfig(householdId),
+    ]);
+    if (!windows || !config) {
+      return false;
+    }
+    return isShabbatModeAt(config, windows.timeZone, nowMs);
+  }
+
+  /** The single patient's config in v1 (see sprint plan "Patients"): one row per household. */
+  private async readShabbatConfig(householdId: string): Promise<ShabbatConfig | null> {
+    const row = await this.env.DB.prepare(
+      'SELECT payload FROM shabbat_config WHERE household_id = ? LIMIT 1',
+    )
+      .bind(householdId)
+      .first<{ payload: string }>();
+
+    if (!row) {
+      return null;
+    }
+
+    const config = JSON.parse(row.payload) as ShabbatConfig;
+    return config.autoShabbatEnabled ? config : null;
   }
 
   // -------------------------------------------------------------------------

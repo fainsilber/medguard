@@ -463,6 +463,9 @@ consumer of a surface that already exists, which is what delta D8 bought.
   a second implementation of a halachically-sensitive calculation — precisely what rule 5 forbids,
   and in the one area where being wrong by 18 minutes is a real problem. The device caches an
   8-week horizon, matching the verification screen Sprint 6 already plans.
+  **The computation itself landed 2026-08-12** (`packages/shared/src/shabbat.ts`, see the sprint
+  plan's Sprint 6 note) — `GET /api/v1/shabbat/zmanim` serves it today. A5 still needs the device
+  side: fetching and caching the 8-week horizon, and arming local alarms from it.
 - `pending_shabbat` is written locally by the alarm engine when the household is in mode; the
   Motzei Shabbat reconciliation sheet is an ordinary screen over the same data.
 

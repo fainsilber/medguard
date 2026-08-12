@@ -90,6 +90,11 @@ export default defineConfig({
         // escalated. Both clients and, from A4, the Durable Object all decide from this one
         // function, so it is held to the same bar as the rest of the alarm-critical path.
         'packages/shared/src/snooze.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+        // Sprint 6: this is the one place a household's Shabbat/Yom Tov mode gets decided. A
+        // wrong verdict either writes a machine "missed" log during Shabbat (a record a caregiver
+        // then has to notice and correct) or, worse, suppresses a real missed-dose alert on an
+        // ordinary weekday — the same fail-closed standard as the rest of the alarm-critical path.
+        'packages/shared/src/shabbat.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
 
         // Sprint A1 (docs/android-client-plan.md, "Storage and the sync port"): the extracted
         // outbox/transaction code and the LWW-vs-append-only merge dispatch carry the same

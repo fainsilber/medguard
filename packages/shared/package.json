@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hebcal/core": "^6.9.2",
     "zod": "^4.4.3"
   }
 }

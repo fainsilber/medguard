@@ -4,6 +4,7 @@ import { systemClock } from '@medguard/shared';
 import { authRoutes } from './routes/auth.js';
 import { deviceRoutes } from './routes/devices.js';
 import { liveRoutes } from './routes/live.js';
+import { shabbatRoutes } from './routes/shabbat.js';
 import { syncRoutes } from './routes/sync.js';
 
 export { HouseholdDO } from './do/HouseholdDO.js';
@@ -49,6 +50,7 @@ app.route('/api/v1', authRoutes);
 app.route('/api/v1/devices', deviceRoutes);
 app.route('/api/v1/sync', syncRoutes);
 app.route('/api/v1/live', liveRoutes);
+app.route('/api/v1/shabbat', shabbatRoutes);
 
 app.notFound((c) => c.json({ error: 'not_found' }, 404));
 

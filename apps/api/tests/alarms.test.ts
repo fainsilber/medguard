@@ -1,6 +1,6 @@
 import { SELF, env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MS_PER_MINUTE, SINGLE_PATIENT_ID, toIso } from '@medguard/shared';
+import { MS_PER_DAY, MS_PER_MINUTE, SINGLE_PATIENT_ID, computeShabbatWindows, fromIso, toIso } from '@medguard/shared';
 import type { PushPayload } from '@medguard/shared';
 import type { HouseholdDO } from '../src/do/HouseholdDO.js';
 import type { DoseAlarmChain } from '../src/do/doseAlarms.js';
@@ -152,6 +152,46 @@ function schedule(dueAtMs: number, overrides: Record<string, unknown> = {}) {
     syncStatus: 'synced',
     ...overrides,
   };
+}
+
+const SHABBAT_ZMANIM = {
+  latitude: 31.7683,
+  longitude: 35.2137,
+  candleLightingOffsetMins: 18,
+  havdalahDegreesOrMins: '8.5_degrees',
+  israelHolidays: true,
+};
+
+function shabbatConfig(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '44444444-4444-4444-8444-444444444444',
+    patientId: SINGLE_PATIENT_ID,
+    autoShabbatEnabled: true,
+    chimeDurationSeconds: 45,
+    ...SHABBAT_ZMANIM,
+    updatedAt: toIso(Date.now()),
+    updatedByDeviceId: 'device',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
+/**
+ * Minutes from now for a dose whose would-be-missed instant (due + `MISSED_MINUTES`) lands in the
+ * middle of the next real Shabbat/Yom Tov window from `SHABBAT_ZMANIM`, computed against whenever
+ * the test actually runs rather than a fixed date.
+ */
+function minutesUntilDoseMissedDuringShabbat(nowMs: number): number {
+  const [window] = computeShabbatWindows(SHABBAT_ZMANIM, 'UTC', {
+    fromMs: nowMs,
+    toMs: nowMs + 14 * MS_PER_DAY,
+  });
+  if (!window) {
+    throw new Error('expected a Shabbat/Yom Tov window in the next 14 days');
+  }
+  const targetMs = (fromIso(window.startsAt) + fromIso(window.endsAt)) / 2;
+  const dueAtMs = minuteAligned(targetMs - MISSED_MINUTES * MS_PER_MINUTE);
+  return Math.round((dueAtMs - nowMs) / MS_PER_MINUTE);
 }
 
 /** Registers a web-push credential so the household actually has somewhere to send. */
@@ -537,6 +577,41 @@ describe('the missed sweep (delta AD6)', () => {
 
     await runChainAt(stub, dueAtMs + MISSED_MINUTES * MS_PER_MINUTE);
     await runChainAt(stub, dueAtMs + (MISSED_MINUTES + 10) * MS_PER_MINUTE);
+
+    const row = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM intake_logs WHERE household_id = ? AND status = ?',
+    )
+      .bind(session.householdId, 'missed')
+      .first<{ n: number }>();
+    expect(row?.n).toBe(1);
+  });
+
+  it('writes nothing while the household is in Shabbat/Yom Tov mode (Sprint 6)', async () => {
+    const nowMs = Date.now();
+    const minutesFromNow = minutesUntilDoseMissedDuringShabbat(nowMs);
+
+    const { session, stub, dueAtMs } = await householdWithDose(minutesFromNow);
+    await push(session, [{ table: 'shabbatConfig', record: shabbatConfig() }]);
+
+    await runChainAt(stub, dueAtMs + MISSED_MINUTES * MS_PER_MINUTE);
+
+    const row = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM intake_logs WHERE household_id = ? AND status = ?',
+    )
+      .bind(session.householdId, 'missed')
+      .first<{ n: number }>();
+    expect(row?.n).toBe(0);
+  });
+
+  it('writes a missed log normally once Shabbat mode is not enabled for the household', async () => {
+    // Same construction as above, but without registering a shabbatConfig row — proves the
+    // suppression is conditional on opt-in, not an accidental blanket suppression.
+    const nowMs = Date.now();
+    const minutesFromNow = minutesUntilDoseMissedDuringShabbat(nowMs);
+
+    const { session, stub, dueAtMs } = await householdWithDose(minutesFromNow);
+
+    await runChainAt(stub, dueAtMs + MISSED_MINUTES * MS_PER_MINUTE);
 
     const row = await env.DB.prepare(
       'SELECT COUNT(*) AS n FROM intake_logs WHERE household_id = ? AND status = ?',

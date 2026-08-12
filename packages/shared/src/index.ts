@@ -112,6 +112,10 @@ export type { BackupBundle, BackupSource, BackupSummary, ParseBackupResult } fro
 export { LogBuffer, formatLogEntriesAsText, formatLogEntry } from './log.js';
 export type { LogEntry, LogLevel } from './log.js';
 
+// Shabbat / Yom Tov zmanim (Sprint 6): server-computed candle-lighting/Havdalah windows
+export { computeShabbatWindows, isShabbatModeAt, isWithinShabbatWindows } from './shabbat.js';
+export type { ShabbatWindow, ShabbatZmanimConfig } from './shabbat.js';
+
 // Push (Sprint A4: the real dose/escalation/shabbat/low-stock contract)
 export {
   PUSH_CHANNEL_IDS,

@@ -270,6 +270,27 @@ Dark mode and large tap targets from the start, not retrofitted. This gets used 
 
 Most domain-sensitive sprint. Correctness is measured against the Jewish calendar, so it's tested against fixtures and then against your luach.
 
+**In progress (2026-08-12): the zmanim computation itself has landed**, ahead of the rest of this
+sprint's scope and independently of the halachic questions still blocking the behavioral half
+(delta D5's fan-out/suppression, `pending_shabbat`, reconciliation) — this part is pure astronomy,
+not a halachic ruling. `packages/shared/src/shabbat.ts` wraps `@hebcal/core` to compute
+candle-lighting→Havdalah windows from `ShabbatConfig`, merging multi-day chag runs (including a
+chag adjacent to Shabbat) into one continuous window rather than one per calendar day — the state
+machine only ever needs "are we in mode right now," and `isShabbatModeAt` answers that from a
+padded lookback so it recovers correctly with no memory of when the window began (the mid-Shabbat
+reload case). 100% branch-gated in `vitest.config.ts`, with fixtures across two locations, degrees-
+and minutes-based Havdalah, three-day-chag merging, Israel/diaspora divergence, and both sides of
+the US DST fallback boundary (`packages/shared/src/shabbat.test.ts`).
+
+Two things now consume it: `DoseAlarmChain.isShabbatMode` in `apps/api/src/do/doseAlarms.ts` — the
+extension point that comment had deliberately been left for — now reads the household's
+`shabbat_config` and actually suppresses the missed-dose sweep during a real Shabbat/Yom Tov window
+instead of the placeholder `false` it returned before; and `GET /api/v1/shabbat/zmanim`
+(`apps/api/src/routes/shabbat.ts`), the backend for the **zmanim verification screen** — it works
+whether or not `autoShabbatEnabled` is on, since the whole point is checking the computation before
+trusting it with automation. Neither UI screen nor the state machine, the fan-out/suppression
+behavior, `pending_shabbat`, or the reconciliation sheet exist yet — those are still open.
+
 **Scope:** `@hebcal/core` computing candle-lighting and Havdalah from household coordinates, honouring `candleLightingOffsetMins` (18), `havdalahDegreesOrMins`, and `israelHolidays` (D4); state machine `weekday → pre_shabbat_arming → shabbat_active → motzei_pending → weekday`, recovering correctly after a reload mid-Shabbat; **Yom Tov incl. three-day sequences** (chag adjacent to Shabbat); **all-devices fan-out with no escalation while in mode** (D5, per `docs/halachic-decisions.md` Q3) and no action buttons on Shabbat pushes; `pending_shabbat` status; the 3-push burst (D1) plus the 45s foreground engine; **zmanim verification screen** showing the next 8 weeks so you can check against your luach before trusting it; **Do Not Disturb / Focus setup checklist** — a residual gap the app cannot force shut; Motzei Shabbat reconciliation sheet with one-tap bulk confirm, per-item override, retroactive PRN entry, inventory reconciliation, and multi-caregiver race handling so two people can't double-log.
 
 No emergency-interaction affordance ships in this sprint (Q5, deferred) — Shabbat pushes stay informational-only with no exception path.
