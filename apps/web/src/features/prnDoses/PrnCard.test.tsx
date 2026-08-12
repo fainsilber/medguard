@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fixedClock } from '@medguard/shared/testing';
@@ -61,6 +61,24 @@ describe('PrnCard', () => {
     // proves the write completed rather than merely that the click handler ran.
     await screen.findByRole('button', { name: 'Give dose' });
     expect(giveButton).toBeEnabled();
+  });
+
+  it('lets a caregiver pick a different time than now when giving a dose', async () => {
+    const user = userEvent.setup();
+    await renderWithRepository(<PrnCard medicine={medicine()} logs={[]} timeZone={TIME_ZONE} />, {
+      clock: fixedClock('2026-06-15T12:00:00.000Z'),
+      timeZone: TIME_ZONE,
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Different time…' }));
+    expect(screen.getByLabelText('Time given')).toHaveValue('12:00');
+
+    fireEvent.change(screen.getByLabelText('Time given'), { target: { value: '11:30' } });
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    // Back to the normal give-dose controls once the write completes.
+    await screen.findByRole('button', { name: 'Give dose' });
+    expect(screen.queryByLabelText('Time given')).not.toBeInTheDocument();
   });
 
   it('shows the last-administered banner with local time', async () => {

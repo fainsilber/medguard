@@ -4,12 +4,15 @@ import {
   assessDose,
   blockReasonFor,
   formatCountdown,
+  formatLocalDate,
   formatLocalTime,
   fromIso,
   isDosePermitted,
   lastAdministeredDose,
+  resolveLocal,
+  toIso,
 } from '@medguard/shared';
-import type { BlockReason, ClockTrust, DoseSafety, IntakeLog, Medicine } from '@medguard/shared';
+import type { BlockReason, ClockTrust, DoseSafety, IntakeLog, IsoInstant, Medicine } from '@medguard/shared';
 import {
   useClock,
   useCurrentDeviceId,
@@ -64,6 +67,8 @@ export function PrnCard({
   const [overridePhase, setOverridePhase] = useState<OverridePhase>('closed');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [customTime, setCustomTime] = useState('');
 
   const safety = assessDose({
     medicine,
@@ -77,7 +82,7 @@ export function PrnCard({
     setReason('');
   };
 
-  const give = async (override?: { reason: string; blockedBy: BlockReason }) => {
+  const give = async (actualTimeIso: IsoInstant, override?: { reason: string; blockedBy: BlockReason }) => {
     setSaving(true);
     try {
       await repository.recordDose({
@@ -86,7 +91,7 @@ export function PrnCard({
         medicineId: medicine.id,
         type: 'prn',
         status: 'taken',
-        actualTime: clock.nowIso(),
+        actualTime: actualTimeIso,
         quantityTaken: 1,
         loggedByUserId: userId,
         loggedByDeviceId: deviceId,
@@ -102,12 +107,25 @@ export function PrnCard({
           : {}),
       });
       resetOverride();
+      setShowTimePicker(false);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleGive = () => void give();
+  const handleGive = () => void give(clock.nowIso());
+
+  const openTimePicker = () => {
+    setCustomTime(formatLocalTime(timeZone, clock.nowMs()));
+    setShowTimePicker(true);
+  };
+
+  const handleCustomGive = (event: FormEvent) => {
+    event.preventDefault();
+    if (!customTime) return;
+    const resolved = resolveLocal(timeZone, formatLocalDate(timeZone, clock.nowMs()), customTime);
+    void give(toIso(resolved.instantMs));
+  };
 
   const handleReasonSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -118,7 +136,7 @@ export function PrnCard({
   const handleConfirmOverride = () => {
     const blockedBy = blockReasonFor(safety);
     if (!blockedBy) return; // unreachable: this button only renders when safety is blocked
-    void give({ reason: reason.trim(), blockedBy });
+    void give(clock.nowIso(), { reason: reason.trim(), blockedBy });
   };
 
   const permitted = isDosePermitted(safety);
@@ -159,10 +177,39 @@ export function PrnCard({
         </p>
       )}
 
-      {permitted && (
-        <button type="button" className={primaryButtonClass} disabled={saving} onClick={handleGive}>
-          {saving ? 'Recording…' : 'Give dose'}
-        </button>
+      {permitted && !showTimePicker && (
+        <div className="flex gap-2">
+          <button type="button" className={primaryButtonClass} disabled={saving} onClick={handleGive}>
+            {saving ? 'Recording…' : 'Give dose'}
+          </button>
+          <button type="button" className={buttonClass} disabled={saving} onClick={openTimePicker}>
+            Different time…
+          </button>
+        </div>
+      )}
+
+      {permitted && showTimePicker && (
+        <form
+          onSubmit={handleCustomGive}
+          className="flex flex-wrap items-center gap-2 rounded-md border border-slate-700 p-2"
+        >
+          <label className="text-sm">
+            When was it actually given?
+            <input
+              className={`${inputClass} w-auto`}
+              type="time"
+              value={customTime}
+              aria-label="Time given"
+              onChange={(event) => setCustomTime(event.target.value)}
+            />
+          </label>
+          <button type="submit" className={primaryButtonClass} disabled={saving || !customTime}>
+            {saving ? 'Recording…' : 'Save'}
+          </button>
+          <button type="button" className={buttonClass} disabled={saving} onClick={() => setShowTimePicker(false)}>
+            Cancel
+          </button>
+        </form>
       )}
 
       {!permitted && overridePhase === 'closed' && (

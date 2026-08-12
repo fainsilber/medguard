@@ -71,6 +71,27 @@ describe('PrnCard — two-step override flow', () => {
     await waitFor(() => expect(queryByText('Recording…')).toBeFalsy(), { timeout: 5000 });
   });
 
+  it('in a safe state, "Different time…" records a dose at the entered time, not now', async () => {
+    const { getByText, getByLabelText, queryByText } = renderWithRepository(
+      <PrnCard medicine={noGuard(makeMedicine())} logs={[]} timeZone="UTC" clockTrust={TRUSTED} />,
+      { clock: fixedClock(NOW), dbName: 'prn-custom-time.db' },
+    );
+
+    await waitFor(() => expect(queryByText('Different time…')).toBeTruthy());
+    fireEvent.press(getByText('Different time…'));
+
+    await waitFor(() => expect(queryByText('When was it actually given?')).toBeTruthy());
+    fireEvent.changeText(getByLabelText('Time given'), '11:30');
+    fireEvent.press(getByText('Save'));
+
+    let written: IntakeLog[] = [];
+    await waitFor(async () => {
+      written = await readLogsFromDb('prn-custom-time.db', 'medicine-1');
+      expect(written).toHaveLength(1);
+    });
+    expect(written[0]?.actualTime).toBe('2026-06-15T11:30:00.000Z');
+  });
+
   it('blocked by cooldown: tapping "Give anyway" alone does not record a dose', async () => {
     const { getByText, queryByText } = renderWithRepository(
       <PrnCard medicine={makeMedicine()} logs={[makeLog()]} timeZone="UTC" clockTrust={TRUSTED} />,

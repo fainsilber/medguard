@@ -366,13 +366,26 @@ export class HouseholdDO extends DurableObject<Env> {
     )
       .bind(householdId, medicineId)
       .all<{ payload: string }>();
+    const parsedLogs = logRows.map((row) => JSON.parse(row.payload) as IntakeLog);
+
     // Excludes the incoming record's own id: on a resend of an already-applied log (the whole
     // point of the append-only dedup below), the stored copy of *itself* would otherwise appear
     // in its own comparison history and get blocked as a cooldown violation against itself.
+    //
+    // Also excludes the whole chain of logs this one supersedes (a dose correction — see
+    // `correctDose` in packages/store/src/repository.ts, which never deletes the original, only
+    // links to it). Without this, correcting a dose's time leaves the original's stale `actualTime`
+    // in the comparison history, so a correction that moves the time *earlier* can get blocked by
+    // cooldown/cap math against the very record it's replacing.
     const recordId = String(record.id);
-    const logs = logRows
-      .map((row) => JSON.parse(row.payload) as IntakeLog)
-      .filter((log) => log.id !== recordId);
+    const excludedIds = new Set<string>([recordId]);
+    let supersededId = typeof record.supersedesId === 'string' ? record.supersedesId : undefined;
+    while (supersededId && !excludedIds.has(supersededId)) {
+      excludedIds.add(supersededId);
+      supersededId = parsedLogs.find((log) => log.id === supersededId)?.supersedesId;
+    }
+
+    const logs = parsedLogs.filter((log) => !excludedIds.has(log.id));
 
     const actualTimeIso = String(record.actualTime);
     const actualTimeMs = fromIso(actualTimeIso);
