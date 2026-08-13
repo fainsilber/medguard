@@ -1,7 +1,16 @@
 name: Build Android APK
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+# Cancel superseded runs on the same PR branch, but never a push to main — a merge should
+# always finish and produce its artifact even if another merge follows quickly.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-apk:
@@ -52,7 +61,11 @@ jobs:
         # into assets. The RN template's `release` signingConfig defaults to the debug keystore
         # (no real signing set up), so this stays installable without any secrets.
         run: ./gradlew assembleRelease
+      # Skipped on pull_request: those runs exist to catch build breakage early, not to
+      # produce an installable artifact. Every push to main (i.e. every merge) and every
+      # manual workflow_dispatch still uploads the APK.
       - name: Upload APK
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: medguard-release-apk
