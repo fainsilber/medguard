@@ -1,7 +1,7 @@
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useEffect, useState } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatLocalDate } from '@medguard/shared';
@@ -32,14 +32,19 @@ import { useHouseholdSettings } from './useHouseholdSettings.js';
  *
  * A native-stack replaces the old 8-item bottom-tab bar: `App.tsx` renders one persistent header
  * (Today shortcut top-left, hamburger top-right) above the `NavigationContainer`, so every screen
- * here is `headerShown: false` and reached either from `Home`, the header's Today shortcut, the
- * hamburger menu, or the OS back gesture/button (native-stack pops on it same as any Android app)
- * — no per-screen header bar left to double up with the persistent one.
+ * here is `headerShown: false` and reached either from the bottom Medicines/As-needed switcher,
+ * the header's Today shortcut, the hamburger menu, or the OS back gesture/button (native-stack
+ * pops on it same as any Android app) — no per-screen header bar left to double up with the
+ * persistent one.
  *
- * `Home` itself is a two-item bottom-tab navigator (Medicines / As needed) rather than a stack
- * screen: those are the two things a caregiver reaches for constantly, so they get a permanent,
- * full-width, always-visible switcher at the bottom of the screen — opening the app lands
- * straight on the Medicines list, not an empty picker.
+ * `BottomNavBar` (Medicines / As needed) is rendered here as a sibling of `RootStack.Navigator`,
+ * not nested inside it, so it stays visible on every root screen — Today, Inventory, Log, Shabbat,
+ * Household and Diagnostics included, not just the two tabs it switches between. Those are the two
+ * things a caregiver reaches for constantly, so they get a permanent, full-width, always-visible
+ * switcher no matter where navigation currently is, the same way the header above never goes away.
+ * It drives navigation through `navigationRef` (owned by `App.tsx`, passed down as a prop) rather
+ * than `useNavigation()`, because it isn't rendered inside a `Screen` — there's no navigation prop
+ * in context to pull from at this level.
  */
 
 // ---------------------------------------------------------------------------
@@ -126,74 +131,76 @@ function ScheduleFormRoute({
 function MedicinesStackScreen(): React.JSX.Element {
   return (
     <MedicinesStack.Navigator screenOptions={stackScreenOptions}>
-      <MedicinesStack.Screen name="MedicineList" component={MedicineListRoute} options={{ title: 'Medicines' }} />
-      <MedicinesStack.Screen
-        name="MedicineForm"
-        component={MedicineFormRoute}
-        options={({ route }) => ({ title: route.params.medicineId ? 'Edit medicine' : 'Add medicine' })}
-      />
-      <MedicinesStack.Screen
-        name="ScheduleForm"
-        component={ScheduleFormRoute}
-        options={({ route }) => ({ title: route.params.scheduleId ? 'Change schedule' : 'Add schedule' })}
-      />
+      <MedicinesStack.Screen name="MedicineList" component={MedicineListRoute} />
+      <MedicinesStack.Screen name="MedicineForm" component={MedicineFormRoute} />
+      <MedicinesStack.Screen name="ScheduleForm" component={ScheduleFormRoute} />
     </MedicinesStack.Navigator>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Home: a two-item bottom-tab switcher (Medicines / As needed), full-width,
-// complete labels — not the old 8-tab bar's cramped icon-plus-ellipsis.
+// Root stack: every screen, reached from the bottom Medicines/As-needed
+// switcher, the persistent header's Today shortcut, or the hamburger menu.
 // ---------------------------------------------------------------------------
 
-type HomeTabParamList = {
+export type RootStackParamList = {
   Medicines: undefined;
-  'As needed': undefined;
+  AsNeeded: undefined;
+  Today: undefined;
+  Inventory: undefined;
+  Log: undefined;
+  Shabbat: undefined;
+  Household: undefined;
+  Diagnostics: undefined;
 };
 
-const HomeTab = createBottomTabNavigator<HomeTabParamList>();
+const RootStack = createNativeStackNavigator<RootStackParamList>();
 
-const HOME_TAB_ICONS: Record<keyof HomeTabParamList, string> = {
-  Medicines: '💊',
-  'As needed': '⏱️',
-};
+// ---------------------------------------------------------------------------
+// BottomNavBar: a two-item, full-width switcher (Medicines / As needed) that
+// stays mounted alongside RootStack.Navigator — see the file doc comment for
+// why it's driven by navigationRef instead of useNavigation().
+// ---------------------------------------------------------------------------
 
-/**
- * Custom instead of the default `tabBarLabel`/`tabBarIcon` layout: the default bar sizes itself
- * for a row of many narrow tabs (small icon, tiny label). With only two destinations here, the
- * ask was for two big, full-width, evenly-split buttons with room for the whole label — easiest
- * to get by owning the bar's layout outright rather than fighting the default's sizing.
- */
-function HomeTabBar({ state, navigation }: BottomTabBarProps): React.JSX.Element {
+const BOTTOM_NAV_ITEMS: ReadonlyArray<{ route: 'Medicines' | 'AsNeeded'; label: string; icon: string }> = [
+  { route: 'Medicines', label: 'Medicines', icon: '💊' },
+  { route: 'AsNeeded', label: 'As needed', icon: '⏱️' },
+];
+
+function BottomNavBar({
+  navigationRef,
+  activeRoute,
+}: {
+  navigationRef: NavigationContainerRefWithCurrent<RootStackParamList>;
+  activeRoute: keyof RootStackParamList;
+}): React.JSX.Element {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[homeTabBarStyles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-      {state.routes.map((route, index) => {
-        const isFocused = state.index === index;
-        const name = route.name as keyof HomeTabParamList;
+    <View style={[bottomNavBarStyles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      {BOTTOM_NAV_ITEMS.map((item) => {
+        const isFocused = activeRoute === item.route;
         return (
           <Pressable
-            key={route.key}
+            key={item.route}
             accessibilityRole="button"
             accessibilityState={isFocused ? { selected: true } : {}}
             onPress={() => {
-              const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-              if (!isFocused && !event.defaultPrevented) {
-                navigation.navigate(route.name);
+              if (!isFocused && navigationRef.isReady()) {
+                navigationRef.navigate(item.route);
               }
             }}
             style={({ pressed }) => [
-              homeTabBarStyles.button,
-              isFocused && homeTabBarStyles.buttonActive,
-              pressed && homeTabBarStyles.pressed,
+              bottomNavBarStyles.button,
+              isFocused && bottomNavBarStyles.buttonActive,
+              pressed && bottomNavBarStyles.pressed,
             ]}
           >
-            <Text style={homeTabBarStyles.icon}>{HOME_TAB_ICONS[name]}</Text>
+            <Text style={bottomNavBarStyles.icon}>{item.icon}</Text>
             <Text
-              style={[homeTabBarStyles.label, isFocused && homeTabBarStyles.labelActive]}
+              style={[bottomNavBarStyles.label, isFocused && bottomNavBarStyles.labelActive]}
               numberOfLines={1}
             >
-              {name}
+              {item.label}
             </Text>
           </Pressable>
         );
@@ -202,7 +209,7 @@ function HomeTabBar({ state, navigation }: BottomTabBarProps): React.JSX.Element
   );
 }
 
-const homeTabBarStyles = StyleSheet.create({
+const bottomNavBarStyles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     backgroundColor: colors.surface,
@@ -226,56 +233,48 @@ const homeTabBarStyles = StyleSheet.create({
   labelActive: { color: colors.text },
 });
 
-function HomeScreen(): React.JSX.Element {
-  return (
-    <HomeTab.Navigator
-      initialRouteName="Medicines"
-      tabBar={(props) => <HomeTabBar {...props} />}
-      screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.background } }}
-    >
-      <HomeTab.Screen name="Medicines" component={MedicinesStackScreen} />
-      <HomeTab.Screen name="As needed" component={PrnScreen} />
-    </HomeTab.Navigator>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Root stack: Home + every other screen, reached from the persistent header's
-// Today shortcut or the hamburger menu.
-// ---------------------------------------------------------------------------
-
-export type RootStackParamList = {
-  Home: undefined;
-  Today: undefined;
-  Inventory: undefined;
-  Log: undefined;
-  Shabbat: undefined;
-  Household: undefined;
-  Diagnostics: undefined;
-};
-
-const RootStack = createNativeStackNavigator<RootStackParamList>();
-
-export function AppNavigator(): React.JSX.Element {
+export function AppNavigator({
+  navigationRef,
+}: {
+  navigationRef: NavigationContainerRefWithCurrent<RootStackParamList>;
+}): React.JSX.Element {
   // PRD §3: after Havdalah the app opens the reconciliation sheet rather than waiting to be asked
   // (Sprint A5 phase 2). It replaces the tabs rather than covering them, so "Later" is always one
   // tap away — a modal a caregiver could get stuck behind at 3am is its own hazard.
   const motzei = useMotzeiPrompt();
+  const [activeRoute, setActiveRoute] = useState<keyof RootStackParamList>('Medicines');
+
+  // Root-level route name only (never a nested MedicinesStack screen like "MedicineForm"): that's
+  // what tells us which of the two bottom-bar buttons to highlight, and getRootState() gives it
+  // directly without descending into whichever screen's own stack happens to be focused.
+  useEffect(
+    () =>
+      navigationRef.addListener('state', () => {
+        const state = navigationRef.getRootState();
+        const name = state?.routes[state.index]?.name;
+        if (name) setActiveRoute(name as keyof RootStackParamList);
+      }),
+    [navigationRef],
+  );
 
   if (motzei.show) {
     return <ReconciliationSheet onDone={motzei.dismiss} />;
   }
 
   return (
-    <RootStack.Navigator initialRouteName="Home" screenOptions={rootScreenOptions}>
-      <RootStack.Screen name="Home" component={HomeScreen} />
-      <RootStack.Screen name="Today" component={TodayView} />
-      <RootStack.Screen name="Inventory" component={InventoryScreen} />
-      <RootStack.Screen name="Log" component={ExportScreen} />
-      <RootStack.Screen name="Shabbat" component={ShabbatScreen} />
-      <RootStack.Screen name="Household" component={HouseholdScreen} />
-      <RootStack.Screen name="Diagnostics" component={DiagnosticsScreen} />
-    </RootStack.Navigator>
+    <>
+      <RootStack.Navigator initialRouteName="Medicines" screenOptions={rootScreenOptions}>
+        <RootStack.Screen name="Medicines" component={MedicinesStackScreen} />
+        <RootStack.Screen name="AsNeeded" component={PrnScreen} />
+        <RootStack.Screen name="Today" component={TodayView} />
+        <RootStack.Screen name="Inventory" component={InventoryScreen} />
+        <RootStack.Screen name="Log" component={ExportScreen} />
+        <RootStack.Screen name="Shabbat" component={ShabbatScreen} />
+        <RootStack.Screen name="Household" component={HouseholdScreen} />
+        <RootStack.Screen name="Diagnostics" component={DiagnosticsScreen} />
+      </RootStack.Navigator>
+      <BottomNavBar navigationRef={navigationRef} activeRoute={activeRoute} />
+    </>
   );
 }
 
@@ -293,7 +292,6 @@ const rootScreenOptions = {
 } as const;
 
 const stackScreenOptions = {
-  headerStyle: { backgroundColor: colors.surface },
-  headerTintColor: colors.text,
+  headerShown: false,
   contentStyle: { backgroundColor: colors.background },
 } as const;
