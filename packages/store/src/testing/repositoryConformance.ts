@@ -317,6 +317,144 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
       });
     });
 
+    describe('Motzei Shabbat reconciliation (Sprint A5 phase 2)', () => {
+      /** What the Durable Object writes when a dose alert fires during Shabbat. */
+      function pendingShabbatLog(overrides: Partial<Parameters<typeof makeLog>[0]> = {}) {
+        return makeLog({
+          id: 'pending-1',
+          status: 'pending_shabbat',
+          scheduledTime: NOW,
+          actualTime: NOW,
+          quantityTaken: 0,
+          loggedByUserId: 'system',
+          loggedByDeviceId: 'system',
+          ...overrides,
+        });
+      }
+
+      it('settles a sheet of doses, superseding the server placeholders and moving stock once', async () => {
+        const { repository } = await freshRepository();
+        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+        await repository.recordDose(pendingShabbatLog());
+        await repository.recordDose(
+          pendingShabbatLog({ id: 'pending-2', scheduledTime: '2026-06-15T18:00:00.000Z' }),
+        );
+
+        const written = await repository.reconcileShabbatDoses([
+          {
+            log: makeLog({ id: 'answer-1', status: 'taken', quantityTaken: 2 }),
+            supersedesLogId: 'pending-1',
+          },
+          {
+            log: makeLog({ id: 'answer-2', status: 'skipped', quantityTaken: 0 }),
+            supersedesLogId: 'pending-2',
+          },
+        ]);
+
+        expect(written.map((log) => log.supersedesId)).toEqual(['pending-1', 'pending-2']);
+
+        // A pending_shabbat log never moved stock, so there is nothing to reverse: 10 − 2, and the
+        // skipped dose moves nothing at all.
+        expect(computeQuantity(await repository.adjustmentsForMedicine('medicine-1'))).toBe(8);
+      });
+
+      it('writes a first log for a dose the server never recorded at all', async () => {
+        // The Durable Object was never woken, or the household was offline for the whole of
+        // Shabbat. The dose still happened, and the sheet still has to be able to say so.
+        const { repository } = await freshRepository();
+
+        await repository.reconcileShabbatDoses([
+          { log: makeLog({ id: 'answer-1', status: 'taken', quantityTaken: 1 }) },
+        ]);
+
+        const logs = await repository.logsForMedicine('medicine-1');
+        expect(logs).toHaveLength(1);
+        expect(logs[0]).toMatchObject({ id: 'answer-1', status: 'taken' });
+        expect(logs[0]!.supersedesId).toBeUndefined();
+      });
+
+      it('queues every log and every stock movement for sync', async () => {
+        const { repository } = await freshRepository();
+
+        await repository.reconcileShabbatDoses([
+          { log: makeLog({ id: 'answer-1', status: 'taken', quantityTaken: 1 }) },
+          { log: makeLog({ id: 'answer-2', status: 'skipped', quantityTaken: 0 }) },
+        ]);
+
+        // Two logs, one adjustment — the skipped dose has no stock movement to queue.
+        const outbox = await repository.pendingSync();
+        expect(outbox.map((entry) => entry.table)).toEqual([
+          'intakeLogs',
+          'inventoryAdjustments',
+          'intakeLogs',
+        ]);
+      });
+
+      it('leaves the original pending log visible rather than editing it', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordDose(pendingShabbatLog());
+
+        await repository.reconcileShabbatDoses([
+          {
+            log: makeLog({ id: 'answer-1', status: 'taken', quantityTaken: 1 }),
+            supersedesLogId: 'pending-1',
+          },
+        ]);
+
+        const logs = await repository.logsForMedicine('medicine-1');
+        expect(logs.map((log) => log.id).sort()).toEqual(['answer-1', 'pending-1']);
+        expect(logs.find((log) => log.id === 'pending-1')?.status).toBe('pending_shabbat');
+      });
+
+      it('does nothing at all for an empty sheet', async () => {
+        const { repository } = await freshRepository();
+        expect(await repository.reconcileShabbatDoses([])).toEqual([]);
+        expect(await repository.pendingSync()).toEqual([]);
+      });
+    });
+
+    describe('discardLocalLog — cleaning up a write the server refused', () => {
+      it('removes the log, its stock movement and their queued uploads', async () => {
+        const { repository } = await freshRepository();
+        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+        await repository.recordDose(makeLog({ id: 'refused', quantityTaken: 2 }));
+
+        expect(computeQuantity(await repository.adjustmentsForMedicine('medicine-1'))).toBe(8);
+
+        await repository.discardLocalLog('refused');
+
+        // The dose is gone from this device entirely — and so is the stock it took, which is the
+        // point: a phantom local dose would leave this phone permanently disagreeing with the
+        // household about whether a child was medicated.
+        expect(await repository.logsForMedicine('medicine-1')).toEqual([]);
+        expect(computeQuantity(await repository.adjustmentsForMedicine('medicine-1'))).toBe(10);
+
+        const outbox = await repository.pendingSync();
+        expect(outbox.map((entry) => entry.entityId)).toEqual(
+          expect.not.arrayContaining(['refused']),
+        );
+      });
+
+      it('leaves every other dose and the manual ledger alone', async () => {
+        const { repository } = await freshRepository();
+        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+        await repository.recordDose(makeLog({ id: 'kept', quantityTaken: 1 }));
+        await repository.recordDose(makeLog({ id: 'refused', quantityTaken: 2 }));
+
+        await repository.discardLocalLog('refused');
+
+        expect((await repository.logsForMedicine('medicine-1')).map((log) => log.id)).toEqual([
+          'kept',
+        ]);
+        expect(computeQuantity(await repository.adjustmentsForMedicine('medicine-1'))).toBe(9);
+      });
+
+      it('is a no-op for a log that is not there', async () => {
+        const { repository } = await freshRepository();
+        await expect(repository.discardLocalLog('never-existed')).resolves.toBeUndefined();
+      });
+    });
+
     describe('inventory items', () => {
       it('is absent before stock tracking is set up for a medicine', async () => {
         const { repository } = await freshRepository();

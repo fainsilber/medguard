@@ -29,4 +29,26 @@ export interface LiveSafetyWarningMessage {
   outcome: 'blocked' | 'overridden';
 }
 
-export type LiveMessage = LiveSyncMessage | LiveSafetyWarningMessage;
+/**
+ * Broadcast when a device tried to reconcile a Shabbat dose that another caregiver had already
+ * settled (Sprint A5 phase 2).
+ *
+ * Its own message kind rather than a `safety.warning`: nothing unsafe happened. Two people opened
+ * the Motzei sheet and both answered the same dose, the serialized write path accepted the first,
+ * and the second device needs to say "Dad already recorded this" rather than showing a safety
+ * banner for what is really a race between two people doing the right thing.
+ */
+export interface LiveReconciliationConflictMessage {
+  type: 'reconciliation.conflict';
+  /** `occurrenceKey` (`${scheduleId}:${dueAt}`) of the dose that was already settled. */
+  occurrenceId: string;
+  /** Who got there first, so the other sheet can name them. */
+  reconciledByUserId: UserId;
+  /** The device whose write was refused, so only that sheet has to react. */
+  refusedDeviceId: string;
+}
+
+export type LiveMessage =
+  | LiveSyncMessage
+  | LiveSafetyWarningMessage
+  | LiveReconciliationConflictMessage;

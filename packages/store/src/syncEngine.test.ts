@@ -1,13 +1,13 @@
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SINGLE_PATIENT_ID } from '@medguard/shared';
+import { SINGLE_PATIENT_ID, computeQuantity } from '@medguard/shared';
 import type { Medicine } from '@medguard/shared';
 import { fixedClock, sequentialIds } from '@medguard/shared/testing';
 import { DexieStore } from './dexie/dexieStore.js';
 import { MedGuardRepository } from './repository.js';
 import { getCursor, getLastSyncedAt, setCursor } from './cursor.js';
-import { SyncApiError, SyncEngine } from './syncEngine.js';
+import { ALREADY_SUPERSEDED, SyncApiError, SyncEngine } from './syncEngine.js';
 import type { SyncApi, SyncApiResult, SyncPullResult, SyncPushResult } from './syncEngine.js';
 
 /**
@@ -29,6 +29,7 @@ class TestDB extends Dexie {
       inventoryItems: 'id, medicineId, syncStatus, updatedAt',
       inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
       shabbatConfig: 'id, patientId',
+      shabbatWindows: 'id, patientId, startsAt',
       syncOutbox: '++id, table, entityId, action, createdAt',
       syncMeta: 'key',
     });
@@ -133,6 +134,82 @@ describe('drainOutbox', () => {
 
     expect(outcome).toEqual({ pushed: 0, blocked: 1 });
     expect(await repository.pendingSyncCount()).toBe(0);
+  });
+
+  it('discards a reconciliation the server had already settled, rather than keeping a phantom dose', async () => {
+    // Sprint A5 phase 2: both caregivers answered the same Shabbat dose and the server kept the
+    // other one. Dropping only the outbox row would leave this device showing a dose the
+    // household's record does not have, with its own stock decremented for it.
+    const LOG_ID = 'answer-1';
+    const api = fakeApi({
+      pushChanges: async (): Promise<SyncApiResult<SyncPushResult>> =>
+        ok({
+          results: [],
+          blocked: [{ id: LOG_ID, table: 'intakeLogs', reason: ALREADY_SUPERSEDED }],
+          rejected: [],
+        }),
+    });
+    const { repository, engine } = setup(api);
+
+    await repository.adjustInventory({ medicineId: MEDICINE_ID, delta: 10, reason: 'initial' });
+    await repository.recordDose({
+      id: LOG_ID,
+      patientId: SINGLE_PATIENT_ID,
+      medicineId: MEDICINE_ID,
+      scheduleId: 'schedule-1',
+      type: 'scheduled',
+      status: 'taken',
+      scheduledTime: '2026-08-14T18:00:00.000Z',
+      actualTime: '2026-08-14T18:00:00.000Z',
+      quantityTaken: 2,
+      loggedByUserId: 'mom',
+      loggedByDeviceId: 'device-a',
+      syncStatus: 'pending',
+    });
+
+    await engine.drainOutbox();
+
+    expect(await repository.logsForMedicine(MEDICINE_ID)).toEqual([]);
+    // Its stock movement went with it — the refill that preceded it did not.
+    expect(computeQuantity(await repository.adjustmentsForMedicine(MEDICINE_ID))).toBe(10);
+    const stillQueued = await repository.pendingSync();
+    expect(stillQueued.map((entry) => entry.entityId)).toEqual(
+      expect.not.arrayContaining([LOG_ID]),
+    );
+    expect(stillQueued.every((entry) => entry.table !== 'intakeLogs')).toBe(true);
+  });
+
+  it('keeps a blocked safety record locally — the household is warned, the record stands', async () => {
+    const api = fakeApi({
+      pushChanges: async (): Promise<SyncApiResult<SyncPushResult>> =>
+        ok({
+          results: [],
+          blocked: [{ id: 'blocked-dose', table: 'intakeLogs', reason: 'cooldown' }],
+          rejected: [],
+        }),
+    });
+    const { repository, engine } = setup(api);
+
+    await repository.recordDose({
+      id: 'blocked-dose',
+      patientId: SINGLE_PATIENT_ID,
+      medicineId: MEDICINE_ID,
+      type: 'prn',
+      status: 'taken',
+      actualTime: '2026-08-14T18:00:00.000Z',
+      quantityTaken: 1,
+      loggedByUserId: 'mom',
+      loggedByDeviceId: 'device-a',
+      syncStatus: 'pending',
+    });
+
+    await engine.drainOutbox();
+
+    // Only `already_superseded` cleans up after itself. A safety block is a different thing: the
+    // caregiver did something, the household was warned about it, and the local record stays.
+    expect((await repository.logsForMedicine(MEDICINE_ID)).map((log) => log.id)).toEqual([
+      'blocked-dose',
+    ]);
   });
 
   it('keeps a rejected entry queued, with the failure recorded, rather than silently dropping it', async () => {

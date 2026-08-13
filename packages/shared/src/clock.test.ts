@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLOCK_SKEW_TOLERANCE_MS, fromIso, isClockTrusted, toIso } from './clock.js';
+import { CLOCK_SKEW_TOLERANCE_MS, clockAt, fromIso, isClockTrusted, toIso } from './clock.js';
 import type { ClockTrust } from './clock.js';
 import { fixedClock, manualClock, sequentialIds } from './testing.js';
 
@@ -77,5 +77,17 @@ describe('clock trust', () => {
     for (const [trust, expected] of cases) {
       expect(isClockTrusted(trust)).toBe(expected);
     }
+  });
+});
+
+describe('clockAt', () => {
+  it('freezes both readings at the given instant', () => {
+    // What a retroactively recorded dose needs: the cooldown and cap assessed against when the
+    // dose was actually given, not against the moment somebody typed it in (Sprint A5 phase 2).
+    const clock = clockAt(fromIso('2026-08-15T18:30:00.000Z'));
+
+    expect(clock.nowIso()).toBe('2026-08-15T18:30:00.000Z');
+    expect(clock.nowMs()).toBe(fromIso('2026-08-15T18:30:00.000Z'));
+    expect(clock.nowMs()).toBe(clock.nowMs());
   });
 });

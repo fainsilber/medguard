@@ -1,4 +1,4 @@
-export { CLOCK_SKEW_TOLERANCE_MS, fromIso, isClockTrusted, toIso } from './clock.js';
+export { CLOCK_SKEW_TOLERANCE_MS, clockAt, fromIso, isClockTrusted, toIso } from './clock.js';
 export type { Clock, ClockTrust, EpochMs, IdGenerator, IsoInstant } from './clock.js';
 
 export { systemClock, uuidIdGenerator } from './runtime/systemClock.js';
@@ -68,6 +68,18 @@ export type { ShabbatPhase, ShabbatPhaseInput } from './shabbat.js';
 export { describeShabbatWindow, formatShabbatDate } from './shabbatDisplay.js';
 export type { ShabbatWindowDisplay } from './shabbatDisplay.js';
 
+// Motzei Shabbat reconciliation (Sprint A5 phase 2): what a caregiver is asked after Havdalah
+export {
+  RECONCILIATION_LOOKBACK_MS,
+  collectReconciliationItems,
+  hasUnreconciledDoses,
+  isReconcilableAt,
+} from './shabbatReconciliation.js';
+export type {
+  CollectReconciliationInput,
+  ReconciliationItem,
+} from './shabbatReconciliation.js';
+
 // Snooze (delta AD5): bounded, append-only deferral of a scheduled dose
 export { MAX_SNOOZE_COUNT, buildDoseSnooze, deriveSnoozeState } from './snooze.js';
 export type { SnoozeContext, SnoozeState } from './snooze.js';
@@ -110,7 +122,12 @@ export { hasPendingChanges, isAppendOnlyTable, mergeCollections, mergeLww } from
 export type { LwwRecord, MergeOutcome, MergeSource } from './sync.js';
 
 // Real-time (WebSocket broadcast message shapes, shared by HouseholdDO and the client)
-export type { LiveMessage, LiveSafetyWarningMessage, LiveSyncMessage } from './live.js';
+export type {
+  LiveMessage,
+  LiveReconciliationConflictMessage,
+  LiveSafetyWarningMessage,
+  LiveSyncMessage,
+} from './live.js';
 
 // Export
 export { buildIntakeLogCsv } from './export.js';

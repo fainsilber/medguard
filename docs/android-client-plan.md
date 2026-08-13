@@ -612,7 +612,7 @@ secret set with `wrangler secret put`).
 
 ### A5 — Shabbat on native
 
-**Status: phase 1 code-complete (2026-08-13), not yet device-confirmed or luach-checked.** No
+**Status: phases 1 and 2 code-complete (2026-08-13), not yet device-confirmed or luach-checked.** No
 longer blocked: the halachic questions are answered in `docs/halachic-decisions.md` — as working
 placeholders pending an actual rav, so everything below ships against a placeholder ruling and
 gets revisited if a real answer differs.
@@ -654,10 +654,35 @@ gets revisited if a real answer differs.
 2. **Bundle cost of hebcal in the Worker:** 1298 KiB raw, 248 KiB gzipped (`wrangler deploy
    --dry-run`), comfortably inside the limit. `temporal-polyfill` runs on workerd with no trouble.
 
-**Deferred to phase 2:** the Motzei Shabbat reconciliation sheet — bulk confirm, per-item
-override, retroactive PRN, inventory reconciliation, multi-caregiver race handling. Phase 1
-produces the `pending_shabbat` logs it will consume; until it exists they accumulate, and both
-Today views show them as awaiting reconciliation rather than done.
+**Phase 2 — the Motzei Shabbat reconciliation sheet — is also code-complete (2026-08-13):**
+
+- **`packages/shared/src/shabbatReconciliation.ts`** builds the list from the *window*, not from
+  the `pending_shabbat` logs: a dose whose alert never fired (server never woken, phone offline all
+  of Shabbat) still has to be asked about, and a per-log listing would silently omit it.
+- **The sheet opens itself** on first launch after Havdalah (PRD §3's wording), replacing the tab
+  content rather than covering it so "Later" and the navigation are always one tap away. Dismissal
+  is remembered per device *and* per window, in local-only storage — one caregiver tapping "Later"
+  must not suppress the prompt on the other's phone, and the next Shabbat is a different question.
+- **One transaction per sheet** (`MedGuardRepository.reconcileShabbatDoses`): a caregiver taps "all
+  given as scheduled" once, so a crash halfway through a loop of separate writes must not leave
+  half a Shabbat recorded. Answers supersede the server's placeholder rather than editing it, and
+  stock catches up through the ordinary ledger.
+- **Two caregivers cannot double-log.** `HouseholdDO.applyBatch` refuses an `intakeLog` whose
+  `supersedesId` names a log something else already supersedes (`already_superseded`), checked
+  *before* the safety re-check so a race is not reported to the household as a safety event. The
+  losing device drops its local write (`discardLocalLog`) rather than keeping a dose the record
+  does not have — the only place anything deletes an intake log, and only ever one the server
+  refused.
+- **Retroactive PRN entry** assesses the guard as of when the dose was *given* (`clockAt`), which
+  is exactly what the Durable Object re-checks on push. When it binds, the dose is still recorded —
+  it happened — but only with a written reason attached (safety invariant 5).
+
+**One deviation from the plan, worth naming:** per-item answers are inline on each row (given /
+not given, time, quantity) rather than opening the existing `DoseCorrection` component. That
+component corrects an *existing* log and requires a note; roughly half the sheet's rows have no log
+to correct, and mixing a modal for some rows with inline controls for others would be worse than
+either. `DoseCorrection` remains the path for correcting a reconciliation afterwards, from the Log
+screen.
 
 **Exit gate:** three-day chag continuity (**passing** — `apps/api/tests/zmanim.test.ts` asserts
 Rosh Hashana 5787 running into Shabbat as one 48-hour-plus window, and Israel/diaspora divergence

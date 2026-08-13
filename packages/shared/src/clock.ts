@@ -56,6 +56,23 @@ export function toIso(ms: EpochMs): IsoInstant {
 }
 
 /**
+ * A `Clock` frozen at one instant.
+ *
+ * For evaluating a time-dependent rule *as of* some moment other than now — which is exactly what
+ * a retroactively recorded dose needs (Sprint A5 phase 2): a dose given during Shabbat and entered
+ * after Havdalah must have its cooldown and cap assessed against when it was actually given, not
+ * against the moment somebody got round to typing it in. `HouseholdDO.checkDoseSafety` already
+ * does this on the server side; this is the same thing, named, so both sides mean it identically.
+ *
+ * Not a test double — `fixedClock` in `testing.ts` is that. This is production code, used where
+ * "now" is genuinely not the instant in question.
+ */
+export function clockAt(instantMs: EpochMs): Clock {
+  const iso = toIso(instantMs);
+  return { nowMs: () => instantMs, nowIso: () => iso };
+}
+
+/**
  * Parse an ISO-8601 instant. Throws rather than returning `Invalid Date`, because a silently
  * invalid timestamp inside a cooldown calculation is exactly the kind of failure that must be
  * loud rather than quiet.

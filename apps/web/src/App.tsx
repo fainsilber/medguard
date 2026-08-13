@@ -5,7 +5,9 @@ import { HouseholdScreen } from './features/household/HouseholdScreen.js';
 import { InventoryScreen } from './features/inventory/InventoryScreen.js';
 import { MedicineList } from './features/medicines/MedicineList.js';
 import { PrnScreen } from './features/prnDoses/PrnScreen.js';
+import { ReconciliationSheet } from './features/shabbat/ReconciliationSheet.js';
 import { ShabbatScreen } from './features/shabbat/ShabbatScreen.js';
+import { useMotzeiPrompt } from './features/shabbat/useMotzeiPrompt.js';
 import { TodayView } from './features/today/TodayView.js';
 import { CaregiverGate } from './identity/CaregiverGate.js';
 import { DiagnosticsPage } from './diagnostics/DiagnosticsPage.js';
@@ -42,6 +44,11 @@ function AppShell() {
   const [activeTabId, setActiveTabId] = useState(TABS[0]!.id);
   const activeTab = TABS.find((tab) => tab.id === activeTabId) ?? TABS[0]!;
   const ActiveScreen = activeTab.Screen;
+  // PRD §3: after Havdalah the app opens the reconciliation sheet rather than waiting to be asked
+  // (Sprint A5 phase 2). It replaces the tab content rather than covering it, so "Later" and the
+  // navigation are both always reachable — a modal a caregiver could get stuck behind at 3am is
+  // its own hazard.
+  const motzei = useMotzeiPrompt();
 
   return (
     <div className="mx-auto flex min-h-full max-w-2xl flex-col gap-4 p-4">
@@ -68,7 +75,7 @@ function AppShell() {
       <SafetyWarningBanner />
 
       <main>
-        <ActiveScreen />
+        {motzei.show ? <ReconciliationSheet onDone={motzei.dismiss} /> : <ActiveScreen />}
       </main>
     </div>
   );

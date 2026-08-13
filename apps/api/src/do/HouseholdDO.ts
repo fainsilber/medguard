@@ -156,6 +156,32 @@ export class HouseholdDO extends DurableObject<Env> {
     for (const change of changes) {
       const id = String(change.record.id);
 
+      // Checked before the safety re-check, deliberately: a dose somebody else has already
+      // answered should not also be assessed for cooldown, which would broadcast a safety warning
+      // to the whole household for what is really two people doing the right thing at once.
+      if (change.table === 'intakeLogs' && typeof change.record.supersedesId === 'string') {
+        const winner = await this.supersededBy(householdId, change.record.supersedesId, id);
+        if (winner) {
+          // Somebody already answered this dose. The first answer stands — the household's record
+          // must not end up with two current truths for one dose, and the ledger must not
+          // decrement stock twice for it (Sprint A5 phase 2).
+          blockedLogIds.add(id);
+          results.push({
+            table: change.table,
+            id,
+            outcome: 'blocked',
+            blockedReason: 'already_superseded',
+          });
+          this.broadcast({
+            type: 'reconciliation.conflict',
+            occurrenceId: `${String(change.record.scheduleId ?? '')}:${String(change.record.scheduledTime ?? '')}`,
+            reconciledByUserId: winner.loggedByUserId,
+            refusedDeviceId: String(change.record.loggedByDeviceId ?? ''),
+          });
+          continue;
+        }
+      }
+
       if (change.table === 'intakeLogs' && change.record.status === 'taken') {
         const verdict = await this.checkDoseSafety(householdId, change.record);
         if (verdict.blockedReason) {
@@ -320,6 +346,38 @@ export class HouseholdDO extends DurableObject<Env> {
       .bind(householdId, occurrenceId, snoozeId)
       .first<{ n: number }>();
     return (row?.n ?? 0) >= MAX_SNOOZE_COUNT;
+  }
+
+  /**
+   * The log that already superseded `supersededId`, if some *other* record got there first
+   * (Sprint A5 phase 2).
+   *
+   * This is what stops two caregivers double-logging the same Motzei Shabbat dose. Both open the
+   * sheet, both answer the same dose, and both append a log naming the same `pending_shabbat`
+   * record — `effectiveLogs` would then treat both as current truth, the Today view would pick
+   * whichever came first in an array, and stock would be decremented twice for one dose.
+   *
+   * The check has to be here rather than in the UI: the two devices may both have been offline
+   * and pushed seconds apart, and a Durable Object is the only place in the system where "has
+   * anyone already answered this?" has a single answer.
+   *
+   * Excludes the incoming record's own id, so a resent batch — the retry path that append-only
+   * dedup exists for — is a duplicate rather than a conflict with itself.
+   */
+  private async supersededBy(
+    householdId: string,
+    supersededId: string,
+    incomingId: string,
+  ): Promise<IntakeLog | undefined> {
+    const { results } = await this.env.DB.prepare(
+      'SELECT payload FROM intake_logs WHERE household_id = ? AND id != ?',
+    )
+      .bind(householdId, incomingId)
+      .all<{ payload: string }>();
+
+    return results
+      .map((row) => JSON.parse(row.payload) as IntakeLog)
+      .find((log) => log.supersedesId === supersededId);
   }
 
   private async logExists(householdId: string, logId: string): Promise<boolean> {
