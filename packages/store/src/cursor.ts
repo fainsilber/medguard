@@ -63,3 +63,29 @@ export async function setLastSyncedAt(store: Store, iso: IsoInstant): Promise<vo
     tx.put(SYNC_META_TABLE, { key: LAST_SYNCED_AT_KEY, value: iso }),
   );
 }
+
+const RECONCILIATION_DISMISSED_KEY = 'reconciliationDismissedWindowId';
+
+/**
+ * The Shabbat window whose reconciliation sheet this device has been shown and told "later"
+ * (Sprint A5 phase 2).
+ *
+ * Local-only and never synced, deliberately: which device has already interrupted its owner is
+ * not a fact about the household, and syncing it would mean one caregiver dismissing the sheet
+ * silently suppresses it on the other's phone — where the doses are just as unreconciled.
+ *
+ * Keyed by window id rather than a boolean, so the next Shabbat opens the sheet again without
+ * anything having to remember to clear a flag.
+ */
+export async function getDismissedReconciliation(store: Store): Promise<string | undefined> {
+  const row = await store.transaction([SYNC_META_TABLE], (tx) =>
+    tx.get<{ key: string; value: unknown }>(SYNC_META_TABLE, RECONCILIATION_DISMISSED_KEY),
+  );
+  return row === undefined ? undefined : (row.value as string);
+}
+
+export async function setDismissedReconciliation(store: Store, windowId: string): Promise<void> {
+  await store.transaction([SYNC_META_TABLE], (tx) =>
+    tx.put(SYNC_META_TABLE, { key: RECONCILIATION_DISMISSED_KEY, value: windowId }),
+  );
+}

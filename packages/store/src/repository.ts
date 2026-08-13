@@ -57,6 +57,18 @@ export interface RepositoryContext {
   deviceId: DeviceId;
 }
 
+/**
+ * One dose from the Motzei Shabbat sheet, as answered.
+ *
+ * `supersedesLogId` is absent when the Durable Object never recorded a `pending_shabbat` log for
+ * the dose — the answer is then the first thing said about it, rather than a correction of the
+ * server's placeholder.
+ */
+export interface ReconciliationEntry {
+  log: Omit<IntakeLog, 'supersedesId'>;
+  supersedesLogId?: Uuid;
+}
+
 /** Sorts after every realistic ISO-8601 timestamp — the open upper bound for a "since X" range scan. */
 const RANGE_SENTINEL_MAX = '￿';
 
@@ -420,6 +432,92 @@ export class MedGuardRepository {
     });
 
     return corrected;
+  }
+
+  /**
+   * Settles a whole Motzei Shabbat sheet in one transaction (Sprint A5 phase 2).
+   *
+   * Each entry is one dose from the window that just ended. Where the Durable Object recorded a
+   * `pending_shabbat` log, the answer *supersedes* it — appended, never edited (safety invariant
+   * 1) — and where no log exists at all (the server never woke, or the household was offline for
+   * the whole of Shabbat), the answer is the dose's first log.
+   *
+   * One transaction for the entire sheet, not one per dose. A caregiver taps "all given as
+   * scheduled" once; a crash halfway through a loop of separate writes would leave a household
+   * with some doses recorded, some not, and no way to tell which — the same reasoning that puts a
+   * dose and its stock movement in one transaction, applied to the whole batch.
+   *
+   * No stock is reversed: a `pending_shabbat` log records that an alert fired, and it never moved
+   * any (`recordDose` only builds an adjustment for a `taken` log), so the only ledger entries
+   * here are the new decrements for doses actually given.
+   */
+  async reconcileShabbatDoses(entries: readonly ReconciliationEntry[]): Promise<IntakeLog[]> {
+    const written: { log: IntakeLog; adjustment?: InventoryAdjustment }[] = entries.map((entry) => {
+      const log: IntakeLog = {
+        ...entry.log,
+        ...(entry.supersedesLogId !== undefined ? { supersedesId: entry.supersedesLogId } : {}),
+      };
+      const adjustment =
+        log.status === 'taken' ? buildDoseAdjustment(log, this.adjustmentContext()) : undefined;
+      return { log, ...(adjustment ? { adjustment } : {}) };
+    });
+
+    await this.store.transaction(['intakeLogs', 'inventoryAdjustments', 'syncOutbox'], async (tx) => {
+      for (const { log, adjustment } of written) {
+        await tx.put('intakeLogs', log);
+        await this.enqueue(tx, 'intakeLogs', log.id, 'CREATE', log);
+
+        if (adjustment) {
+          await tx.put('inventoryAdjustments', adjustment);
+          await this.enqueue(tx, 'inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
+        }
+      }
+    });
+
+    return written.map((entry) => entry.log);
+  }
+
+  /**
+   * Removes a locally-written log the server refused, with its stock movement and their queued
+   * uploads.
+   *
+   * **The only thing in this system that deletes an intake log**, and it is deliberately narrow:
+   * the only caller is the sync engine, and only for a record the server authoritatively rejected
+   * — today, a Motzei reconciliation that lost a race to the other caregiver (Sprint A5 phase 2).
+   *
+   * That is not a hole in the append-only rule. The rule protects the household's medical record;
+   * a log the server never accepted was never in it. Leaving it behind is the actual harm: this
+   * one device would show a dose the record does not have, and would decrement its own stock for
+   * it, disagreeing with every other device forever about whether a child was medicated.
+   */
+  async discardLocalLog(logId: Uuid): Promise<void> {
+    const adjustments = await this.store.transaction(['inventoryAdjustments'], (tx) =>
+      tx.queryIndex<InventoryAdjustment>('inventoryAdjustments', {
+        kind: 'equals',
+        fields: ['relatedLogId'],
+        values: [logId],
+      }),
+    );
+
+    const pending = await this.pendingSync();
+    const orphanedOutbox = pending.filter(
+      (entry) =>
+        (entry.table === 'intakeLogs' && entry.entityId === logId) ||
+        (entry.table === 'inventoryAdjustments' &&
+          adjustments.some((adjustment) => adjustment.id === entry.entityId)),
+    );
+
+    await this.store.transaction(['intakeLogs', 'inventoryAdjustments', 'syncOutbox'], async (tx) => {
+      await tx.delete('intakeLogs', logId);
+      for (const adjustment of adjustments) {
+        await tx.delete('inventoryAdjustments', adjustment.id);
+      }
+      for (const entry of orphanedOutbox) {
+        // `id` is optional on the type only because it is absent before insertion; every row
+        // `pendingSync()` returns has been persisted. Same assertion the sync engine makes.
+        await tx.delete('syncOutbox', entry.id!);
+      }
+    });
   }
 
   /**
