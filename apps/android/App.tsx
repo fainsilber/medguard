@@ -24,13 +24,13 @@ import { colors } from './src/ui/primitives';
  * re-materializes on the same `NotifyingStore` writes `SyncProvider`'s pulls make, so no explicit
  * "sync completed" hook is needed between them — the store notification is the hook.
  *
- * The header row (Today shortcut, title + sync status, hamburger) and the safety warning banner
+ * The header row (Medicines shortcut, title + sync status, hamburger) and the safety warning banner
  * sit above `AppNavigator`'s stack, visible on every screen — this is the one persistent header
  * for the whole app, which is why every screen in `AppNavigator` is `headerShown: false`: a
  * second per-screen header stacked under this one was the source of the dead space that used to
- * show up above every screen. `AppNavigator` renders its own persistent bottom bar (Medicines /
+ * show up above every screen. `AppNavigator` renders its own persistent bottom bar (Today /
  * As needed) the same way, alongside its stack rather than nested inside part of it — `navigationRef`
- * is created here (so the header's Today shortcut and hamburger menu can drive it too) and passed
+ * is created here (so the header's Medicines shortcut and hamburger menu can drive it too) and passed
  * down as a prop for that bottom bar to navigate with.
  */
 const MENU_ITEMS: ReadonlyArray<{ route: keyof RootStackParamList; label: string; icon: string }> = [
@@ -62,11 +62,11 @@ export default function App(): React.JSX.Element {
               <View style={styles.header}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Today's schedule"
-                  onPress={() => navigate('Today')}
+                  accessibilityLabel="Medicines list"
+                  onPress={() => navigate('Medicines')}
                   style={styles.iconButton}
                 >
-                  <Text style={styles.iconGlyph}>📅</Text>
+                  <Text style={styles.iconGlyph}>💊</Text>
                 </Pressable>
                 <View style={styles.headerCenter}>
                   <Text style={styles.title}>MedGuard</Text>

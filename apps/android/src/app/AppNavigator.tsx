@@ -31,14 +31,14 @@ import { useHouseholdSettings } from './useHouseholdSettings.js';
  * that knows about routes, route params, or `@react-navigation` at all.
  *
  * A native-stack replaces the old 8-item bottom-tab bar: `App.tsx` renders one persistent header
- * (Today shortcut top-left, hamburger top-right) above the `NavigationContainer`, so every screen
- * here is `headerShown: false` and reached either from the bottom Medicines/As-needed switcher,
- * the header's Today shortcut, the hamburger menu, or the OS back gesture/button (native-stack
+ * (Medicines shortcut top-left, hamburger top-right) above the `NavigationContainer`, so every screen
+ * here is `headerShown: false` and reached either from the bottom Today/As-needed switcher,
+ * the header's Medicines shortcut, the hamburger menu, or the OS back gesture/button (native-stack
  * pops on it same as any Android app) — no per-screen header bar left to double up with the
  * persistent one.
  *
- * `BottomNavBar` (Medicines / As needed) is rendered here as a sibling of `RootStack.Navigator`,
- * not nested inside it, so it stays visible on every root screen — Today, Inventory, Log, Shabbat,
+ * `BottomNavBar` (Today / As needed) is rendered here as a sibling of `RootStack.Navigator`,
+ * not nested inside it, so it stays visible on every root screen — Medicines, Inventory, Log, Shabbat,
  * Household and Diagnostics included, not just the two tabs it switches between. Those are the two
  * things a caregiver reaches for constantly, so they get a permanent, full-width, always-visible
  * switcher no matter where navigation currently is, the same way the header above never goes away.
@@ -157,13 +157,13 @@ export type RootStackParamList = {
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 
 // ---------------------------------------------------------------------------
-// BottomNavBar: a two-item, full-width switcher (Medicines / As needed) that
+// BottomNavBar: a two-item, full-width switcher (Today / As needed) that
 // stays mounted alongside RootStack.Navigator — see the file doc comment for
 // why it's driven by navigationRef instead of useNavigation().
 // ---------------------------------------------------------------------------
 
-const BOTTOM_NAV_ITEMS: ReadonlyArray<{ route: 'Medicines' | 'AsNeeded'; label: string; icon: string }> = [
-  { route: 'Medicines', label: 'Medicines', icon: '💊' },
+const BOTTOM_NAV_ITEMS: ReadonlyArray<{ route: 'Today' | 'AsNeeded'; label: string; icon: string }> = [
+  { route: 'Today', label: 'Today', icon: '📅' },
   { route: 'AsNeeded', label: 'As needed', icon: '⏱️' },
 ];
 
@@ -242,7 +242,7 @@ export function AppNavigator({
   // (Sprint A5 phase 2). It replaces the tabs rather than covering them, so "Later" is always one
   // tap away — a modal a caregiver could get stuck behind at 3am is its own hazard.
   const motzei = useMotzeiPrompt();
-  const [activeRoute, setActiveRoute] = useState<keyof RootStackParamList>('Medicines');
+  const [activeRoute, setActiveRoute] = useState<keyof RootStackParamList>('Today');
 
   // Root-level route name only (never a nested MedicinesStack screen like "MedicineForm"): that's
   // what tells us which of the two bottom-bar buttons to highlight, and getRootState() gives it
@@ -263,7 +263,7 @@ export function AppNavigator({
 
   return (
     <>
-      <RootStack.Navigator initialRouteName="Medicines" screenOptions={rootScreenOptions}>
+      <RootStack.Navigator initialRouteName="Today" screenOptions={rootScreenOptions}>
         <RootStack.Screen name="Medicines" component={MedicinesStackScreen} />
         <RootStack.Screen name="AsNeeded" component={PrnScreen} />
         <RootStack.Screen name="Today" component={TodayView} />
