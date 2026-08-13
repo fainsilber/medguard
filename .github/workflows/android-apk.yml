@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      save_artifact:
+        description: Save the built APK as a downloadable artifact
+        type: boolean
+        default: false
 
 # Cancel superseded runs on the same PR branch, but never a push to main — a merge should
 # always finish and produce its artifact even if another merge follows quickly.
@@ -61,11 +66,12 @@ jobs:
         # into assets. The RN template's `release` signingConfig defaults to the debug keystore
         # (no real signing set up), so this stays installable without any secrets.
         run: ./gradlew assembleRelease
-      # Skipped on pull_request: those runs exist to catch build breakage early, not to
-      # produce an installable artifact. Every push to main (i.e. every merge) and every
-      # manual workflow_dispatch still uploads the APK.
+      # Every push to main (i.e. every merge) uploads the APK. PR runs exist to catch build
+      # breakage early and never upload. Manual workflow_dispatch runs — e.g. building a
+      # side branch to hand someone an APK — only upload when save_artifact is checked,
+      # since most ad-hoc runs are just "does this still build" checks.
       - name: Upload APK
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push' || inputs.save_artifact == true
         uses: actions/upload-artifact@v4
         with:
           name: medguard-release-apk
