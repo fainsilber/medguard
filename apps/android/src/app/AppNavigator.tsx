@@ -1,6 +1,9 @@
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatLocalDate } from '@medguard/shared';
 import type { Medicine, Schedule } from '@medguard/shared';
 import { DiagnosticsScreen } from '../features/diagnostics/DiagnosticsScreen.js';
@@ -27,11 +30,16 @@ import { useHouseholdSettings } from './useHouseholdSettings.js';
  * to take navigation-agnostic callback props exactly for this seam: this file is the only place
  * that knows about routes, route params, or `@react-navigation` at all.
  *
- * A single native-stack replaces the old bottom-tab bar: `App.tsx` renders one persistent header
+ * A native-stack replaces the old 8-item bottom-tab bar: `App.tsx` renders one persistent header
  * (Today shortcut top-left, hamburger top-right) above the `NavigationContainer`, so every screen
- * here is `headerShown: false` and reached either from `Home`'s two big buttons, the header's
- * Today shortcut, the hamburger menu, or the OS back gesture/button (native-stack pops on it same
- * as any Android app) — no per-screen header bar left to double up with the persistent one.
+ * here is `headerShown: false` and reached either from `Home`, the header's Today shortcut, the
+ * hamburger menu, or the OS back gesture/button (native-stack pops on it same as any Android app)
+ * — no per-screen header bar left to double up with the persistent one.
+ *
+ * `Home` itself is a two-item bottom-tab navigator (Medicines / As needed) rather than a stack
+ * screen: those are the two things a caregiver reaches for constantly, so they get a permanent,
+ * full-width, always-visible switcher at the bottom of the screen — opening the app lands
+ * straight on the Medicines list, not an empty picker.
  */
 
 // ---------------------------------------------------------------------------
@@ -134,15 +142,111 @@ function MedicinesStackScreen(): React.JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Root stack: Home (the two big buttons) + every other screen, reached from
-// Home, the persistent header's Today shortcut, or the hamburger menu.
+// Home: a two-item bottom-tab switcher (Medicines / As needed), full-width,
+// complete labels — not the old 8-tab bar's cramped icon-plus-ellipsis.
+// ---------------------------------------------------------------------------
+
+type HomeTabParamList = {
+  Medicines: undefined;
+  'As needed': undefined;
+};
+
+const HomeTab = createBottomTabNavigator<HomeTabParamList>();
+
+const HOME_TAB_ICONS: Record<keyof HomeTabParamList, string> = {
+  Medicines: '💊',
+  'As needed': '⏱️',
+};
+
+/**
+ * Custom instead of the default `tabBarLabel`/`tabBarIcon` layout: the default bar sizes itself
+ * for a row of many narrow tabs (small icon, tiny label). With only two destinations here, the
+ * ask was for two big, full-width, evenly-split buttons with room for the whole label — easiest
+ * to get by owning the bar's layout outright rather than fighting the default's sizing.
+ */
+function HomeTabBar({ state, navigation }: BottomTabBarProps): React.JSX.Element {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[homeTabBarStyles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      {state.routes.map((route, index) => {
+        const isFocused = state.index === index;
+        const name = route.name as keyof HomeTabParamList;
+        return (
+          <Pressable
+            key={route.key}
+            accessibilityRole="button"
+            accessibilityState={isFocused ? { selected: true } : {}}
+            onPress={() => {
+              const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+              if (!isFocused && !event.defaultPrevented) {
+                navigation.navigate(route.name);
+              }
+            }}
+            style={({ pressed }) => [
+              homeTabBarStyles.button,
+              isFocused && homeTabBarStyles.buttonActive,
+              pressed && homeTabBarStyles.pressed,
+            ]}
+          >
+            <Text style={homeTabBarStyles.icon}>{HOME_TAB_ICONS[name]}</Text>
+            <Text
+              style={[homeTabBarStyles.label, isFocused && homeTabBarStyles.labelActive]}
+              numberOfLines={1}
+            >
+              {name}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+const homeTabBarStyles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  button: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingTop: 12,
+    paddingHorizontal: 8,
+    borderTopWidth: 3,
+    borderTopColor: 'transparent',
+  },
+  buttonActive: { borderTopColor: colors.primary },
+  pressed: { opacity: 0.75 },
+  icon: { fontSize: 26 },
+  label: { fontSize: 15, fontWeight: '700', color: colors.textMuted },
+  labelActive: { color: colors.text },
+});
+
+function HomeScreen(): React.JSX.Element {
+  return (
+    <HomeTab.Navigator
+      initialRouteName="Medicines"
+      tabBar={(props) => <HomeTabBar {...props} />}
+      screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.background } }}
+    >
+      <HomeTab.Screen name="Medicines" component={MedicinesStackScreen} />
+      <HomeTab.Screen name="As needed" component={PrnScreen} />
+    </HomeTab.Navigator>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Root stack: Home + every other screen, reached from the persistent header's
+// Today shortcut or the hamburger menu.
 // ---------------------------------------------------------------------------
 
 export type RootStackParamList = {
   Home: undefined;
   Today: undefined;
-  Medicines: undefined;
-  'As needed': undefined;
   Inventory: undefined;
   Log: undefined;
   Shabbat: undefined;
@@ -151,49 +255,6 @@ export type RootStackParamList = {
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
-
-function HomeScreen({
-  navigation,
-}: NativeStackScreenProps<RootStackParamList, 'Home'>): React.JSX.Element {
-  return (
-    <View style={homeStyles.container}>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => navigation.navigate('Medicines')}
-        style={({ pressed }) => [homeStyles.bigButton, homeStyles.medicinesButton, pressed && homeStyles.pressed]}
-      >
-        <Text style={homeStyles.bigButtonIcon}>💊</Text>
-        <Text style={homeStyles.bigButtonLabel}>Medicines</Text>
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => navigation.navigate('As needed')}
-        style={({ pressed }) => [homeStyles.bigButton, homeStyles.asNeededButton, pressed && homeStyles.pressed]}
-      >
-        <Text style={homeStyles.bigButtonIcon}>⏱️</Text>
-        <Text style={homeStyles.bigButtonLabel}>As needed</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-const homeStyles = StyleSheet.create({
-  container: { flex: 1, padding: 16, gap: 16, backgroundColor: colors.background },
-  bigButton: {
-    flex: 1,
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  medicinesButton: { backgroundColor: colors.surface },
-  asNeededButton: { backgroundColor: colors.surface },
-  pressed: { opacity: 0.8 },
-  bigButtonIcon: { fontSize: 64 },
-  bigButtonLabel: { fontSize: 26, fontWeight: '700', color: colors.text },
-});
 
 export function AppNavigator(): React.JSX.Element {
   // PRD §3: after Havdalah the app opens the reconciliation sheet rather than waiting to be asked
@@ -209,8 +270,6 @@ export function AppNavigator(): React.JSX.Element {
     <RootStack.Navigator initialRouteName="Home" screenOptions={rootScreenOptions}>
       <RootStack.Screen name="Home" component={HomeScreen} />
       <RootStack.Screen name="Today" component={TodayView} />
-      <RootStack.Screen name="Medicines" component={MedicinesStackScreen} />
-      <RootStack.Screen name="As needed" component={PrnScreen} />
       <RootStack.Screen name="Inventory" component={InventoryScreen} />
       <RootStack.Screen name="Log" component={ExportScreen} />
       <RootStack.Screen name="Shabbat" component={ShabbatScreen} />
