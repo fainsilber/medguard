@@ -7,6 +7,7 @@ import {
   medicineSchema,
   scheduleSchema,
   shabbatConfigSchema,
+  shabbatWindowSchema,
 } from '@medguard/shared';
 import type { SyncableTable } from '@medguard/shared';
 import type { z } from 'zod';
@@ -174,6 +175,22 @@ export const TABLES: Record<SyncableTable, TableConfig> = {
       latitude: r.latitude,
       longitude: r.longitude,
       israel_holidays: bool(r.israelHolidays),
+    }),
+  },
+
+  /**
+   * Sprint A5. The one table the server writes and clients only read (`routes/sync.ts` rejects a
+   * client push to it), so `columns` is fed by `shabbat/publish.ts` rather than by an upload.
+   */
+  shabbatWindows: {
+    table: 'shabbatWindows',
+    sqlTable: 'shabbat_windows',
+    writeRule: 'lww',
+    schema: shabbatWindowSchema as never,
+    columns: (r: any) => ({
+      patient_id: r.patientId,
+      starts_at: r.startsAt,
+      ends_at: r.endsAt,
     }),
   },
 };

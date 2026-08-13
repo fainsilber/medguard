@@ -132,6 +132,11 @@ class MedGuardAlarmsModule : Module() {
                     mapOf(
                         "occurrenceKey" to payload.occurrenceKey,
                         "triggerAtMs" to payload.triggerAtMs,
+                        // Sprint A5: the channel is part of what "already armed correctly" means.
+                        // A dose whose time has not moved but whose channel has — Shabbat starting
+                        // or ending between reconciles — must be re-armed, or it rings with
+                        // action buttons on Shabbat.
+                        "channelId" to payload.channelId,
                     )
                 }
             }

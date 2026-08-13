@@ -67,14 +67,6 @@ export interface AlarmEngineState {
 }
 
 /**
- * PRD default. Not on `HouseholdSettings` — the PRD puts `chimeDurationSeconds` on `ShabbatConfig`
- * (per-patient, and A5's concern), and inventing a second household-level field for the weekday
- * case ahead of any UI to change it would be schema churn for nothing. One constant here is the
- * honest representation of "we have not made this configurable yet".
- */
-const CHIME_DURATION_SECONDS = 45;
-
-/**
  * How far back to look for snoozes. A snooze cannot defer a dose by more than
  * `MAX_SNOOZE_COUNT × snoozeMinutes` (an hour by default), so a day of history is generous by an
  * order of magnitude while still keeping the query bounded as snoozes accumulate over months.
@@ -145,6 +137,10 @@ export class AlarmEngine {
     const medicines = await repository.allMedicines();
     const logs = await repository.logsForPatient(SINGLE_PATIENT_ID);
     const snoozes = await repository.recentSnoozes(toIso(nowMs - SNOOZE_LOOKBACK_MS));
+    // Sprint A5. Both read locally, like everything else here: a phone with no signal on Friday
+    // afternoon must still arm Shabbat's doses on the Shabbat channel.
+    const shabbatConfig = await repository.getShabbatConfig();
+    const shabbatWindows = await repository.allShabbatWindows();
 
     const planned = materializeHorizon({
       schedules,
@@ -154,6 +150,8 @@ export class AlarmEngine {
       timeZone: settings.timeZone,
       nowMs,
       horizonMs: ALARM_HORIZON_MS,
+      shabbatWindows,
+      shabbatConfig,
     });
 
     const armed = await native.listArmedAlarms();
@@ -167,10 +165,12 @@ export class AlarmEngine {
         toArm.map((alarm) => ({
           occurrenceKey: alarm.occurrenceKey,
           triggerAtMs: alarm.triggerAtMs,
-          channelId: 'dose_standard_v1' as const,
+          // Chosen in `horizon.ts` from the synced Shabbat windows, not fixed here: a dose inside
+          // a window rings on the Shabbat channel, which posts no action buttons (delta D5/AD3).
+          channelId: alarm.channelId,
           title: alarm.title,
           body: alarm.body,
-          chimeDurationSeconds: CHIME_DURATION_SECONDS,
+          chimeDurationSeconds: alarm.chimeDurationSeconds,
           // Escalation is server-only (docs/android-client-plan.md, "Local versus server
           // alarms"): a device cannot know whether *another* caregiver acknowledged, which is
           // exactly what an escalation is for.

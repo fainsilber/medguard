@@ -54,13 +54,30 @@ export type { OccurrenceStatus } from './classifyOccurrence.js';
 export { findLogForOccurrence } from './matchOccurrenceLog.js';
 export { formatCountdown } from './formatCountdown.js';
 
+// Shabbat mode (Sprint A5): reading the server-published windows. Zmanim themselves are computed
+// only in the Worker (apps/api/src/shabbat/zmanim.ts) — nothing here imports @hebcal/core.
+export {
+  PRE_SHABBAT_ARMING_MS,
+  activeWindow,
+  nextWindow,
+  shabbatModeAt,
+  shabbatPhaseAt,
+  upcomingWindows,
+} from './shabbat.js';
+export type { ShabbatPhase, ShabbatPhaseInput } from './shabbat.js';
+export { describeShabbatWindow, formatShabbatDate } from './shabbatDisplay.js';
+export type { ShabbatWindowDisplay } from './shabbatDisplay.js';
+
 // Snooze (delta AD5): bounded, append-only deferral of a scheduled dose
 export { MAX_SNOOZE_COUNT, buildDoseSnooze, deriveSnoozeState } from './snooze.js';
 export type { SnoozeContext, SnoozeState } from './snooze.js';
 
 // Household setting defaults, shared so two clients cannot bootstrap different safety windows
 export {
+  DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
+  DEFAULT_CHIME_DURATION_SECONDS,
   DEFAULT_ESCALATION_MINUTES,
+  DEFAULT_HAVDALAH,
   DEFAULT_SNOOZE_MINUTES,
   MISSED_AFTER_MINUTES,
 } from './settings.js';

@@ -35,6 +35,7 @@ const STATUS_LABEL: Record<OccurrenceStatus, string> = {
   due_now: 'Due now',
   snoozed: 'Snoozed',
   upcoming: 'Upcoming',
+  pending_shabbat: 'Awaiting Shabbat reconciliation',
   done: 'Done',
 };
 
@@ -45,6 +46,7 @@ const STATUS_HEADING_CLASS: Record<OccurrenceStatus, string> = {
   due_now: 'text-capped',
   snoozed: 'text-slate-500',
   upcoming: 'text-slate-500',
+  pending_shabbat: 'text-capped',
   done: 'text-safe',
 };
 
@@ -84,7 +86,7 @@ export function TodayView() {
     return expandSchedules(schedules, range, timeZone).map((occurrence) => {
       const key = occurrenceKey(occurrence);
       const log = findLogForOccurrence(logs, occurrence);
-      const status = classifyOccurrence(occurrence.dueAt, nowMs, log !== undefined, snoozedUntil.get(key));
+      const status = classifyOccurrence(occurrence.dueAt, nowMs, log?.status, snoozedUntil.get(key));
       return { occurrence, log, status, key };
     });
   }, [schedules, logs, timeZone, today, nowMs, snoozedUntil]);
@@ -173,7 +175,16 @@ export function TodayView() {
     );
   }
 
-  const sections: OccurrenceStatus[] = ['overdue', 'due_now', 'snoozed', 'upcoming', 'done'];
+  // `pending_shabbat` sits above `done` rather than beside it: those doses still owe an answer,
+  // and after Havdalah they are the first thing a caregiver has to deal with.
+  const sections: OccurrenceStatus[] = [
+    'overdue',
+    'due_now',
+    'snoozed',
+    'upcoming',
+    'pending_shabbat',
+    'done',
+  ];
 
   return (
     <Card>

@@ -41,6 +41,14 @@ export interface DispatchOptions {
   /** Skip these device ids — e.g. the device that already knows, on a targeted first alert. */
   exclude?: readonly string[];
   /**
+   * Restrict to devices reachable by these providers. Absent means all of them.
+   *
+   * Sprint A5's Shabbat burst is the reason this exists: ten pushes ~1.1s apart approximate a
+   * long chime in a browser, but on a native device — which plays the real 45 seconds from a
+   * local alarm — they would be ten separate notifications (delta AD3).
+   */
+  providers?: readonly ('webpush' | 'fcm')[];
+  /**
    * How long a push service may hold the message for a sleeping device. A dose alert that
    * surfaces an hour late is worse than one that never arrives: it invites a second dose.
    */
@@ -135,8 +143,13 @@ export async function dispatchToHousehold(
   const only = options.only ? new Set(options.only) : null;
   const exclude = new Set(options.exclude ?? []);
 
+  const providers = options.providers ? new Set(options.providers) : null;
+
   const targets = devices.filter(
-    (device) => !exclude.has(device.id) && (only === null || only.has(device.id)),
+    (device) =>
+      !exclude.has(device.id) &&
+      (only === null || only.has(device.id)) &&
+      (providers === null || providers.has(device.push_provider)),
   );
 
   const vapid = readVapidConfig(env);

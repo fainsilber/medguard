@@ -15,6 +15,8 @@ import {
   makeLog,
   makeMedicine,
   makeSchedule,
+  makeShabbatConfig,
+  makeShabbatWindow,
 } from './fixtures.js';
 
 /**
@@ -248,6 +250,70 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         });
 
         expect(await repository.getHouseholdSettings()).toMatchObject({ timeZone: 'Asia/Jerusalem' });
+      });
+    });
+
+    describe('shabbat (Sprint A5)', () => {
+      it('has no config until a household sets one — which is not the same as automation being off', async () => {
+        const { repository } = await freshRepository();
+        expect(await repository.getShabbatConfig()).toBeUndefined();
+        expect(await repository.allShabbatWindows()).toEqual([]);
+      });
+
+      it('saves the config locally and queues it for sync in one transaction', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveShabbatConfig(makeShabbatConfig(), 'CREATE');
+
+        expect(await repository.getShabbatConfig()).toMatchObject({
+          latitude: 31.7683,
+          israelHolidays: true,
+          candleLightingOffsetMins: 18,
+        });
+
+        const outbox = await repository.pendingSync();
+        expect(outbox).toHaveLength(1);
+        expect(outbox[0]).toMatchObject({ table: 'shabbatConfig', action: 'CREATE' });
+      });
+
+      it('queues a later edit as an update', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveShabbatConfig(makeShabbatConfig(), 'CREATE');
+        await repository.markSynced((await repository.pendingSync())[0]!.id!);
+
+        // No action argument: an edit to an existing config is an update, which is what the
+        // server's last-write-wins merge expects to receive.
+        await repository.saveShabbatConfig(makeShabbatConfig({ candleLightingOffsetMins: 40 }));
+
+        const outbox = await repository.pendingSync();
+        expect(outbox).toHaveLength(1);
+        expect(outbox[0]).toMatchObject({ table: 'shabbatConfig', action: 'UPDATE' });
+        expect(await repository.getShabbatConfig()).toMatchObject({
+          candleLightingOffsetMins: 40,
+        });
+      });
+
+      it('reads back windows that arrived from the server', async () => {
+        const { store, repository } = await freshRepository();
+
+        // Windows are never written by this device — they land through `applyPulledRecord`, which
+        // writes them straight into the table. Simulated here by writing them the same way.
+        await store.transaction(['shabbatWindows'], async (tx) => {
+          await tx.put('shabbatWindows', makeShabbatWindow());
+          await tx.put(
+            'shabbatWindows',
+            makeShabbatWindow({
+              startsAt: '2026-06-26T16:22:00.000Z',
+              endsAt: '2026-06-27T17:32:00.000Z',
+            }),
+          );
+        });
+
+        const windows = await repository.allShabbatWindows();
+        expect(windows).toHaveLength(2);
+        expect(windows.map((window) => window.kind)).toEqual(['shabbat', 'shabbat']);
+
+        // Nothing was queued for upload: this table only ever travels one way.
+        expect(await repository.pendingSync()).toEqual([]);
       });
     });
 

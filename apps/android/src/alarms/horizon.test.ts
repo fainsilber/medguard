@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { fromIso, occurrenceKey, resolveLocal, toIso } from '@medguard/shared';
-import type { DoseSnooze, IntakeLog, Medicine, Schedule } from '@medguard/shared';
+import type {
+  DoseSnooze,
+  IntakeLog,
+  Medicine,
+  Schedule,
+  ShabbatConfig,
+  ShabbatWindow,
+} from '@medguard/shared';
 import { ALARM_HORIZON_MS, MAX_ARMED_ALARMS, materializeHorizon } from './horizon.js';
 
 /**
@@ -280,5 +287,125 @@ describe('materializeHorizon', () => {
 
   it('returns nothing when there are no schedules at all', () => {
     expect(materializeHorizon(baseInput({ schedules: [] }))).toEqual([]);
+  });
+});
+
+/**
+ * Sprint A5: which channel a dose rings on.
+ *
+ * The Shabbat channel posts no action buttons (delta D5) — so getting this wrong does not mean a
+ * cosmetically different notification, it means a caregiver being offered a button that writes a
+ * record on Shabbat.
+ */
+describe('materializeHorizon in Shabbat mode', () => {
+  // Today's dose is due 2026-06-15T09:00Z. A window around it stands in for whatever the server
+  // computed; the real times are `apps/api/tests/zmanim.test.ts`'s business.
+  function makeWindow(overrides: Partial<ShabbatWindow> = {}): ShabbatWindow {
+    const startsAt = overrides.startsAt ?? '2026-06-15T08:00:00.000Z';
+    return {
+      id: `shabbat:${startsAt}`,
+      patientId: 'patient-1',
+      kind: 'shabbat',
+      label: 'Shabbat',
+      startsAt,
+      endsAt: '2026-06-15T20:00:00.000Z',
+      generatedAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+      updatedByDeviceId: 'server',
+      syncStatus: 'synced',
+      ...overrides,
+    };
+  }
+
+  function makeConfig(overrides: Partial<ShabbatConfig> = {}): ShabbatConfig {
+    return {
+      id: 'shabbat-config-1',
+      patientId: 'patient-1',
+      autoShabbatEnabled: true,
+      latitude: 31.7683,
+      longitude: 35.2137,
+      candleLightingOffsetMins: 18,
+      havdalahDegreesOrMins: '8.5_degrees',
+      israelHolidays: true,
+      chimeDurationSeconds: 45,
+      updatedAt: '2026-06-01T00:00:00.000Z',
+      updatedByDeviceId: 'device-1',
+      syncStatus: 'synced',
+      ...overrides,
+    };
+  }
+
+  it('arms a weekday dose on the standard channel at the PRD chime length', () => {
+    const planned = materializeHorizon(baseInput());
+
+    expect(planned[0]).toMatchObject({
+      channelId: 'dose_standard_v1',
+      chimeDurationSeconds: 45,
+    });
+  });
+
+  it('arms a dose inside a window on the Shabbat channel', () => {
+    const planned = materializeHorizon(
+      baseInput({ shabbatWindows: [makeWindow()], shabbatConfig: makeConfig() }),
+    );
+
+    expect(toIso(planned[0]!.triggerAtMs)).toBe('2026-06-15T09:00:00.000Z');
+    expect(planned[0]!.channelId).toBe('shabbat_v1');
+  });
+
+  it('decides from when the alarm will fire, not from now', () => {
+    // Armed now (08:00 Jerusalem, a weekday morning) for a dose that falls after candle lighting.
+    // If the decision were made from `nowMs`, this dose would be armed on the weekday channel and
+    // ring with action buttons on Shabbat.
+    const planned = materializeHorizon(
+      baseInput({
+        shabbatWindows: [makeWindow({ startsAt: '2026-06-15T08:30:00.000Z' })],
+        shabbatConfig: makeConfig(),
+      }),
+    );
+
+    expect(planned[0]!.channelId).toBe('shabbat_v1');
+  });
+
+  it('leaves a dose outside every window on the standard channel', () => {
+    const planned = materializeHorizon(
+      baseInput({
+        shabbatWindows: [
+          makeWindow({ startsAt: '2026-06-19T16:00:00.000Z', endsAt: '2026-06-20T17:00:00.000Z' }),
+        ],
+        shabbatConfig: makeConfig(),
+      }),
+    );
+
+    expect(planned[0]!.channelId).toBe('dose_standard_v1');
+  });
+
+  it('ignores published windows when automation is switched off', () => {
+    const planned = materializeHorizon(
+      baseInput({
+        shabbatWindows: [makeWindow()],
+        shabbatConfig: makeConfig({ autoShabbatEnabled: false }),
+      }),
+    );
+
+    expect(planned[0]!.channelId).toBe('dose_standard_v1');
+  });
+
+  it('is weekday behaviour on a device that has never synced a config', () => {
+    // The same answer the Durable Object gives from the same inputs — neither guesses.
+    const planned = materializeHorizon(baseInput({ shabbatWindows: [makeWindow()] }));
+
+    expect(planned[0]!.channelId).toBe('dose_standard_v1');
+  });
+
+  it('takes the chime length from the household configuration', () => {
+    const planned = materializeHorizon(
+      baseInput({
+        shabbatWindows: [makeWindow()],
+        shabbatConfig: makeConfig({ chimeDurationSeconds: 90 }),
+      }),
+    );
+
+    expect(planned[0]!.chimeDurationSeconds).toBe(90);
   });
 });

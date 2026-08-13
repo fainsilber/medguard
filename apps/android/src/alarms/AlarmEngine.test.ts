@@ -71,7 +71,11 @@ function fakeNative(overrides: Partial<AlarmNativeSurface> = {}) {
     armDoseAlarms: vi.fn(async (inputs: ScheduleDoseAlarmInput[]) => {
       for (const input of inputs) {
         const existing = armed.findIndex((a) => a.occurrenceKey === input.occurrenceKey);
-        const record = { occurrenceKey: input.occurrenceKey, triggerAtMs: input.triggerAtMs };
+        const record = {
+          occurrenceKey: input.occurrenceKey,
+          triggerAtMs: input.triggerAtMs,
+          channelId: input.channelId,
+        };
         if (existing >= 0) armed[existing] = record;
         else armed.push(record);
       }

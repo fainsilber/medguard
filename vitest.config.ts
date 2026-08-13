@@ -91,6 +91,11 @@ export default defineConfig({
         // function, so it is held to the same bar as the rest of the alarm-critical path.
         'packages/shared/src/snooze.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
 
+        // Sprint A5: the single answer to "is it Shabbat right now", read by the Durable Object's
+        // alarm chain, the Android alarm horizon and both clients' UI. A wrong `false` writes a
+        // record on Shabbat; a wrong `true` silences an escalation on a weekday.
+        'packages/shared/src/shabbat.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+
         // Sprint A1 (docs/android-client-plan.md, "Storage and the sync port"): the extracted
         // outbox/transaction code and the LWW-vs-append-only merge dispatch carry the same
         // safety invariant 7 (no log lost across an offline→online cycle, no retry ever

@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { sequentialIds } from '@medguard/shared/testing';
 import type { Clock } from '@medguard/shared';
 import { MedGuardRepository } from '@medguard/store';
+import type { Store } from '@medguard/store';
 import { DexieStore } from '@medguard/store/dexie';
 import { RepositoryProvider } from '../app/RepositoryContext.js';
 import { MedGuardDB } from '../db/schema.js';
@@ -28,8 +29,12 @@ export interface RenderWithRepositoryOptions {
    * machine and CI runner — exactly the non-determinism a test suite can't have.
    */
   timeZone?: string;
-  /** Runs before mount, given a repository for the same database the component will render against. */
-  seed?: (repository: MedGuardRepository) => Promise<void>;
+  /**
+   * Runs before mount, given a repository for the same database the component will render
+   * against — and the raw `Store` beneath it, for the server-authored tables the repository
+   * deliberately has no writer for (`shabbatWindows`, Sprint A5).
+   */
+  seed?: (repository: MedGuardRepository, store: Store) => Promise<void>;
 }
 
 export async function renderWithRepository(
@@ -40,7 +45,8 @@ export async function renderWithRepository(
 
   if (timeZone || seed) {
     const seedDb = new MedGuardDB(dbName);
-    const seedRepository = new MedGuardRepository(new DexieStore(seedDb), {
+    const seedStore = new DexieStore(seedDb);
+    const seedRepository = new MedGuardRepository(seedStore, {
       clock: clock ?? { nowMs: () => 0, nowIso: () => '1970-01-01T00:00:00.000Z' },
       ids: sequentialIds('seed'),
       userId: 'seed',
@@ -60,7 +66,7 @@ export async function renderWithRepository(
     }
 
     if (seed) {
-      await seed(seedRepository);
+      await seed(seedRepository, seedStore);
     }
   }
 

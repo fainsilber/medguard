@@ -612,14 +612,58 @@ secret set with `wrangler secret put`).
 
 ### A5 — Shabbat on native
 
-**Scope:** local chime alarms armed from synced zmanim windows; informational-only notifications
-with no actions; `pending_shabbat`; the Motzei reconciliation sheet; the DND / battery / OEM
-autostart checklist.
+**Status: phase 1 code-complete (2026-08-13), not yet device-confirmed or luach-checked.** No
+longer blocked: the halachic questions are answered in `docs/halachic-decisions.md` — as working
+placeholders pending an actual rav, so everything below ships against a placeholder ruling and
+gets revisited if a real answer differs.
 
-**Blocked on:** the halachic questions returning from your rav.
+**Scope, as built (phase 1 — mode and alarms):**
 
-**Exit gate:** three-day chag continuity green; a weekday 25-hour dry run in simulated Shabbat mode
-with zero touches and no escalation emitted.
+- **Zmanim in the Worker only** (PRD §3). `apps/api/src/shabbat/zmanim.ts` is the sole file that
+  imports `@hebcal/core`; `publish.ts` writes the result as `ShabbatWindow` records that devices
+  pull like anything else. Clients never compute — they read the same windows the Durable Object
+  acts on, so a phone and the server cannot disagree about whether it is Shabbat.
+- **Windows, not days.** A window opens at a candle lighting and closes at the next Havdalah, so a
+  chag adjacent to Shabbat comes out as *one* continuous window and three-day continuity needs no
+  special case anywhere downstream.
+- **`packages/shared/src/shabbat.ts`** — the single predicate set (`shabbatModeAt`,
+  `shabbatPhaseAt`, `upcomingWindows`) that the DO, the Android alarm horizon and both UIs read.
+  Held at 100% branch coverage alongside `snooze.ts`.
+- **The DO honours the mode**: `kind: 'shabbat'` pushes (no action buttons), no escalation, no
+  machine-written `missed`, and a `pending_shabbat` `IntakeLog` written at dose time for the
+  reconciliation that phase 2 will build. The web burst (10 pushes ~1.1s apart) is a schedule held
+  in DO SQLite and drained by the same chain, so every push is assertable under
+  `runDurableObjectAlarm`; `fcm` devices get exactly one (AD3).
+- **Android** arms Shabbat-window doses on `shabbat_v1` at the configured chime length; the
+  reconcile diff now includes the channel, so Shabbat starting between two passes re-arms rather
+  than leaving a dose on the weekday channel with "Taken"/"Snooze" on it. `listArmedAlarms` reports
+  the channel for that reason.
+- **Both clients** get a Shabbat screen: the config form, and the next 8 weeks of computed times
+  in the household's timezone, for checking against a luach. Automation defaults to *off* on a new
+  config — nothing changes how alarms behave until someone has verified the times.
+- **The setup checklist** gains a "Before Shabbat" section (the `shabbat_v1` channel's own sound
+  setting, and DND access), since Android treats each channel's sound as a separate user setting.
+
+**Two things worth knowing:**
+
+1. **Hebcal applies municipal candle-lighting customs when a `Location` has a recognised name** —
+   40 minutes for "Jerusalem", 30 for "Haifa" — silently overriding the configured offset. The
+   location is therefore constructed anonymously, so the household's own setting wins, and there
+   is a test asserting exactly that. The default remains the PRD's 18 minutes, which is *not* the
+   Jerusalem custom: this is a setting on the screen for that reason.
+2. **Bundle cost of hebcal in the Worker:** 1298 KiB raw, 248 KiB gzipped (`wrangler deploy
+   --dry-run`), comfortably inside the limit. `temporal-polyfill` runs on workerd with no trouble.
+
+**Deferred to phase 2:** the Motzei Shabbat reconciliation sheet — bulk confirm, per-item
+override, retroactive PRN, inventory reconciliation, multi-caregiver race handling. Phase 1
+produces the `pending_shabbat` logs it will consume; until it exists they accumulate, and both
+Today views show them as awaiting reconciliation rather than done.
+
+**Exit gate:** three-day chag continuity (**passing** — `apps/api/tests/zmanim.test.ts` asserts
+Rosh Hashana 5787 running into Shabbat as one 48-hour-plus window, and Israel/diaspora divergence
+on Shmini Atzeret); **eight weeks of times checked against your luach on the Shabbat screen** (not
+yet done, and nothing here is trustworthy until it is); a weekday 25-hour dry run in simulated
+Shabbat mode with zero touches and no escalation emitted (**not yet run** — needs a device).
 
 ### A6 — Hardening and release
 
