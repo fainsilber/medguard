@@ -28,6 +28,12 @@ import type { Store } from './types.js';
  * human-readable string that only happens to still contain the word "unauthorized" today. */
 export type SyncApiResult<T> = { ok: true; value: T } | { ok: false; error: string; code?: string };
 
+/**
+ * The server's refusal of a second Motzei reconciliation for the same dose — see
+ * `HouseholdDO.applyBatch`. Named here rather than compared as a bare string in two places.
+ */
+export const ALREADY_SUPERSEDED = 'already_superseded';
+
 /** Thrown by `drainOutbox()`/`pull()` on a failed `SyncApi` call — a plain `Error` with `.code`
  * attached so `SyncApiResult`'s `code` survives past the `throw`, for the same reason `code`
  * exists on `SyncApiResult` above. */
@@ -43,7 +49,12 @@ export class SyncApiError extends Error {
 
 export interface SyncPushResult {
   results: Array<{ id: string }>;
-  blocked: Array<{ id: string }>;
+  /**
+   * `reason` is what distinguishes a safety block — which the household is warned about over the
+   * live channel and whose local record stands — from a reconciliation that simply lost a race
+   * and has to be cleaned off this device (Sprint A5 phase 2).
+   */
+  blocked: Array<{ id: string; table?: string; reason?: string }>;
   /** `id` is nullable upstream (`apps/api`'s rejection can precede id validation) — never
    * matches a real `entityId`, which is exactly the fail-closed behavior `drainOutbox()` wants. */
   rejected: Array<{ id: string | null }>;
@@ -134,7 +145,8 @@ export class SyncEngine {
       for (const entry of batch) {
         const id = entry.id!;
         const applied = result.value.results.find((r) => r.id === entry.entityId);
-        const wasBlocked = result.value.blocked.some((b) => b.id === entry.entityId);
+        const blockedItem = result.value.blocked.find((b) => b.id === entry.entityId);
+        const wasBlocked = blockedItem !== undefined;
         const wasRejected = result.value.rejected.some((r) => r.id === entry.entityId);
 
         if (applied) {
@@ -145,6 +157,18 @@ export class SyncEngine {
           // Not a failure to retry — the safety warning broadcast is what surfaces this to every
           // caregiver in the household, not a stuck outbox entry.
           await repository.markSynced(id);
+
+          if (blockedItem?.reason === ALREADY_SUPERSEDED && entry.table === 'intakeLogs') {
+            // A Motzei reconciliation that lost the race: the other caregiver answered this dose
+            // first, and the server kept theirs. Dropping only the outbox row would leave this
+            // device showing a dose the household's record does not have, with its own stock
+            // decremented for it — so the local write goes too, and the pull brings the winner.
+            await repository.discardLocalLog(entry.entityId);
+            this.log.debug('discarded a reconciliation the server had already settled', {
+              logId: entry.entityId,
+            });
+          }
+
           blocked += 1;
         } else if (wasRejected) {
           await repository.markSyncFailed(id, 'The server rejected this record as invalid.');

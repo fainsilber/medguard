@@ -1,9 +1,16 @@
 export type { IndexQuery, RecordId, Store, StoreTransaction } from './types.js';
 export { MedGuardRepository } from './repository.js';
-export type { RepositoryContext } from './repository.js';
-export { SyncApiError, SyncEngine } from './syncEngine.js';
+export type { ReconciliationEntry, RepositoryContext } from './repository.js';
+export { ALREADY_SUPERSEDED, SyncApiError, SyncEngine } from './syncEngine.js';
 export type { SyncApi, SyncApiResult, SyncEngineDeps, SyncLog, SyncPullResult, SyncPushResult } from './syncEngine.js';
-export { getCursor, getLastSyncedAt, setCursor, setLastSyncedAt } from './cursor.js';
+export {
+  getCursor,
+  getDismissedReconciliation,
+  getLastSyncedAt,
+  setCursor,
+  setDismissedReconciliation,
+  setLastSyncedAt,
+} from './cursor.js';
 export { applyPulledRecord, markSyncedLocally } from './tableDispatch.js';
 export type { PulledRecord } from './tableDispatch.js';
 export { LiveClient } from './liveClient.js';

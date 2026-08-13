@@ -12,7 +12,9 @@ import { MedicineForm } from '../features/medicines/MedicineForm.js';
 import { MedicineList } from '../features/medicines/MedicineList.js';
 import { PrnScreen } from '../features/prnDoses/PrnScreen.js';
 import { ScheduleForm } from '../features/schedules/ScheduleForm.js';
+import { ReconciliationSheet } from '../features/shabbat/ReconciliationSheet.js';
 import { ShabbatScreen } from '../features/shabbat/ShabbatScreen.js';
+import { useMotzeiPrompt } from '../features/shabbat/useMotzeiPrompt.js';
 import { TodayView } from '../features/today/TodayView.js';
 import { useLiveQuery } from '../store/useLiveQuery.js';
 import { colors } from '../ui/primitives.js';
@@ -168,6 +170,15 @@ function makeTabBarIcon(tab: keyof TabParamList) {
 }
 
 export function AppNavigator(): React.JSX.Element {
+  // PRD §3: after Havdalah the app opens the reconciliation sheet rather than waiting to be asked
+  // (Sprint A5 phase 2). It replaces the tabs rather than covering them, so "Later" is always one
+  // tap away — a modal a caregiver could get stuck behind at 3am is its own hazard.
+  const motzei = useMotzeiPrompt();
+
+  if (motzei.show) {
+    return <ReconciliationSheet onDone={motzei.dismiss} />;
+  }
+
   return (
     <Tab.Navigator screenOptions={tabScreenOptions}>
       <Tab.Screen name="Today" component={TodayView} options={{ tabBarIcon: makeTabBarIcon('Today') }} />
