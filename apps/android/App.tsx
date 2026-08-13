@@ -28,7 +28,10 @@ import { colors } from './src/ui/primitives';
  * sit above `AppNavigator`'s stack, visible on every screen — this is the one persistent header
  * for the whole app, which is why every screen in `AppNavigator` is `headerShown: false`: a
  * second per-screen header stacked under this one was the source of the dead space that used to
- * show up above every screen.
+ * show up above every screen. `AppNavigator` renders its own persistent bottom bar (Medicines /
+ * As needed) the same way, alongside its stack rather than nested inside part of it — `navigationRef`
+ * is created here (so the header's Today shortcut and hamburger menu can drive it too) and passed
+ * down as a prop for that bottom bar to navigate with.
  */
 const MENU_ITEMS: ReadonlyArray<{ route: keyof RootStackParamList; label: string; icon: string }> = [
   { route: 'Diagnostics', label: 'Diagnostics', icon: '🛠️' },
@@ -82,7 +85,7 @@ export default function App(): React.JSX.Element {
               <SafetyWarningBanner />
               <AlarmHealthBanner />
               <NavigationContainer ref={navigationRef}>
-                <AppNavigator />
+                <AppNavigator navigationRef={navigationRef} />
               </NavigationContainer>
               <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
                 <Pressable
