@@ -126,17 +126,9 @@ function ScheduleFormRoute({
 function MedicinesStackScreen(): React.JSX.Element {
   return (
     <MedicinesStack.Navigator screenOptions={stackScreenOptions}>
-      <MedicinesStack.Screen name="MedicineList" component={MedicineListRoute} options={{ title: 'Medicines' }} />
-      <MedicinesStack.Screen
-        name="MedicineForm"
-        component={MedicineFormRoute}
-        options={({ route }) => ({ title: route.params.medicineId ? 'Edit medicine' : 'Add medicine' })}
-      />
-      <MedicinesStack.Screen
-        name="ScheduleForm"
-        component={ScheduleFormRoute}
-        options={({ route }) => ({ title: route.params.scheduleId ? 'Change schedule' : 'Add schedule' })}
-      />
+      <MedicinesStack.Screen name="MedicineList" component={MedicineListRoute} />
+      <MedicinesStack.Screen name="MedicineForm" component={MedicineFormRoute} />
+      <MedicinesStack.Screen name="ScheduleForm" component={ScheduleFormRoute} />
     </MedicinesStack.Navigator>
   );
 }
@@ -293,7 +285,6 @@ const rootScreenOptions = {
 } as const;
 
 const stackScreenOptions = {
-  headerStyle: { backgroundColor: colors.surface },
-  headerTintColor: colors.text,
+  headerShown: false,
   contentStyle: { backgroundColor: colors.background },
 } as const;
