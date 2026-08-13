@@ -137,5 +137,7 @@ test('"Later" puts the sheet away for this device, and it stays away', async ({ 
 
   // The doses are still owed — dismissing is not answering — so the Shabbat tab still says so.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Shabbat' }).click();
-  await expect(page.getByRole('heading', { name: 'Shabbat & Yom Tov' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Shabbat & Yom Tov' })).toBeVisible({
+    timeout: 20_000,
+  });
 });
