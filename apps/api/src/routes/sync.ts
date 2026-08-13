@@ -104,6 +104,20 @@ syncRoutes.post('/push', async (c) => {
   const rejected: { table: string; id: string | null; issues: unknown }[] = [];
 
   for (const change of parsed.data.changes) {
+    // Shabbat windows are computed by this Worker and only ever read by devices (Sprint A5). A
+    // client that could write one could move the boundary of Shabbat mode on every other device
+    // in the household — into it, silencing an escalation, or out of it, putting action buttons
+    // on a Shabbat notification. Rejected as a payload that never had any business existing,
+    // rather than blocked, because no safety rule is being consulted.
+    if (change.table === 'shabbatWindows') {
+      rejected.push({
+        table: change.table,
+        id: typeof change.record.id === 'string' ? change.record.id : null,
+        issues: [{ code: 'server_authored', message: 'shabbatWindows is written by the server' }],
+      });
+      continue;
+    }
+
     const config = TABLES[change.table];
     const validated = config.schema.safeParse(change.record);
 

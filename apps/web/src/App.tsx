@@ -5,6 +5,7 @@ import { HouseholdScreen } from './features/household/HouseholdScreen.js';
 import { InventoryScreen } from './features/inventory/InventoryScreen.js';
 import { MedicineList } from './features/medicines/MedicineList.js';
 import { PrnScreen } from './features/prnDoses/PrnScreen.js';
+import { ShabbatScreen } from './features/shabbat/ShabbatScreen.js';
 import { TodayView } from './features/today/TodayView.js';
 import { CaregiverGate } from './identity/CaregiverGate.js';
 import { DiagnosticsPage } from './diagnostics/DiagnosticsPage.js';
@@ -32,6 +33,7 @@ const TABS: TabDefinition[] = [
   { id: 'prn', label: 'As needed', Screen: PrnScreen },
   { id: 'inventory', label: 'Inventory', Screen: InventoryScreen },
   { id: 'export', label: 'Log', Screen: ExportScreen },
+  { id: 'shabbat', label: 'Shabbat', Screen: ShabbatScreen },
   { id: 'household', label: 'Household', Screen: HouseholdScreen },
   { id: 'diagnostics', label: 'Diagnostics', Screen: DiagnosticsPage },
 ];

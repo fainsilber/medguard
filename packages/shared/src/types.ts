@@ -276,6 +276,50 @@ export interface ShabbatConfig extends Syncable {
   chimeDurationSeconds: number;
 }
 
+/**
+ * Whether a window is Shabbat, a Yom Tov, or the two run together.
+ *
+ * `combined` is not cosmetic: a chag adjacent to Shabbat is one continuous 72-hour period during
+ * which nothing may be written, and the whole reason windows are computed as spans rather than
+ * per-day is that this case must not appear as two windows with a gap between them.
+ */
+export type ShabbatWindowKind = 'shabbat' | 'yom_tov' | 'combined';
+
+/**
+ * One continuous period during which the app is in Shabbat mode.
+ *
+ * **Server-authored.** The Worker computes these from `ShabbatConfig` with `@hebcal/core` (PRD §3)
+ * and publishes them like any other synced record; devices only ever read them. A client cannot
+ * write one — `apps/api/src/routes/sync.ts` rejects the attempt — because a device that could
+ * mint its own windows could talk itself into or out of Shabbat mode.
+ *
+ * Devices hold them so that entering mode needs no network: a phone that last synced on Thursday
+ * still knows exactly when Shabbat starts, which is the same reason dose occurrences are expanded
+ * locally rather than fetched.
+ */
+export interface ShabbatWindow extends Syncable {
+  /**
+   * `shabbat:<startsAt>` — derived from the window itself rather than random, so recomputing the
+   * same window produces the same record instead of a duplicate. Republishing is therefore
+   * idempotent, which is what lets the server regenerate the horizon as often as it likes.
+   */
+  id: string;
+  patientId: Uuid;
+  kind: ShabbatWindowKind;
+  /** What it is, for the verification screen: "Shabbat", "Rosh Hashana", "Shabbat · Sukkot". */
+  label: string;
+  /** Candle lighting: sunset on erev, minus `candleLightingOffsetMins`. */
+  startsAt: IsoInstant;
+  /** Havdalah, per `havdalahDegreesOrMins`. */
+  endsAt: IsoInstant;
+  /**
+   * When the server computed this window, and therefore how old the calculation is. A caregiver
+   * checking times against a luach needs to know whether they are looking at a window computed
+   * before or after they last changed the coordinates.
+   */
+  generatedAt: IsoInstant;
+}
+
 // ---------------------------------------------------------------------------
 // Sync outbox
 // ---------------------------------------------------------------------------
@@ -288,6 +332,7 @@ export type SyncableTable =
   | 'inventoryAdjustments'
   | 'doseSnoozes'
   | 'shabbatConfig'
+  | 'shabbatWindows'
   | 'householdSettings';
 
 export type SyncAction = 'CREATE' | 'UPDATE' | 'DELETE';

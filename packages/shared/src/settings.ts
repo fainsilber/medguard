@@ -34,3 +34,20 @@ export const MISSED_AFTER_MINUTES = 180;
  * of AD6's escalation window exactly.
  */
 export const DEFAULT_SNOOZE_MINUTES = 20;
+
+/**
+ * `ShabbatConfig` bootstrap values (Sprint A5), shared for the same reason as the three above: a
+ * household's Shabbat times must not depend on which client happened to create the config.
+ *
+ * The candle-lighting offset is the PRD's 18 minutes, which is the widespread custom but not a
+ * universal one — Jerusalem is 40, Haifa 30, and some communities differ again. It is a setting
+ * on the Shabbat screen precisely because the default cannot be right for everyone, and the
+ * verification screen exists so it gets checked against a luach rather than trusted.
+ */
+export const DEFAULT_CANDLE_LIGHTING_OFFSET_MINS = 18;
+
+/** Tzeit hakochavim. The alternative form the schema accepts is a fixed `"<n>_mins"`. */
+export const DEFAULT_HAVDALAH = '8.5_degrees';
+
+/** PRD §3: the Shabbat chime plays for 45 seconds and stops on its own. */
+export const DEFAULT_CHIME_DURATION_SECONDS = 45;

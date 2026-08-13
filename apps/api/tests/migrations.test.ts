@@ -25,6 +25,7 @@ const HOUSEHOLD_SCOPED_TABLES = [
   'inventory_adjustments',
   'dose_snoozes',
   'shabbat_config',
+  'shabbat_windows',
 ];
 
 describe('migrations', () => {
@@ -51,7 +52,7 @@ describe('migrations', () => {
       .bind('schema_version')
       .first<{ value: string }>();
 
-    expect(row?.value).toBe('3');
+    expect(row?.value).toBe('4');
   });
 
   it.each(HOUSEHOLD_SCOPED_TABLES)(

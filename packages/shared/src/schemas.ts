@@ -280,6 +280,22 @@ export const shabbatConfigSchema = z.object({
   ...syncableFields,
 });
 
+export const shabbatWindowKindSchema = z.enum(['shabbat', 'yom_tov', 'combined']);
+
+export const shabbatWindowSchema = z.object({
+  // Deterministic rather than a uuid (see `ShabbatWindow.id`), so the shape is asserted here
+  // instead of being left as free text: an id that does not encode its own start is an id that
+  // can be duplicated.
+  id: z.string().regex(/^shabbat:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+  patientId: z.uuid(),
+  kind: shabbatWindowKindSchema,
+  label: z.string().min(1).max(200),
+  startsAt: isoInstantSchema,
+  endsAt: isoInstantSchema,
+  generatedAt: isoInstantSchema,
+  ...syncableFields,
+});
+
 export const syncableTableSchema = z.enum([
   'medicines',
   'schedules',
@@ -288,6 +304,7 @@ export const syncableTableSchema = z.enum([
   'inventoryAdjustments',
   'doseSnoozes',
   'shabbatConfig',
+  'shabbatWindows',
   'householdSettings',
 ]);
 

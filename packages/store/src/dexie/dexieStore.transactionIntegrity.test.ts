@@ -30,6 +30,7 @@ class TestDB extends Dexie {
       inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
       doseSnoozes: 'id, occurrenceId, createdAt, syncStatus',
       shabbatConfig: 'id, patientId',
+      shabbatWindows: 'id, patientId, startsAt',
       syncOutbox: '++id, table, entityId, action, createdAt',
       syncMeta: 'key',
     });

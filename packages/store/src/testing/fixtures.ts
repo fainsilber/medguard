@@ -5,6 +5,8 @@ import type {
   InventoryItem,
   Medicine,
   Schedule,
+  ShabbatConfig,
+  ShabbatWindow,
 } from '@medguard/shared';
 
 /** Shared fixture builders for the repository conformance suite — same shape as the fixtures
@@ -102,6 +104,42 @@ export function makeDoseSnooze(overrides: Partial<DoseSnooze> = {}): DoseSnooze 
     createdByUserId: 'mom',
     createdByDeviceId: 'device-1',
     syncStatus: 'pending',
+    ...overrides,
+  };
+}
+
+export function makeShabbatConfig(overrides: Partial<ShabbatConfig> = {}): ShabbatConfig {
+  return {
+    id: 'shabbat-config-1',
+    patientId: 'patient-1',
+    autoShabbatEnabled: true,
+    latitude: 31.7683,
+    longitude: 35.2137,
+    candleLightingOffsetMins: 18,
+    havdalahDegreesOrMins: '8.5_degrees',
+    israelHolidays: true,
+    chimeDurationSeconds: 45,
+    updatedAt: CONFORMANCE_NOW,
+    updatedByDeviceId: 'device-1',
+    syncStatus: 'pending',
+    ...overrides,
+  };
+}
+
+/** Server-authored, so its `updatedByDeviceId` is the server rather than any phone. */
+export function makeShabbatWindow(overrides: Partial<ShabbatWindow> = {}): ShabbatWindow {
+  const startsAt = overrides.startsAt ?? '2026-06-19T16:20:00.000Z';
+  return {
+    id: `shabbat:${startsAt}`,
+    patientId: 'patient-1',
+    kind: 'shabbat',
+    label: 'Shabbat',
+    startsAt,
+    endsAt: '2026-06-20T17:30:00.000Z',
+    generatedAt: CONFORMANCE_NOW,
+    updatedAt: CONFORMANCE_NOW,
+    updatedByDeviceId: 'server',
+    syncStatus: 'synced',
     ...overrides,
   };
 }

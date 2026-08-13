@@ -23,6 +23,8 @@ import type {
   Medicine,
   Schedule,
   ScheduleRevision,
+  ShabbatConfig,
+  ShabbatWindow,
   SyncAction,
   SyncOutboxEntry,
   SyncableTable,
@@ -155,6 +157,50 @@ export class MedGuardRepository {
   getHouseholdSettings(): Promise<HouseholdSettings | undefined> {
     return this.store.transaction(['householdSettings'], (tx) =>
       tx.get<HouseholdSettings>('householdSettings', 'household'),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Shabbat (Sprint A5)
+  // -------------------------------------------------------------------------
+
+  /**
+   * The household's Shabbat configuration — coordinates, candle-lighting offset, Havdalah rule,
+   * Israel/diaspora, chime length.
+   *
+   * One row per patient, and the app is single-patient in v1, so the first is the answer.
+   * `undefined` means it has never been set, which is not the same as automation being off: the
+   * server publishes no windows without one, and nothing enters Shabbat mode.
+   */
+  async getShabbatConfig(): Promise<ShabbatConfig | undefined> {
+    const all = await this.store.transaction(['shabbatConfig'], (tx) =>
+      tx.getAll<ShabbatConfig>('shabbatConfig'),
+    );
+    return all[0];
+  }
+
+  async saveShabbatConfig(config: ShabbatConfig, action: SyncAction = 'UPDATE'): Promise<void> {
+    const stamped = this.stamp(config);
+    await this.store.transaction(['shabbatConfig', 'syncOutbox'], async (tx) => {
+      await tx.put('shabbatConfig', stamped);
+      await this.enqueue(tx, 'shabbatConfig', stamped.id, action, stamped);
+    });
+  }
+
+  /**
+   * Every Shabbat window this device holds.
+   *
+   * Read in full rather than by range: the server publishes a rolling 90 days, which is a few
+   * dozen rows, and every caller — the alarm horizon, the verification screen, the in-mode banner
+   * — wants a different slice of them. Filtering is `packages/shared/src/shabbat.ts`'s job, so
+   * that the phone and the Durable Object apply the same boundary rule to the same records.
+   *
+   * There is no `saveShabbatWindow`, deliberately: windows are server-authored (the sync push
+   * route rejects a client-written one), and this device only ever receives them through a pull.
+   */
+  allShabbatWindows(): Promise<ShabbatWindow[]> {
+    return this.store.transaction(['shabbatWindows'], (tx) =>
+      tx.getAll<ShabbatWindow>('shabbatWindows'),
     );
   }
 

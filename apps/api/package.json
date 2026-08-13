@@ -12,6 +12,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply medguard --remote"
   },
   "dependencies": {
+    "@hebcal/core": "^6.9.2",
     "@medguard/shared": "*",
     "hono": "^4.6.0"
   },

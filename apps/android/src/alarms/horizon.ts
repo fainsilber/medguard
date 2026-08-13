@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CHIME_DURATION_SECONDS,
   MS_PER_HOUR,
   deriveSnoozeState,
   expandSchedules,
@@ -6,6 +7,7 @@ import {
   fromIso,
   occurrenceKey,
   parseOccurrenceKey,
+  shabbatModeAt,
 } from '@medguard/shared';
 import type {
   DoseSnooze,
@@ -14,7 +16,10 @@ import type {
   Medicine,
   Occurrence,
   Schedule,
+  ShabbatConfig,
+  ShabbatWindow,
 } from '@medguard/shared';
+import type { MedGuardChannelId } from '../../modules/medguard-alarms/src/index.js';
 
 /**
  * Turning synced domain data into the list of alarms this device should have armed.
@@ -53,6 +58,14 @@ export interface PlannedAlarm {
   triggerAtMs: EpochMs;
   title: string;
   body: string;
+  /**
+   * Which channel this dose rings on — the weekday channel, or the Shabbat one for a dose falling
+   * inside a published window (Sprint A5). The Shabbat channel posts no action buttons, because
+   * tapping one writes a record (delta D5).
+   */
+  channelId: MedGuardChannelId;
+  /** How long the chime plays before auto-stopping. From `ShabbatConfig`, or the PRD's 45s. */
+  chimeDurationSeconds: number;
   /** Kept so the caller can turn a fired alarm back into a dose without re-expanding. */
   occurrence: Occurrence;
 }
@@ -66,6 +79,15 @@ export interface MaterializeHorizonInput {
   timeZone: string;
   nowMs: EpochMs;
   horizonMs?: number;
+  /**
+   * The server-published Shabbat windows this device holds, and the config that governs whether
+   * they apply (Sprint A5).
+   *
+   * Absent means weekday behaviour for everything — which is what a device that has never synced
+   * a config should do, and is the same answer the Durable Object gives from the same inputs.
+   */
+  shabbatWindows?: readonly ShabbatWindow[];
+  shabbatConfig?: ShabbatConfig | undefined;
 }
 
 function describeDose(medicine: Medicine | undefined, occurrence: Occurrence): { title: string; body: string } {
@@ -96,8 +118,11 @@ function describeDose(medicine: Medicine | undefined, occurrence: Occurrence): {
  *   depend on this device having been awake) is what covers a genuinely missed dose.
  */
 export function materializeHorizon(input: MaterializeHorizonInput): PlannedAlarm[] {
-  const { schedules, medicines, logs, snoozes, timeZone, nowMs } = input;
+  const { schedules, medicines, logs, snoozes, timeZone, nowMs, shabbatConfig } = input;
   const horizonMs = input.horizonMs ?? ALARM_HORIZON_MS;
+  const shabbatWindows = input.shabbatWindows ?? [];
+  const chimeDurationSeconds =
+    shabbatConfig?.chimeDurationSeconds ?? DEFAULT_CHIME_DURATION_SECONDS;
 
   const medicinesById = new Map(medicines.map((medicine) => [medicine.id, medicine]));
 
@@ -136,7 +161,20 @@ export function materializeHorizon(input: MaterializeHorizonInput): PlannedAlarm
       continue;
     }
 
-    planned.push({ occurrenceKey: key, triggerAtMs, occurrence, ...describeDose(medicine, occurrence) });
+    // Decided from when the alarm will *fire*, not from now: an alarm armed on Friday afternoon
+    // for a dose due after candle lighting belongs on the Shabbat channel already. Through the
+    // same `shabbatModeAt` the Durable Object calls, over the same synced windows, so the phone
+    // and the server cannot disagree about which side of the boundary a dose falls on.
+    const inShabbat = shabbatModeAt(shabbatConfig, shabbatWindows, triggerAtMs);
+
+    planned.push({
+      occurrenceKey: key,
+      triggerAtMs,
+      occurrence,
+      channelId: inShabbat ? 'shabbat_v1' : 'dose_standard_v1',
+      chimeDurationSeconds,
+      ...describeDose(medicine, occurrence),
+    });
   }
 
   return planned.sort((a, b) => a.triggerAtMs - b.triggerAtMs).slice(0, MAX_ARMED_ALARMS);

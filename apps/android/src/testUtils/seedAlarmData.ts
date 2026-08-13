@@ -1,6 +1,14 @@
 import * as SQLite from 'expo-sqlite';
 import { fixedClock, sequentialIds } from '@medguard/shared/testing';
-import type { DoseSnooze, HouseholdSettings, IsoInstant, Medicine, Schedule } from '@medguard/shared';
+import type {
+  DoseSnooze,
+  HouseholdSettings,
+  IsoInstant,
+  Medicine,
+  Schedule,
+  ShabbatConfig,
+  ShabbatWindow,
+} from '@medguard/shared';
 import { MedGuardRepository, setLastSyncedAt } from '@medguard/store';
 import type { Store } from '@medguard/store';
 import { SqliteStore } from '@medguard/store/sqlite';
@@ -62,6 +70,24 @@ export async function seedScheduleFor(dbName: string, schedule: Schedule): Promi
 export async function seedSnooze(dbName: string, snooze: DoseSnooze): Promise<void> {
   const repository = await repositoryFor(dbName);
   await repository.recordSnooze(snooze);
+}
+
+export async function seedShabbatConfig(dbName: string, config: ShabbatConfig): Promise<void> {
+  const repository = await repositoryFor(dbName);
+  await repository.saveShabbatConfig(config, 'CREATE');
+}
+
+/**
+ * Windows are server-authored — the repository deliberately has no writer for them — so they are
+ * seeded through the raw store, which is exactly how a sync pull lands them.
+ */
+export async function seedShabbatWindows(dbName: string, windows: ShabbatWindow[]): Promise<void> {
+  const store = await storeFor(dbName);
+  await store.transaction(['shabbatWindows'], async (tx) => {
+    for (const window of windows) {
+      await tx.put('shabbatWindows', window);
+    }
+  });
 }
 
 export async function readSnoozes(dbName: string, occurrenceId: string): Promise<DoseSnooze[]> {

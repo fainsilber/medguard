@@ -3,19 +3,29 @@ import { diffAlarms } from './alarmReconciler.js';
 import type { ArmedRecord } from './alarmReconciler.js';
 import type { PlannedAlarm } from './horizon.js';
 
-function planned(occurrenceKey: string, triggerAtMs: number): PlannedAlarm {
+function planned(
+  occurrenceKey: string,
+  triggerAtMs: number,
+  channelId: PlannedAlarm['channelId'] = 'dose_standard_v1',
+): PlannedAlarm {
   return {
     occurrenceKey,
     triggerAtMs,
     title: 'Ondansetron is due',
     body: '1 dose · 12:00',
-    // The occurrence itself is irrelevant to the diff, which keys purely on identity and time.
+    channelId,
+    chimeDurationSeconds: 45,
+    // The occurrence itself is irrelevant to the diff, which keys on identity, time and channel.
     occurrence: {} as PlannedAlarm['occurrence'],
   };
 }
 
-function armed(occurrenceKey: string, triggerAtMs: number): ArmedRecord {
-  return { occurrenceKey, triggerAtMs };
+function armed(
+  occurrenceKey: string,
+  triggerAtMs: number,
+  channelId = 'dose_standard_v1',
+): ArmedRecord {
+  return { occurrenceKey, triggerAtMs, channelId };
 }
 
 describe('diffAlarms', () => {
@@ -63,6 +73,33 @@ describe('diffAlarms', () => {
 
     expect(diff.toArm.map((alarm) => alarm.occurrenceKey).sort()).toEqual(['moves', 'new']);
     expect(diff.toCancel).toEqual(['goes']);
+  });
+
+  it('re-arms a dose whose channel changed — Shabbat began since it was armed', () => {
+    // Same occurrence, same instant, different channel. Left alone it would ring on the weekday
+    // channel, with the "Taken" and "Snooze" buttons Shabbat mode exists to avoid (delta D5).
+    const diff = diffAlarms([armed('a', 1_000)], [planned('a', 1_000, 'shabbat_v1')]);
+
+    expect(diff.toArm.map((alarm) => alarm.occurrenceKey)).toEqual(['a']);
+    expect(diff.toCancel).toEqual([]);
+  });
+
+  it('leaves an alarm alone when its channel is unchanged', () => {
+    const diff = diffAlarms(
+      [armed('a', 1_000, 'shabbat_v1')],
+      [planned('a', 1_000, 'shabbat_v1')],
+    );
+
+    expect(diff.toArm).toEqual([]);
+  });
+
+  it('does not churn alarms armed by a build that never reported a channel', () => {
+    // An upgrade path, not a Shabbat case: an older armed record has no channel to compare, and
+    // re-arming every alarm on first launch after an update would flicker the system UI's
+    // upcoming-alarm affordance for no benefit.
+    const diff = diffAlarms([{ occurrenceKey: 'a', triggerAtMs: 1_000 }], [planned('a', 1_000)]);
+
+    expect(diff.toArm).toEqual([]);
   });
 
   it('is a no-op on an empty device with nothing to do', () => {

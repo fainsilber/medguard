@@ -46,6 +46,12 @@ export interface PendingActionRecord extends PendingActionEvent {
 export interface ArmedAlarm {
   occurrenceKey: string;
   triggerAtMs: number;
+  /**
+   * Which channel it is armed on. Part of the diff (Sprint A5): Shabbat beginning or ending
+   * between two reconciles changes the channel of a dose whose time has not moved, and an alarm
+   * left on the weekday channel during Shabbat rings with "Taken"/"Snooze" buttons.
+   */
+  channelId: MedGuardChannelId;
 }
 
 /** A rotated FCM registration token, handed over the moment Firebase issues it. */

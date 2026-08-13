@@ -9,6 +9,7 @@ import type {
   Medicine,
   Schedule,
   ShabbatConfig,
+  ShabbatWindow,
   SyncOutboxEntry,
 } from '@medguard/shared';
 
@@ -33,6 +34,8 @@ export class MedGuardDB extends Dexie {
   inventoryAdjustments!: Table<InventoryAdjustment, string>;
   doseSnoozes!: Table<DoseSnooze, string>;
   shabbatConfig!: Table<ShabbatConfig, string>;
+  /** Server-authored (Sprint A5): published by the Worker, never written by this device. */
+  shabbatWindows!: Table<ShabbatWindow, string>;
   syncOutbox!: Table<SyncOutboxEntry, number>;
   /** Local-only bookkeeping (the pull cursor) — never synced itself, never read by domain code. */
   syncMeta!: Table<{ key: string; value: unknown }, string>;
@@ -86,6 +89,24 @@ export class MedGuardDB extends Dexie {
       inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
       doseSnoozes: 'id, occurrenceId, createdAt, syncStatus',
       shabbatConfig: 'id, patientId',
+      syncOutbox: '++id, table, entityId, action, createdAt',
+      syncMeta: 'key',
+    });
+
+    // Sprint A5: the server-published Shabbat windows. Additive again, so no `upgrade()` — and
+    // this device never writes one; they arrive through the pull, and `applyPulledRecord` needs a
+    // table to land them in.
+    this.version(4).stores({
+      householdSettings: 'id',
+      medicines: 'id, patientId, name, archived, syncStatus, updatedAt',
+      schedules: 'id, medicineId, patientId, active, regimenGroupId, syncStatus, updatedAt',
+      intakeLogs:
+        'id, patientId, medicineId, scheduleId, status, type, actualTime, syncStatus, supersedesId, [medicineId+actualTime], [patientId+actualTime]',
+      inventoryItems: 'id, medicineId, syncStatus, updatedAt',
+      inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
+      doseSnoozes: 'id, occurrenceId, createdAt, syncStatus',
+      shabbatConfig: 'id, patientId',
+      shabbatWindows: 'id, patientId, startsAt',
       syncOutbox: '++id, table, entityId, action, createdAt',
       syncMeta: 'key',
     });

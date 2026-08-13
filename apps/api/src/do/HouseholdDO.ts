@@ -14,6 +14,7 @@ import type {
   Medicine,
   SyncableTable,
 } from '@medguard/shared';
+import { publishWindows } from '../shabbat/publish.js';
 import { applyRecord, currentCursor } from '../sync/repository.js';
 import type { PushOutcome } from '../sync/repository.js';
 import { DoseAlarmChain, createAlarmTables } from './doseAlarms.js';
@@ -259,6 +260,14 @@ export class HouseholdDO extends DurableObject<Env> {
       await this.alarms.materialize(householdId, systemClock.nowMs());
     } else {
       this.alarms.rememberHousehold(householdId);
+    }
+
+    // Sprint A5: new coordinates, a different candle-lighting offset, or the Israel/diaspora flag
+    // flipping all change when Shabbat is. Republished immediately rather than at the next
+    // horizon top-up, because a caregiver who just corrected the coordinates is very likely
+    // looking at the verification screen waiting to see the times change.
+    if (tables.has('shabbatConfig')) {
+      await publishWindows(this.env.DB, householdId, systemClock.nowMs());
     }
 
     if (tables.has('inventoryAdjustments')) {

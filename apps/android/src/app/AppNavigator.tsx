@@ -12,6 +12,7 @@ import { MedicineForm } from '../features/medicines/MedicineForm.js';
 import { MedicineList } from '../features/medicines/MedicineList.js';
 import { PrnScreen } from '../features/prnDoses/PrnScreen.js';
 import { ScheduleForm } from '../features/schedules/ScheduleForm.js';
+import { ShabbatScreen } from '../features/shabbat/ShabbatScreen.js';
 import { TodayView } from '../features/today/TodayView.js';
 import { useLiveQuery } from '../store/useLiveQuery.js';
 import { colors } from '../ui/primitives.js';
@@ -135,6 +136,7 @@ type TabParamList = {
   'As needed': undefined;
   Inventory: undefined;
   Log: undefined;
+  Shabbat: undefined;
   Household: undefined;
   Diagnostics: undefined;
 };
@@ -154,6 +156,7 @@ const TAB_ICONS: Record<keyof TabParamList, string> = {
   'As needed': '⏱️',
   Inventory: '📦',
   Log: '📤',
+  Shabbat: '🕯️',
   Household: '🏠',
   Diagnostics: '🛠️',
 };
@@ -176,6 +179,7 @@ export function AppNavigator(): React.JSX.Element {
       <Tab.Screen name="As needed" component={PrnScreen} options={{ tabBarIcon: makeTabBarIcon('As needed') }} />
       <Tab.Screen name="Inventory" component={InventoryScreen} options={{ tabBarIcon: makeTabBarIcon('Inventory') }} />
       <Tab.Screen name="Log" component={ExportScreen} options={{ tabBarIcon: makeTabBarIcon('Log') }} />
+      <Tab.Screen name="Shabbat" component={ShabbatScreen} options={{ tabBarIcon: makeTabBarIcon('Shabbat') }} />
       <Tab.Screen name="Household" component={HouseholdScreen} options={{ tabBarIcon: makeTabBarIcon('Household') }} />
       <Tab.Screen
         name="Diagnostics"

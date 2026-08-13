@@ -4,12 +4,15 @@ import {
   MISSED_AFTER_MINUTES,
   MS_PER_MINUTE,
   PUSH_PAYLOAD_VERSION,
+  SHABBAT_BURST_COUNT,
+  SHABBAT_BURST_SPACING_MS,
   deriveInventoryState,
   deriveSnoozeState,
   expandSchedules,
   findLogForOccurrence,
   fromIso,
   occurrenceKey,
+  shabbatModeAt,
   toIso,
   uuidIdGenerator,
 } from '@medguard/shared';
@@ -23,8 +26,11 @@ import type {
   Medicine,
   Occurrence,
   Schedule,
+  ShabbatConfig,
+  ShabbatWindow,
 } from '@medguard/shared';
 import { dispatchToHousehold } from '../push/dispatch.js';
+import { publishWindowsIfStale } from '../shabbat/publish.js';
 import { applyRecord } from '../sync/repository.js';
 
 /**
@@ -62,8 +68,21 @@ const HORIZON_MS = 48 * 60 * 60 * 1000;
  */
 const MAX_WORK_PER_WAKE = 20;
 
-/** `pending → notified → escalated`, and out via `acknowledged` or `missed`. */
-type AlarmState = 'pending' | 'notified' | 'escalated' | 'acknowledged' | 'missed';
+/**
+ * `pending → notified → escalated`, and out via `acknowledged` or `missed`.
+ *
+ * `pending_shabbat` (Sprint A5) is a fifth terminal state, not a stage: a dose alerted while the
+ * household was in Shabbat mode has had everything done for it that will be done until Havdalah —
+ * no escalation, no missed sweep — and the row records *why* it stopped rather than pretending it
+ * was acknowledged.
+ */
+type AlarmState =
+  | 'pending'
+  | 'notified'
+  | 'escalated'
+  | 'acknowledged'
+  | 'missed'
+  | 'pending_shabbat';
 
 interface DoseAlarmRow extends Record<string, SqlStorageValue> {
   occurrence_id: string;
@@ -112,6 +131,26 @@ export function createAlarmTables(sql: SqlStorage): void {
     CREATE TABLE IF NOT EXISTS low_stock_flags (
       medicine_id   TEXT PRIMARY KEY,
       flagged_at_ms INTEGER NOT NULL
+    );
+    -- Sprint A5. The Shabbat burst for web-push devices: several notifications ~1.1s apart
+    -- approximating a 45-second chime out of what a browser can actually deliver (delta D1).
+    -- Held as a schedule rather than run as a sleep loop inside one alarm wake, so each push is
+    -- an ordinary step of the same chain everything else uses — assertable under
+    -- runDurableObjectAlarm, and unaffected by the wake that started it being cut short.
+    --
+    -- Self-contained rather than joined back to dose_alarms: a re-materialization can delete the
+    -- dose row (the dose now has a pending_shabbat log, so it is no longer owed) while the burst
+    -- is still mid-flight, and half a chime is worse than none.
+    CREATE TABLE IF NOT EXISTS shabbat_bursts (
+      occurrence_id   TEXT PRIMARY KEY,
+      schedule_id     TEXT NOT NULL,
+      medicine_id     TEXT NOT NULL,
+      medicine_name   TEXT NOT NULL,
+      dosage_quantity REAL NOT NULL,
+      due_at_ms       INTEGER NOT NULL,
+      -- 1-based, and always the push *not yet sent*: the first goes out inline with the alert.
+      next_index      INTEGER NOT NULL,
+      next_at_ms      INTEGER NOT NULL
     );
   `);
 }
@@ -218,6 +257,12 @@ export class DoseAlarmChain {
     if (!windows) {
       return;
     }
+
+    // Sprint A5. Materialization is the one thing that reliably happens for every household that
+    // is still alive — on every write, and whenever the chain runs dry — so it is where the
+    // Shabbat horizon is topped up. A household that set its coordinates once and never touched
+    // them again still has windows months later, with nothing having to remember to ask.
+    await publishWindowsIfStale(this.env.DB, householdId, nowMs);
 
     const missedAfterMs = MISSED_AFTER_MINUTES * MS_PER_MINUTE;
     const fromMs = nowMs - missedAfterMs;
@@ -396,7 +441,17 @@ export class DoseAlarmChain {
          WHERE state IN ('pending', 'notified', 'escalated')`,
       )
       .toArray();
-    return rows[0]?.next_at ?? null;
+
+    // A burst in flight is owed work too — its remaining pushes are ~1.1 seconds apart, which is
+    // sooner than any dose, so this is usually what the next wake is for.
+    const burst = this.sql
+      .exec<{ next_at: number | null }>('SELECT MIN(next_at_ms) AS next_at FROM shabbat_bursts')
+      .toArray();
+
+    const candidates = [rows[0]?.next_at, burst[0]?.next_at].filter(
+      (value): value is number => typeof value === 'number',
+    );
+    return candidates.length === 0 ? null : Math.min(...candidates);
   }
 
   /**
@@ -412,6 +467,12 @@ export class DoseAlarmChain {
     if (!householdId) {
       return;
     }
+
+    // Once per wake, not once per row (Sprint A5). Everything below branches on it, and a
+    // household is either in Shabbat or not for the whole of one wake.
+    const inShabbatMode = await this.isShabbatMode(householdId, nowMs);
+
+    await this.runDueBursts(householdId, nowMs);
 
     const due = this.sql
       .exec<DoseAlarmRow>(
@@ -431,16 +492,24 @@ export class DoseAlarmChain {
 
     for (const row of due) {
       if (nowMs >= row.missed_at_ms) {
-        await this.markMissed(householdId, row);
+        await this.markMissed(householdId, row, inShabbatMode);
         continue;
       }
 
       if (nowMs >= row.escalate_at_ms) {
+        if (inShabbatMode) {
+          // The dose already alerted, before Shabbat began, and nobody answered. Escalating now
+          // would be a second notification during Shabbat for a dose that has already been
+          // announced — and per docs/halachic-decisions.md Q3 escalation has nothing to add in
+          // mode anyway, since the first alert reached every device. It goes to reconciliation.
+          await this.markPendingShabbat(householdId, row);
+          continue;
+        }
         await this.escalate(householdId, row, nowMs);
         continue;
       }
 
-      await this.notify(householdId, row, nowMs);
+      await this.notify(householdId, row, nowMs, inShabbatMode);
     }
   }
 
@@ -457,7 +526,17 @@ export class DoseAlarmChain {
     };
   }
 
-  private async notify(householdId: string, row: DoseAlarmRow, nowMs: number): Promise<void> {
+  private async notify(
+    householdId: string,
+    row: DoseAlarmRow,
+    nowMs: number,
+    inShabbatMode: boolean,
+  ): Promise<void> {
+    if (inShabbatMode) {
+      await this.notifyShabbat(householdId, row, nowMs);
+      return;
+    }
+
     await dispatchToHousehold(this.env, householdId, {
       ...this.occurrencePayload(row, nowMs),
       kind: 'dose',
@@ -465,6 +544,171 @@ export class DoseAlarmChain {
     this.sql.exec(
       "UPDATE dose_alarms SET state = 'notified', fired_at_ms = ? WHERE occurrence_id = ?",
       nowMs,
+      row.occurrence_id,
+    );
+  }
+
+  /**
+   * The Shabbat dose alert (delta D5, and `docs/halachic-decisions.md` Q1/Q3).
+   *
+   * Three things distinguish it from the weekday alert, and each is a halachic requirement rather
+   * than a preference:
+   *
+   *   1. **`kind: 'shabbat'`** — which carries no action buttons on either client, because
+   *      tapping one writes a record. What happened is recorded after Havdalah instead.
+   *   2. **No escalation afterwards.** Not suppressed — structurally unnecessary. The alert
+   *      already went to every registered device, so there is nobody left to escalate to.
+   *   3. **A burst for web-push devices only.** A browser notification is a ~1-2 second tone, so
+   *      ten of them ~1.1s apart approximate the PRD's 45-second chime. A native device plays the
+   *      real chime from its own local alarm and gets exactly one push (delta AD3) — ten would be
+   *      ten notifications, not a longer chime.
+   *
+   * The `pending_shabbat` log is written here rather than at Havdalah so the record exists from
+   * the moment the alert fires: the reconciliation sheet has a definite worklist even if the
+   * phone that heard the chime never comes back online.
+   */
+  private async notifyShabbat(
+    householdId: string,
+    row: DoseAlarmRow,
+    nowMs: number,
+  ): Promise<void> {
+    const payload = this.occurrencePayload(row, nowMs);
+
+    // Native first, and exactly one: `burstTotal: 1` is the honest description of what this
+    // device is being sent, and it is what the client reads to know it is not mid-burst.
+    await dispatchToHousehold(
+      this.env,
+      householdId,
+      { ...payload, kind: 'shabbat', burstIndex: 1, burstTotal: 1 },
+      { providers: ['fcm'] },
+    );
+
+    const webTargets = await dispatchToHousehold(
+      this.env,
+      householdId,
+      { ...payload, kind: 'shabbat', burstIndex: 1, burstTotal: SHABBAT_BURST_COUNT },
+      { providers: ['webpush'] },
+    );
+
+    // Only schedule the rest of the burst if there is a browser to hear it. A household on
+    // native-only phones would otherwise wake this object nine more times to send nothing.
+    if (webTargets.length > 0 && SHABBAT_BURST_COUNT > 1) {
+      this.sql.exec(
+        `INSERT INTO shabbat_bursts (
+           occurrence_id, schedule_id, medicine_id, medicine_name, dosage_quantity, due_at_ms,
+           next_index, next_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, 2, ?)
+         ON CONFLICT(occurrence_id) DO UPDATE SET next_index = 2, next_at_ms = excluded.next_at_ms`,
+        row.occurrence_id,
+        row.schedule_id,
+        row.medicine_id,
+        row.medicine_name,
+        row.dosage_quantity,
+        row.due_at_ms,
+        nowMs + SHABBAT_BURST_SPACING_MS,
+      );
+    }
+
+    await this.markPendingShabbat(householdId, row);
+  }
+
+  /**
+   * The rest of a burst, one push per wake.
+   *
+   * Bounded by `MAX_WORK_PER_WAKE` like every other kind of owed work: a device that was
+   * unreachable for a while must not turn one wake into an unbounded run of pushes.
+   */
+  private async runDueBursts(householdId: string, nowMs: number): Promise<void> {
+    const due = this.sql
+      .exec<{
+        occurrence_id: string;
+        schedule_id: string;
+        medicine_id: string;
+        medicine_name: string;
+        dosage_quantity: number;
+        due_at_ms: number;
+        next_index: number;
+        next_at_ms: number;
+      }>(
+        'SELECT * FROM shabbat_bursts WHERE next_at_ms <= ? ORDER BY next_at_ms LIMIT ?',
+        nowMs,
+        MAX_WORK_PER_WAKE,
+      )
+      .toArray();
+
+    for (const burst of due) {
+      await dispatchToHousehold(
+        this.env,
+        householdId,
+        {
+          v: PUSH_PAYLOAD_VERSION,
+          kind: 'shabbat',
+          sentAtIso: toIso(nowMs),
+          occurrenceId: burst.occurrence_id,
+          medicineId: burst.medicine_id,
+          medicineName: burst.medicine_name,
+          scheduleId: burst.schedule_id,
+          dueAtIso: toIso(burst.due_at_ms),
+          dosageQuantity: burst.dosage_quantity,
+          burstIndex: burst.next_index,
+          burstTotal: SHABBAT_BURST_COUNT,
+        },
+        { providers: ['webpush'] },
+      );
+
+      if (burst.next_index >= SHABBAT_BURST_COUNT) {
+        this.sql.exec('DELETE FROM shabbat_bursts WHERE occurrence_id = ?', burst.occurrence_id);
+        continue;
+      }
+
+      // Spaced from the intended instant rather than from now, so a late wake catches up instead
+      // of stretching the chime out past the point where it reads as one alert.
+      this.sql.exec(
+        'UPDATE shabbat_bursts SET next_index = ?, next_at_ms = ? WHERE occurrence_id = ?',
+        burst.next_index + 1,
+        burst.next_at_ms + SHABBAT_BURST_SPACING_MS,
+        burst.occurrence_id,
+      );
+    }
+  }
+
+  /**
+   * Writes the dose off as awaiting Motzei Shabbat reconciliation.
+   *
+   * A real, append-only `IntakeLog` with status `pending_shabbat`, on the same footing as the
+   * `missed` log `markMissed` writes and for the same reason: it is a fact in a child's medical
+   * record — an alert fired, and nothing was recorded because recording was not permitted — and
+   * the reconciliation sheet corrects it by appending a superseding log, exactly as any other
+   * correction works (safety invariant 1).
+   *
+   * `quantityTaken: 0` because nothing is known to have been given yet; the conformance suite
+   * already asserts that a `pending_shabbat` log moves no stock, so the inventory ledger stays
+   * untouched until a caregiver says what actually happened.
+   *
+   * Attributed to `system`: no human recorded anything, which is precisely what makes the entry
+   * meaningful (safety invariant 5).
+   */
+  private async markPendingShabbat(householdId: string, row: DoseAlarmRow): Promise<void> {
+    const record = {
+      id: uuidIdGenerator.next(),
+      patientId: row.patient_id,
+      medicineId: row.medicine_id,
+      scheduleId: row.schedule_id,
+      type: 'scheduled' as const,
+      status: 'pending_shabbat' as const,
+      scheduledTime: toIso(row.due_at_ms),
+      // The due time, not the moment this object happened to wake: a late alarm must not move a
+      // timestamp in the medical record.
+      actualTime: toIso(row.due_at_ms),
+      quantityTaken: 0,
+      loggedByUserId: 'system',
+      loggedByDeviceId: 'system',
+      syncStatus: 'synced' as const,
+    };
+
+    await applyRecord(this.env.DB, householdId, 'intakeLogs', record);
+    this.sql.exec(
+      "UPDATE dose_alarms SET state = 'pending_shabbat' WHERE occurrence_id = ?",
       row.occurrence_id,
     );
   }
@@ -503,8 +747,16 @@ export class DoseAlarmChain {
    * `actualTime` is the moment the dose *became* missed rather than the moment this DO happened
    * to wake up, so a late alarm cannot move a timestamp in the medical record.
    */
-  private async markMissed(householdId: string, row: DoseAlarmRow): Promise<void> {
-    if (await this.isShabbatMode()) {
+  private async markMissed(
+    householdId: string,
+    row: DoseAlarmRow,
+    inShabbatMode: boolean,
+  ): Promise<void> {
+    if (inShabbatMode) {
+      // Shabbat suppresses the missed sweep entirely (Sprint A5): in mode the record says
+      // `pending_shabbat` and a caregiver settles it after Havdalah, so a machine-written
+      // `missed` would be both wrong and something they then have to correct.
+      await this.markPendingShabbat(householdId, row);
       return;
     }
 
@@ -533,15 +785,41 @@ export class DoseAlarmChain {
   }
 
   /**
-   * Shabbat suppresses the missed sweep entirely: in mode the app writes `pending_shabbat` and
-   * reconciles after Havdalah, so a machine-written `missed` would be both wrong and a record a
-   * caregiver then has to correct.
+   * Whether the household is in Shabbat mode at `nowMs` (Sprint A5).
    *
-   * Always false until Sprint A5 computes zmanim windows server-side — this is the single place
-   * that will need to change, deliberately, rather than a check scattered through the chain.
+   * Read from the windows this Worker published (`shabbat/publish.ts`) rather than computed here:
+   * one calculation, on one calendar, that every device also holds. The SQL narrows to candidate
+   * rows; `shabbatModeAt` from `@medguard/shared` decides — including the half-open boundary rule
+   * — because the phone deciding which channel to arm calls exactly that function, and a
+   * boundary the server and the phone disagree about is a dose that rings with action buttons on
+   * Shabbat.
+   *
+   * Evaluated once per wake and passed down, not per row: it is two D1 reads.
    */
-  private isShabbatMode(): Promise<boolean> {
-    return Promise.resolve(false);
+  private async isShabbatMode(householdId: string, nowMs: number): Promise<boolean> {
+    const nowIso = toIso(nowMs);
+
+    const [configRow, windowRows] = await Promise.all([
+      this.env.DB.prepare(
+        'SELECT payload FROM shabbat_config WHERE household_id = ? ORDER BY seq DESC LIMIT 1',
+      )
+        .bind(householdId)
+        .first<{ payload: string }>(),
+      this.env.DB.prepare(
+        `SELECT payload FROM shabbat_windows
+          WHERE household_id = ? AND starts_at <= ? AND ends_at > ?`,
+      )
+        .bind(householdId, nowIso, nowIso)
+        .all<{ payload: string }>(),
+    ]);
+
+    if (!configRow) {
+      return false;
+    }
+
+    const config = JSON.parse(configRow.payload) as ShabbatConfig;
+    const windows = windowRows.results.map((row) => JSON.parse(row.payload) as ShabbatWindow);
+    return shabbatModeAt(config, windows, nowMs);
   }
 
   // -------------------------------------------------------------------------

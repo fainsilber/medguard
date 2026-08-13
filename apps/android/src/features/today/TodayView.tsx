@@ -40,6 +40,7 @@ const STATUS_LABEL: Record<OccurrenceStatus, string> = {
   due_now: 'Due now',
   snoozed: 'Snoozed',
   upcoming: 'Upcoming',
+  pending_shabbat: 'Awaiting Shabbat reconciliation',
   done: 'Done',
 };
 
@@ -48,6 +49,7 @@ const STATUS_HEADING_COLOR: Record<OccurrenceStatus, string> = {
   due_now: colors.capped,
   snoozed: colors.textMuted,
   upcoming: colors.textMuted,
+  pending_shabbat: colors.capped,
   done: colors.safe,
 };
 
@@ -101,7 +103,7 @@ export function TodayView(): React.JSX.Element {
       const key = occurrenceKey(occurrence);
       const log = findLogForOccurrence(logs, occurrence);
       const snoozeState = deriveSnoozeState(snoozes, key);
-      const status = classifyOccurrence(occurrence.dueAt, nowMs, log !== undefined, snoozeState.untilMs);
+      const status = classifyOccurrence(occurrence.dueAt, nowMs, log?.status, snoozeState.untilMs);
       return { occurrence, log, status, key, snoozeState };
     });
   }, [schedules, logs, timeZone, today, nowMs, snoozes]);
@@ -188,7 +190,15 @@ export function TodayView(): React.JSX.Element {
     );
   }
 
-  const sections: OccurrenceStatus[] = ['overdue', 'due_now', 'snoozed', 'upcoming', 'done'];
+  // Above `done`, not beside it: after Havdalah these are the doses still owing an answer.
+  const sections: OccurrenceStatus[] = [
+    'overdue',
+    'due_now',
+    'snoozed',
+    'upcoming',
+    'pending_shabbat',
+    'done',
+  ];
 
   return (
     <KeyboardAvoidingScreen>

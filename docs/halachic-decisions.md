@@ -2,6 +2,8 @@
 
 Answers to the questions in `medguard-sprint-plan.md` § Halachic questions for your rav, recorded here so the reasoning behind Sprint 6's Shabbat design survives independently of the code.
 
+**Sprint 6 / A5 phase 1 shipped on 2026-08-13 against these answers.** That makes the paragraph below load-bearing rather than a caveat: code now exists that behaves the way these placeholders describe, and if a real ruling differs, what changes is running code — the fan-out in `HouseholdDO`, the absence of action buttons, the `pending_shabbat` record — not just this file.
+
 **Status: working decisions, not yet confirmed by a rav.** These were given as pragmatic answers to keep the project moving, not relayed from an actual consultation. Treat Sprint 6 as built against a placeholder ruling until you've actually asked. If/when you get a real answer, update this file — anything that turns out to differ gets revisited before that Shabbat, not silently kept.
 
 ---

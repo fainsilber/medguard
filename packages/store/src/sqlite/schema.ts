@@ -4,9 +4,9 @@
  * `indexedFields` are denormalized copies kept in their own columns purely so SQLite can build a
  * real index over them, the same reason Dexie's schema names the same fields.
  *
- * `shabbatConfig` has no entry here despite being a real synced table (`tableDispatch.ts` reaches
- * it generically) — nothing in `MedGuardRepository` ever runs an `IndexQuery` against it, only
- * `get`/`put` by id, which every table supports with no indexed columns at all.
+ * `shabbatConfig` and `shabbatWindows` have no indexed fields despite being real synced tables —
+ * nothing in `MedGuardRepository` ever runs an `IndexQuery` against either, only `get`/`put`/
+ * `getAll`, which every table supports with no indexed columns at all.
  */
 
 export interface SqliteTableSchema {
@@ -29,6 +29,10 @@ export const SQLITE_TABLE_SCHEMAS: readonly SqliteTableSchema[] = [
   { name: 'inventoryAdjustments', pk: 'id', indexedFields: ['medicineId', 'relatedLogId'] },
   { name: 'doseSnoozes', pk: 'id', indexedFields: ['occurrenceId', 'createdAt'] },
   { name: 'shabbatConfig', pk: 'id', indexedFields: [] },
+  // Sprint A5. Read whole (`allShabbatWindows`) rather than queried: a rolling 90-day horizon is
+  // a few dozen rows, and which of them matter is decided by `@medguard/shared`'s predicates so
+  // that every surface applies the same boundary rule.
+  { name: 'shabbatWindows', pk: 'id', indexedFields: [] },
   { name: 'syncOutbox', pk: 'id', pkIsInteger: true, indexedFields: ['table', 'createdAt'] },
   { name: 'syncMeta', pk: 'key', indexedFields: [] },
 ];
