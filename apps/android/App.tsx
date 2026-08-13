@@ -1,10 +1,12 @@
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AlarmHealthBanner } from './src/alarms/AlarmHealthBanner';
 import { AlarmProvider } from './src/alarms/AlarmProvider';
 import { AppNavigator } from './src/app/AppNavigator';
+import type { RootStackParamList } from './src/app/AppNavigator';
 import { CaregiverGate } from './src/identity/CaregiverGate';
 import { RevokedDeviceBanner } from './src/sync/RevokedDeviceBanner';
 import { SafetyWarningBanner } from './src/sync/SafetyWarningBanner';
@@ -22,10 +24,31 @@ import { colors } from './src/ui/primitives';
  * re-materializes on the same `NotifyingStore` writes `SyncProvider`'s pulls make, so no explicit
  * "sync completed" hook is needed between them — the store notification is the hook.
  *
- * The header row (title + sync status) and the safety warning banner sit above the tab
- * navigator, visible on every tab, mirroring web's `AppShell`.
+ * The header row (Today shortcut, title + sync status, hamburger) and the safety warning banner
+ * sit above `AppNavigator`'s stack, visible on every screen — this is the one persistent header
+ * for the whole app, which is why every screen in `AppNavigator` is `headerShown: false`: a
+ * second per-screen header stacked under this one was the source of the dead space that used to
+ * show up above every screen.
  */
+const MENU_ITEMS: ReadonlyArray<{ route: keyof RootStackParamList; label: string; icon: string }> = [
+  { route: 'Diagnostics', label: 'Diagnostics', icon: '🛠️' },
+  { route: 'Shabbat', label: 'Shabbat', icon: '🕯️' },
+  { route: 'Log', label: 'Log', icon: '📤' },
+  { route: 'Inventory', label: 'Inventory', icon: '📦' },
+  { route: 'Household', label: 'Household', icon: '🏠' },
+];
+
 export default function App(): React.JSX.Element {
+  const navigationRef = useNavigationContainerRef<RootStackParamList>();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  function navigate(route: keyof RootStackParamList): void {
+    setMenuOpen(false);
+    if (navigationRef.isReady()) {
+      navigationRef.navigate(route);
+    }
+  }
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
@@ -34,15 +57,54 @@ export default function App(): React.JSX.Element {
           <SyncProvider>
             <AlarmProvider>
               <View style={styles.header}>
-                <Text style={styles.title}>MedGuard</Text>
-                <SyncStatusBadge />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Today's schedule"
+                  onPress={() => navigate('Today')}
+                  style={styles.iconButton}
+                >
+                  <Text style={styles.iconGlyph}>📅</Text>
+                </Pressable>
+                <View style={styles.headerCenter}>
+                  <Text style={styles.title}>MedGuard</Text>
+                  <SyncStatusBadge />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="More screens"
+                  onPress={() => setMenuOpen(true)}
+                  style={styles.iconButton}
+                >
+                  <Text style={styles.iconGlyph}>☰</Text>
+                </Pressable>
               </View>
               <RevokedDeviceBanner />
               <SafetyWarningBanner />
               <AlarmHealthBanner />
-              <NavigationContainer>
+              <NavigationContainer ref={navigationRef}>
                 <AppNavigator />
               </NavigationContainer>
+              <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+                <Pressable
+                  style={styles.menuBackdrop}
+                  accessibilityRole="button"
+                  onPress={() => setMenuOpen(false)}
+                >
+                  <View style={styles.menu}>
+                    {MENU_ITEMS.map((item) => (
+                      <Pressable
+                        key={item.route}
+                        accessibilityRole="button"
+                        style={styles.menuItem}
+                        onPress={() => navigate(item.route)}
+                      >
+                        <Text style={styles.menuItemIcon}>{item.icon}</Text>
+                        <Text style={styles.menuItemLabel}>{item.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </Pressable>
+              </Modal>
             </AlarmProvider>
           </SyncProvider>
         </CaregiverGate>
@@ -56,9 +118,46 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+  },
+  iconButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconGlyph: { fontSize: 20, color: colors.text },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   title: { fontSize: 20, fontWeight: '700', color: colors.text },
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    alignItems: 'flex-end',
+  },
+  menu: {
+    marginTop: 56,
+    marginRight: 8,
+    minWidth: 190,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingVertical: 4,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  menuItemIcon: { fontSize: 18 },
+  menuItemLabel: { fontSize: 15, fontWeight: '500', color: colors.text },
 });

@@ -1,7 +1,6 @@
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatLocalDate } from '@medguard/shared';
 import type { Medicine, Schedule } from '@medguard/shared';
 import { DiagnosticsScreen } from '../features/diagnostics/DiagnosticsScreen.js';
@@ -27,6 +26,12 @@ import { useHouseholdSettings } from './useHouseholdSettings.js';
  * URL/DOM to swap components against. Every screen below was built (see each feature directory)
  * to take navigation-agnostic callback props exactly for this seam: this file is the only place
  * that knows about routes, route params, or `@react-navigation` at all.
+ *
+ * A single native-stack replaces the old bottom-tab bar: `App.tsx` renders one persistent header
+ * (Today shortcut top-left, hamburger top-right) above the `NavigationContainer`, so every screen
+ * here is `headerShown: false` and reached either from `Home`'s two big buttons, the header's
+ * Today shortcut, the hamburger menu, or the OS back gesture/button (native-stack pops on it same
+ * as any Android app) — no per-screen header bar left to double up with the persistent one.
  */
 
 // ---------------------------------------------------------------------------
@@ -129,10 +134,12 @@ function MedicinesStackScreen(): React.JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Bottom tabs
+// Root stack: Home (the two big buttons) + every other screen, reached from
+// Home, the persistent header's Today shortcut, or the hamburger menu.
 // ---------------------------------------------------------------------------
 
-type TabParamList = {
+export type RootStackParamList = {
+  Home: undefined;
   Today: undefined;
   Medicines: undefined;
   'As needed': undefined;
@@ -143,31 +150,50 @@ type TabParamList = {
   Diagnostics: undefined;
 };
 
-const Tab = createBottomTabNavigator<TabParamList>();
+const RootStack = createNativeStackNavigator<RootStackParamList>();
 
-/**
- * Emoji glyphs instead of an icon library: no `tabBarIcon` was ever wired up here, so
- * `@react-navigation/bottom-tabs` fell back to its own placeholder (`MissingIcon`, a bare "⏷")
- * on every tab. A real icon set (`@expo/vector-icons` et al.) is a real dependency to add and
- * verify; a `Text` glyph needs nothing new and renders everywhere a font does — same reasoning
- * `MedicineForm`'s Chip rows use to avoid a dropdown library.
- */
-const TAB_ICONS: Record<keyof TabParamList, string> = {
-  Today: '📅',
-  Medicines: '💊',
-  'As needed': '⏱️',
-  Inventory: '📦',
-  Log: '📤',
-  Shabbat: '🕯️',
-  Household: '🏠',
-  Diagnostics: '🛠️',
-};
-
-function makeTabBarIcon(tab: keyof TabParamList) {
-  return ({ size }: { color: string; size: number }) => (
-    <Text style={{ fontSize: size }}>{TAB_ICONS[tab]}</Text>
+function HomeScreen({
+  navigation,
+}: NativeStackScreenProps<RootStackParamList, 'Home'>): React.JSX.Element {
+  return (
+    <View style={homeStyles.container}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => navigation.navigate('Medicines')}
+        style={({ pressed }) => [homeStyles.bigButton, homeStyles.medicinesButton, pressed && homeStyles.pressed]}
+      >
+        <Text style={homeStyles.bigButtonIcon}>💊</Text>
+        <Text style={homeStyles.bigButtonLabel}>Medicines</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => navigation.navigate('As needed')}
+        style={({ pressed }) => [homeStyles.bigButton, homeStyles.asNeededButton, pressed && homeStyles.pressed]}
+      >
+        <Text style={homeStyles.bigButtonIcon}>⏱️</Text>
+        <Text style={homeStyles.bigButtonLabel}>As needed</Text>
+      </Pressable>
+    </View>
   );
 }
+
+const homeStyles = StyleSheet.create({
+  container: { flex: 1, padding: 16, gap: 16, backgroundColor: colors.background },
+  bigButton: {
+    flex: 1,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  medicinesButton: { backgroundColor: colors.surface },
+  asNeededButton: { backgroundColor: colors.surface },
+  pressed: { opacity: 0.8 },
+  bigButtonIcon: { fontSize: 64 },
+  bigButtonLabel: { fontSize: 26, fontWeight: '700', color: colors.text },
+});
 
 export function AppNavigator(): React.JSX.Element {
   // PRD §3: after Havdalah the app opens the reconciliation sheet rather than waiting to be asked
@@ -180,24 +206,17 @@ export function AppNavigator(): React.JSX.Element {
   }
 
   return (
-    <Tab.Navigator screenOptions={tabScreenOptions}>
-      <Tab.Screen name="Today" component={TodayView} options={{ tabBarIcon: makeTabBarIcon('Today') }} />
-      <Tab.Screen
-        name="Medicines"
-        component={MedicinesStackScreen}
-        options={{ headerShown: false, tabBarIcon: makeTabBarIcon('Medicines') }}
-      />
-      <Tab.Screen name="As needed" component={PrnScreen} options={{ tabBarIcon: makeTabBarIcon('As needed') }} />
-      <Tab.Screen name="Inventory" component={InventoryScreen} options={{ tabBarIcon: makeTabBarIcon('Inventory') }} />
-      <Tab.Screen name="Log" component={ExportScreen} options={{ tabBarIcon: makeTabBarIcon('Log') }} />
-      <Tab.Screen name="Shabbat" component={ShabbatScreen} options={{ tabBarIcon: makeTabBarIcon('Shabbat') }} />
-      <Tab.Screen name="Household" component={HouseholdScreen} options={{ tabBarIcon: makeTabBarIcon('Household') }} />
-      <Tab.Screen
-        name="Diagnostics"
-        component={DiagnosticsScreen}
-        options={{ tabBarIcon: makeTabBarIcon('Diagnostics') }}
-      />
-    </Tab.Navigator>
+    <RootStack.Navigator initialRouteName="Home" screenOptions={rootScreenOptions}>
+      <RootStack.Screen name="Home" component={HomeScreen} />
+      <RootStack.Screen name="Today" component={TodayView} />
+      <RootStack.Screen name="Medicines" component={MedicinesStackScreen} />
+      <RootStack.Screen name="As needed" component={PrnScreen} />
+      <RootStack.Screen name="Inventory" component={InventoryScreen} />
+      <RootStack.Screen name="Log" component={ExportScreen} />
+      <RootStack.Screen name="Shabbat" component={ShabbatScreen} />
+      <RootStack.Screen name="Household" component={HouseholdScreen} />
+      <RootStack.Screen name="Diagnostics" component={DiagnosticsScreen} />
+    </RootStack.Navigator>
   );
 }
 
@@ -209,13 +228,9 @@ function LoadingScreen(): React.JSX.Element {
   );
 }
 
-const tabScreenOptions = {
-  headerStyle: { backgroundColor: colors.surface },
-  headerTintColor: colors.text,
-  tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
-  tabBarActiveTintColor: colors.primary,
-  tabBarInactiveTintColor: colors.textMuted,
-  sceneStyle: { backgroundColor: colors.background },
+const rootScreenOptions = {
+  headerShown: false,
+  contentStyle: { backgroundColor: colors.background },
 } as const;
 
 const stackScreenOptions = {
