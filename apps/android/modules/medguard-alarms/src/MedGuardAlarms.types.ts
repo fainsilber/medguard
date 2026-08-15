@@ -4,11 +4,7 @@
  * Shabbat burst was retuned four times requires a new id here, not an edit to an existing one.
  */
 export type MedGuardChannelId =
-  | 'dose_standard_v1'
-  | 'dose_escalation_v1'
-  | 'shabbat_v1'
-  | 'low_stock_v1'
-  | 'sync_status_v1';
+  'dose_standard_v1' | 'dose_escalation_v1' | 'shabbat_v1' | 'low_stock_v1' | 'sync_status_v1';
 
 export interface ScheduleDoseAlarmInput {
   /** `occurrenceKey` from `packages/shared/src/schedule.ts` — the Android notification tag. */
@@ -18,7 +14,12 @@ export interface ScheduleDoseAlarmInput {
   channelId: MedGuardChannelId;
   title: string;
   body: string;
-  /** How long the alarm-stream chime plays before it auto-stops. PRD default: 45. */
+  /**
+   * How long the alarm-stream chime plays before it auto-stops. Resolved per alarm by
+   * `chimeDurationSecondsFor` — 60s on a weekday, 30s on Shabbat by default. Clamped again in
+   * Kotlin before a note is played, because this value travels inside a payload that can fire
+   * days later with no JS process alive.
+   */
   chimeDurationSeconds: number;
   /** Whether to attempt DND bypass / full-screen escalation for this alarm (escalation only). */
   escalation: boolean;
@@ -52,6 +53,12 @@ export interface ArmedAlarm {
    * left on the weekday channel during Shabbat rings with "Taken"/"Snooze" buttons.
    */
   channelId: MedGuardChannelId;
+  /**
+   * How long it is armed to ring for. Also part of the diff: the length is baked into the payload
+   * at arm time, so editing it on the Shabbat screen has no effect on already-armed alarms until
+   * they are re-armed.
+   */
+  chimeDurationSeconds: number;
 }
 
 /** A rotated FCM registration token, handed over the moment Firebase issues it. */

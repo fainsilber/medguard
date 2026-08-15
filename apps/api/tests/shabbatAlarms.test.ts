@@ -28,6 +28,9 @@ import type { DoseAlarmChain } from '../src/do/doseAlarms.js';
 const BASE = 'https://example.com/api/v1';
 const MEDICINE_ID = '11111111-1111-4111-8111-111111111111';
 const SCHEDULE_ID = '33333333-3333-4333-8333-333333333333';
+// A second medicine on the same schedule time — the simultaneous-doses case.
+const SECOND_MEDICINE_ID = '44444444-4444-4444-8444-444444444444';
+const SECOND_SCHEDULE_ID = '55555555-5555-4555-8555-555555555555';
 const ESCALATION_MINUTES = 15;
 const MISSED_MINUTES = 180;
 const WEB_ENDPOINT = 'https://push.example.invalid/sub/1';
@@ -152,7 +155,8 @@ function shabbatConfig(overrides: Record<string, unknown> = {}) {
     candleLightingOffsetMins: 18,
     havdalahDegreesOrMins: '8.5_degrees',
     israelHolidays: true,
-    chimeDurationSeconds: 45,
+    chimeDurationSeconds: 30,
+    weekdayChimeDurationSeconds: 60,
     updatedAt: toIso(Date.now()),
     updatedByDeviceId: 'device',
     syncStatus: 'synced',
@@ -424,6 +428,45 @@ describe('a dose that falls inside a Shabbat window', () => {
     const later = dueAtMs + 60 * MS_PER_MINUTE;
     sentTo = [];
     await runChainAt(stub, later);
+    expect(sentTo).toEqual([]);
+  });
+
+  /**
+   * Several medicines at 08:00 is the ordinary case in this household, not an edge one. A burst
+   * chain each would mean twenty notification tones for what a caregiver hears as one alert going
+   * off — the browser-side version of the "one sound, several notifications" rule the native chime
+   * follows. Each dose still gets its own initial push; what is deduplicated is the repetition
+   * that stands in for a chime.
+   */
+  it('runs one burst chain for two doses due at the same instant, not two', async () => {
+    const { session, stub, dueAtMs } = await householdInShabbat(30);
+
+    await push(session, [
+      { table: 'medicines', record: medicine({ id: SECOND_MEDICINE_ID, name: 'Ondansetron' }) },
+      {
+        table: 'schedules',
+        record: schedule(dueAtMs, { id: SECOND_SCHEDULE_ID, medicineId: SECOND_MEDICINE_ID }),
+      },
+    ]);
+
+    sentTo = [];
+    await runChainAt(stub, dueAtMs);
+
+    // Two doses, two notifications — both alerts still reach the browser.
+    expect(sentTo.filter((target) => target === WEB_ENDPOINT)).toHaveLength(2);
+
+    for (let index = 2; index <= SHABBAT_BURST_COUNT; index += 1) {
+      await runChainAt(stub, dueAtMs + (index - 1) * SHABBAT_BURST_SPACING_MS);
+    }
+
+    // Two initial pushes plus one chain's worth of continuation — not two chains.
+    expect(sentTo.filter((target) => target === WEB_ENDPOINT)).toHaveLength(
+      SHABBAT_BURST_COUNT + 1,
+    );
+
+    // And nothing is left looping afterwards.
+    sentTo = [];
+    await runChainAt(stub, dueAtMs + 60 * MS_PER_MINUTE);
     expect(sentTo).toEqual([]);
   });
 

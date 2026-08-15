@@ -2,8 +2,11 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useState } from 'react';
 import {
   DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
-  DEFAULT_CHIME_DURATION_SECONDS,
   DEFAULT_HAVDALAH,
+  DEFAULT_SHABBAT_CHIME_DURATION_SECONDS,
+  DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
+  MAX_CHIME_DURATION_SECONDS,
+  MIN_CHIME_DURATION_SECONDS,
   SINGLE_PATIENT_ID,
   describeShabbatWindow,
   shabbatPhaseAt,
@@ -17,7 +20,13 @@ import {
   useRepository,
 } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
-import { Card, buttonClass, inputClass, labelClass, primaryButtonClass } from '../../ui/primitives.js';
+import {
+  Card,
+  buttonClass,
+  inputClass,
+  labelClass,
+  primaryButtonClass,
+} from '../../ui/primitives.js';
 
 /**
  * Shabbat & Yom Tov (Sprint A5): what the household's times are, and the check that they are
@@ -85,7 +94,8 @@ export function ShabbatScreen() {
         candleLightingOffsetMins: DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
         havdalahDegreesOrMins: DEFAULT_HAVDALAH,
         israelHolidays: true,
-        chimeDurationSeconds: DEFAULT_CHIME_DURATION_SECONDS,
+        chimeDurationSeconds: DEFAULT_SHABBAT_CHIME_DURATION_SECONDS,
+        weekdayChimeDurationSeconds: DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
         // Replaced by the repository's own stamp; placeholders satisfy the type.
         updatedAt: '',
         updatedByDeviceId: '',
@@ -163,9 +173,7 @@ export function ShabbatScreen() {
                   type="number"
                   step="0.0001"
                   value={draft.latitude}
-                  onChange={(event) =>
-                    setDraft({ ...draft, latitude: Number(event.target.value) })
-                  }
+                  onChange={(event) => setDraft({ ...draft, latitude: Number(event.target.value) })}
                 />
               </label>
               <label className={labelClass}>
@@ -225,19 +233,47 @@ export function ShabbatScreen() {
               In Israel (one day of Yom Tov rather than two)
             </label>
 
+            {/*
+              Two lengths, together, because the difference between them is the point. A weekday
+              alert can be acted on — marked, or silenced with a button — so its timeout is the
+              backstop for nobody reaching the phone. A Shabbat alert can only be listened to, so
+              it says what it has to say and stops.
+            */}
             <label className={labelClass}>
-              Chime length, seconds
+              Weekday alert length, seconds
               <input
                 className={inputClass}
                 type="number"
-                min={1}
-                max={600}
+                min={MIN_CHIME_DURATION_SECONDS}
+                max={MAX_CHIME_DURATION_SECONDS}
+                value={draft.weekdayChimeDurationSeconds ?? DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS}
+                onChange={(event) =>
+                  setDraft({ ...draft, weekdayChimeDurationSeconds: Number(event.target.value) })
+                }
+              />
+            </label>
+            <span className="-mt-2 text-xs text-slate-400">
+              Default {DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS}. Stops early when the dose is marked,
+              or when a button on the phone is pressed.
+            </span>
+
+            <label className={labelClass}>
+              Shabbat alert length, seconds
+              <input
+                className={inputClass}
+                type="number"
+                min={MIN_CHIME_DURATION_SECONDS}
+                max={MAX_CHIME_DURATION_SECONDS}
                 value={draft.chimeDurationSeconds}
                 onChange={(event) =>
                   setDraft({ ...draft, chimeDurationSeconds: Number(event.target.value) })
                 }
               />
             </label>
+            <span className="-mt-2 text-xs text-slate-400">
+              Default {DEFAULT_SHABBAT_CHIME_DURATION_SECONDS}. Nothing can be tapped on Shabbat, so
+              this alert only stops on its own.
+            </span>
 
             {error && <p className="text-sm text-locked">{error}</p>}
 

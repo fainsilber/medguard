@@ -99,7 +99,7 @@ To keep the system reliable and lightweight, Shabbat Mode operates without scree
              ┌─────────────────┴─────────────────┐
              ▼                                   ▼
    [ Audio Chime Rings ]               [ Server Status Update ]
-   (Auto-stops after 45s)              • Set to "Pending Shabbat"
+   (Auto-stops after 30s)              • Set to "Pending Shabbat"
    • No screen wake required           • Pause Missed-Dose Push
    • No touch required                 • Pause Caregiver Escalation
              │                                   │
@@ -114,7 +114,7 @@ To keep the system reliable and lightweight, Shabbat Mode operates without scree
 ```
 
 * **Automated Schedule Ingress/Egress:** Uses `@hebcal/core` inside Cloudflare Workers to calculate Shabbat/Yom Tov times from household coordinates. Automatically enables Shabbat Mode 18 minutes before sunset on Friday/Erev Chag and disables it after Havdalah.
-* **Passive Audio Chime:** Plays a gentle, distinct audio chime via Web Workers for a configurable duration (default: 45 seconds) and **automatically stops without requiring user interaction**.
+* **Passive Audio Chime:** Plays a gentle, distinct audio chime for a configurable duration (default: 30 seconds on Shabbat) and **automatically stops without requiring user interaction**. Shorter than the weekday alert deliberately: nothing on a Shabbat notification can be tapped and nothing is recorded, so the alert is purely informational — it has said everything it has to say well inside half a minute, and every further second is noise in a house that cannot silence it.
 * **Screen Display:** The device screen remains in its current state (off or locked). No touch interactions, wake-locks, or lockscreen prompts are triggered.
 * **Suppression of Caregiver Escalation:** Missed-dose push notifications and escalation alerts are paused during Shabbat.
 * **Motzei Shabbat Reconciliation Sheet:** After Havdalah, the app opens a bulk reconciliation screen so caregivers can confirm scheduled doses with one tap and retroactively log any PRN medications given during Shabbat.
@@ -127,8 +127,9 @@ To keep the system reliable and lightweight, Shabbat Mode operates without scree
 | --- | --- | --- | --- |
 | **Standard Mode** | App Open / Active | Web Worker + HTML5 Audio + Banner Notification | Click *"Mark as Taken"* or *"Snooze 15m"* (Syncs to all devices via Durable Object). |
 | **Standard Mode** | App Background / Locked | Server Web Push (VAPID via FCM/APNs) | Lock screen action buttons (*"Taken"*, *"Snooze"*). |
+| **Standard Mode** | Alert sounding | Local alarm chime (default 60s) | Stops on **any** of: the dose being marked (Taken / Snooze / Skip, from the notification or in the app); a physical button — power, volume, or unlocking the phone; or the timeout, with nothing done at all. |
 | **Standard Mode** | Unacknowledged after 15m (configurable) | Durable Object Alarm Escalation Job | High-priority push sent to all linked caregiver devices. |
-| **Shabbat Mode** | App Background / Screen Off | Local Scheduled Service Worker / Web Worker | Audio chime rings for 45s and auto-stops. No touch required. |
+| **Shabbat Mode** | App Background / Screen Off | Local Scheduled Service Worker / Web Worker | Audio chime rings for 30s and auto-stops. No touch required, and no other way to stop it — which is why it is the shorter of the two. |
 | **Shabbat Mode** | Post-Shabbat (Havdalah) | App Event Trigger | Screen displays Motzei Shabbat Reconciliation Sheet for bulk logging. |
 
 ---
@@ -201,7 +202,8 @@ export interface ShabbatConfig {
   longitude: number;
   candleLightingOffsetMins: number; // Default: 18
   havdalahDegreesOrMins: string; // e.g., "8.5_degrees" or "50_mins"
-  chimeDurationSeconds: number; // Default: 45
+  chimeDurationSeconds: number; // Shabbat alert length. Default: 30
+  weekdayChimeDurationSeconds?: number; // Weekday alert length. Default: 60
 }
 
 export interface SyncOutbox {
@@ -261,7 +263,7 @@ export const db = new MedGuardDB();
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Phase 4: Shabbat & Yom Tov Automation                                      │
 │  • @hebcal/core integration for Zmanim calculation in Workers               │
-│  • Audio Chime Engine with 45-second auto-stop (no screen wake)             │
+│  • Audio Chime Engine with auto-stop, no screen wake (60s / 30s Shabbat)    │
 │  • Motzei Shabbat Reconciliation UI Sheet for post-Shabbat bulk logging     │
 └─────────────────────────────────────────────────────────────────────────────┘
 

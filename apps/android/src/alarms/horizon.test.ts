@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { fromIso, occurrenceKey, resolveLocal, toIso } from '@medguard/shared';
+import {
+  DEFAULT_SHABBAT_CHIME_DURATION_SECONDS,
+  DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
+  MAX_CHIME_DURATION_SECONDS,
+  fromIso,
+  occurrenceKey,
+  resolveLocal,
+  toIso,
+} from '@medguard/shared';
 import type {
   DoseSnooze,
   IntakeLog,
@@ -197,7 +205,9 @@ describe('materializeHorizon', () => {
   });
 
   it('does not arm doses for an archived medicine', () => {
-    expect(materializeHorizon(baseInput({ medicines: [makeMedicine({ archived: true })] }))).toEqual([]);
+    expect(
+      materializeHorizon(baseInput({ medicines: [makeMedicine({ archived: true })] })),
+    ).toEqual([]);
   });
 
   it('does not arm doses for a medicine that is missing entirely', () => {
@@ -205,9 +215,9 @@ describe('materializeHorizon', () => {
   });
 
   it('does not arm a schedule that has been stopped', () => {
-    expect(
-      materializeHorizon(baseInput({ schedules: [makeSchedule({ active: false })] })),
-    ).toEqual([]);
+    expect(materializeHorizon(baseInput({ schedules: [makeSchedule({ active: false })] }))).toEqual(
+      [],
+    );
   });
 
   it('resolves wall-clock times across a DST boundary rather than assuming a fixed offset', () => {
@@ -327,7 +337,8 @@ describe('materializeHorizon in Shabbat mode', () => {
       candleLightingOffsetMins: 18,
       havdalahDegreesOrMins: '8.5_degrees',
       israelHolidays: true,
-      chimeDurationSeconds: 45,
+      chimeDurationSeconds: 30,
+      weekdayChimeDurationSeconds: 60,
       updatedAt: '2026-06-01T00:00:00.000Z',
       updatedByDeviceId: 'device-1',
       syncStatus: 'synced',
@@ -335,12 +346,12 @@ describe('materializeHorizon in Shabbat mode', () => {
     };
   }
 
-  it('arms a weekday dose on the standard channel at the PRD chime length', () => {
+  it('arms a weekday dose on the standard channel at the weekday length', () => {
     const planned = materializeHorizon(baseInput());
 
     expect(planned[0]).toMatchObject({
       channelId: 'dose_standard_v1',
-      chimeDurationSeconds: 45,
+      chimeDurationSeconds: DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
     });
   });
 
@@ -398,7 +409,7 @@ describe('materializeHorizon in Shabbat mode', () => {
     expect(planned[0]!.channelId).toBe('dose_standard_v1');
   });
 
-  it('takes the chime length from the household configuration', () => {
+  it('takes the Shabbat alert length from the household configuration', () => {
     const planned = materializeHorizon(
       baseInput({
         shabbatWindows: [makeWindow()],
@@ -407,5 +418,43 @@ describe('materializeHorizon in Shabbat mode', () => {
     );
 
     expect(planned[0]!.chimeDurationSeconds).toBe(90);
+  });
+
+  /**
+   * The two lengths are the reason a dose alert is not one number. A weekday alert can be acted
+   * on, so its timeout is the backstop for nobody reaching the phone; a Shabbat alert can only be
+   * heard, so it is deliberately shorter.
+   */
+  it('arms a dose in a window at the Shabbat length and one outside it at the weekday length', () => {
+    const shabbat = materializeHorizon(
+      baseInput({ shabbatWindows: [makeWindow()], shabbatConfig: makeConfig() }),
+    );
+    const weekday = materializeHorizon(baseInput({ shabbatConfig: makeConfig() }));
+
+    expect(shabbat[0]!.chimeDurationSeconds).toBe(DEFAULT_SHABBAT_CHIME_DURATION_SECONDS);
+    expect(weekday[0]!.chimeDurationSeconds).toBe(DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS);
+  });
+
+  it('does not inherit the Shabbat length onto weekdays for a config written before the split', () => {
+    // Every household that existed before the two lengths were separated has a config carrying
+    // only `chimeDurationSeconds`. Reading it for weekdays too — which is what the old code did —
+    // would silently shorten the alert a caregiver is expected to act on.
+    const legacy = makeConfig({ chimeDurationSeconds: 45 });
+    delete legacy.weekdayChimeDurationSeconds;
+
+    const planned = materializeHorizon(baseInput({ shabbatConfig: legacy }));
+
+    expect(planned[0]!.chimeDurationSeconds).toBe(DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS);
+  });
+
+  it('clamps a length that would leave the phone ringing far too long', () => {
+    const planned = materializeHorizon(
+      baseInput({
+        shabbatWindows: [makeWindow()],
+        shabbatConfig: makeConfig({ chimeDurationSeconds: 86_400 }),
+      }),
+    );
+
+    expect(planned[0]!.chimeDurationSeconds).toBe(MAX_CHIME_DURATION_SECONDS);
   });
 });

@@ -21,6 +21,11 @@ export interface ArmedRecord {
    * not a reason to re-arm, and the next genuine change re-arms anyway.
    */
   channelId?: string;
+  /**
+   * How long it is armed to ring for. Optional for the same reason as `channelId` — a build that
+   * did not report it must not look like every alarm needs re-arming.
+   */
+  chimeDurationSeconds?: number;
 }
 
 export interface AlarmDiff {
@@ -48,7 +53,16 @@ export function diffAlarms(
     // began or ended since it was armed. Left alone, a dose armed on Thursday for Friday night
     // would ring on the weekday channel — with the "Taken" and "Snooze" buttons that must not
     // exist on Shabbat.
-    return existing.channelId !== undefined && existing.channelId !== alarm.channelId;
+    if (existing.channelId !== undefined && existing.channelId !== alarm.channelId) {
+      return true;
+    }
+    // A changed length: a caregiver edited one of the two alert lengths on the Shabbat screen.
+    // The duration travels inside the alarm payload, so an armed alarm keeps the old number until
+    // it is re-armed — meaning the setting would appear to do nothing for up to 48 hours.
+    return (
+      existing.chimeDurationSeconds !== undefined &&
+      existing.chimeDurationSeconds !== alarm.chimeDurationSeconds
+    );
   });
 
   // Anything armed that is no longer planned: the dose was logged, the schedule was stopped, the

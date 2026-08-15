@@ -8,13 +8,7 @@ import {
   isReconcilableAt,
 } from './shabbatReconciliation.js';
 import { shabbatPhaseAt } from './shabbat.js';
-import type {
-  IntakeLog,
-  Medicine,
-  Schedule,
-  ShabbatConfig,
-  ShabbatWindow,
-} from './types.js';
+import type { IntakeLog, Medicine, Schedule, ShabbatConfig, ShabbatWindow } from './types.js';
 
 /**
  * What the Motzei sheet asks about.
@@ -111,7 +105,8 @@ function makeConfig(overrides: Partial<ShabbatConfig> = {}): ShabbatConfig {
     candleLightingOffsetMins: 18,
     havdalahDegreesOrMins: '8.5_degrees',
     israelHolidays: true,
-    chimeDurationSeconds: 45,
+    chimeDurationSeconds: 30,
+    weekdayChimeDurationSeconds: 60,
     updatedAt: '2026-08-01T00:00:00.000Z',
     updatedByDeviceId: 'device-1',
     syncStatus: 'synced',
@@ -239,12 +234,9 @@ describe('collectReconciliationItems', () => {
 
     // Friday 21:00, Saturday 09:00 and 21:00, Sunday 09:00 — the whole span, not just the last
     // night. Sunday 21:00 falls after Havdalah (19:24 local) and is an ordinary weekday dose.
-    expect(items.map((item) => `${item.occurrence.localDate} ${item.occurrence.scheduledLocalTime}`)).toEqual([
-      '2026-09-11 21:00',
-      '2026-09-12 09:00',
-      '2026-09-12 21:00',
-      '2026-09-13 09:00',
-    ]);
+    expect(
+      items.map((item) => `${item.occurrence.localDate} ${item.occurrence.scheduledLocalTime}`),
+    ).toEqual(['2026-09-11 21:00', '2026-09-12 09:00', '2026-09-12 21:00', '2026-09-13 09:00']);
   });
 
   it('asks about a dose once even when a schedule was edited mid-window', () => {
@@ -269,9 +261,9 @@ describe('hasUnreconciledDoses', () => {
     const windows = [makeWindow()];
 
     expect(hasUnreconciledDoses(items)).toBe(true);
-    expect(
-      shabbatPhaseAt({ config, windows, atMs: AFTER, hasUnreconciledDoses: true }),
-    ).toBe('motzei_pending');
+    expect(shabbatPhaseAt({ config, windows, atMs: AFTER, hasUnreconciledDoses: true })).toBe(
+      'motzei_pending',
+    );
 
     expect(hasUnreconciledDoses([])).toBe(false);
     expect(shabbatPhaseAt({ config, windows, atMs: AFTER, hasUnreconciledDoses: false })).toBe(

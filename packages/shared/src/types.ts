@@ -272,8 +272,24 @@ export interface ShabbatConfig extends Syncable {
    * is wrong for half the year.
    */
   israelHolidays: boolean;
-  /** Target span of the alert burst. See SHABBAT_BURST_* in push.ts. */
+  /**
+   * How long a dose alert rings **on Shabbat and Yom Tov** before stopping on its own. Default 30.
+   *
+   * Both alert lengths live on this record because it is the one the Shabbat screen already edits
+   * and saves atomically, and because until this field was split in two it was a single
+   * `chimeDurationSeconds` that the Android horizon read for weekday alarms as well. Resolve it
+   * through `chimeDurationSecondsFor()` rather than reading it directly — that is what applies the
+   * defaults and the clamp.
+   */
   chimeDurationSeconds: number;
+  /**
+   * How long a dose alert rings on an ordinary weekday. Default 60.
+   *
+   * Optional because every household created before the split has a stored config without it, and
+   * a record that fails validation is a device that stops syncing. `chimeDurationSecondsFor()`
+   * supplies the default.
+   */
+  weekdayChimeDurationSeconds?: number;
 }
 
 /**

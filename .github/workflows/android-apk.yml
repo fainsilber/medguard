@@ -58,6 +58,18 @@ jobs:
       - name: Prebuild native Android project
         working-directory: apps/android
         run: npx expo prebuild --platform android
+      # The only place this repo's Kotlin is executed rather than merely read. It lives here and
+      # not in ci.yml because it needs the JDK and the `expo prebuild` output above — `ci.yml` has
+      # neither. `ChimeSession` is deliberately Android-free so it can run as a plain JVM test:
+      # the bug it pins down (two doses on the same minute leaving a looping MediaPlayer nothing
+      # could stop) reached a household and rang for a whole Shabbat, precisely because the state
+      # it corrupted sat inside a Service that nothing here could execute.
+      #
+      # Before `assembleRelease`, so a broken chime fails the build rather than shipping an APK.
+      - name: Native alarm unit tests
+        working-directory: apps/android/android
+        run: ./gradlew :medguard-alarms:testDebugUnitTest
+
       - name: Build release APK
         working-directory: apps/android/android
         # `debug` builds don't embed the JS bundle — they expect a Metro server reachable at

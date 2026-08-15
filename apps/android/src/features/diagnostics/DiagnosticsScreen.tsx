@@ -1,8 +1,12 @@
-import { resolveLocal, toIso } from '@medguard/shared';
+import { chimeDurationSecondsFor, resolveLocal, toIso } from '@medguard/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 
-import { cancelDoseAlarm, playTestChime, scheduleDoseAlarm } from '../../../modules/medguard-alarms/src';
+import {
+  cancelDoseAlarm,
+  playTestChime,
+  scheduleDoseAlarm,
+} from '../../../modules/medguard-alarms/src';
 import { AlarmSetupChecklist } from '../../alarms/AlarmSetupChecklist.js';
 import { useRepository } from '../../app/RepositoryContext.js';
 import {
@@ -34,18 +38,27 @@ export function DiagnosticsScreen(): React.JSX.Element {
   const repository = useRepository();
   const { status } = useSyncStatus();
   const pendingCount = useLiveQuery(() => repository.pendingSyncCount(), ['syncOutbox']);
+  const shabbatConfig = useLiveQuery(() => repository.getShabbatConfig(), ['shabbatConfig']);
 
   const [armedOccurrenceKey, setArmedOccurrenceKey] = useState<string | null>(null);
   const [status_, setStatusMessage] = useState('');
 
   const jerusalemDoseCheck = resolveLocal(JERUSALEM, '2026-01-15', '08:00');
-  const jerusalemDoseIso = jerusalemDoseCheck.kind === 'exact' ? toIso(jerusalemDoseCheck.instantMs) : null;
+  const jerusalemDoseIso =
+    jerusalemDoseCheck.kind === 'exact' ? toIso(jerusalemDoseCheck.instantMs) : null;
   const icuLooksSane = jerusalemDoseIso === '2026-01-15T06:00:00.000Z';
+
+  // The real configured weekday length, not a literal: this button exists to demonstrate what a
+  // dose alarm actually does on this phone, and a number that drifted from the setting would make
+  // it demonstrate something else.
+  const chimeSeconds = chimeDurationSecondsFor({ inShabbat: false, shabbatConfig });
 
   const onPlayTestChime = useCallback(() => {
     setStatusMessage('Playing test chime…');
-    playTestChime(45).then(() => setStatusMessage('Test chime started — 45s, alarm stream, auto-stops.'));
-  }, []);
+    playTestChime(chimeSeconds).then(() =>
+      setStatusMessage(`Test chime started — ${chimeSeconds}s, alarm stream, auto-stops.`),
+    );
+  }, [chimeSeconds]);
 
   const onScheduleLockedPhoneAlarm = useCallback(() => {
     const occurrenceKey = deviceIdGenerator.next();
@@ -57,7 +70,7 @@ export function DiagnosticsScreen(): React.JSX.Element {
       channelId: 'dose_standard_v1',
       title: 'MedGuard — test dose',
       body: 'Locked-phone alarm spike (Sprint A0).',
-      chimeDurationSeconds: 45,
+      chimeDurationSeconds: chimeSeconds,
       escalation: false,
     }).then(() => setArmedOccurrenceKey(occurrenceKey));
   }, []);
@@ -108,14 +121,21 @@ export function DiagnosticsScreen(): React.JSX.Element {
       <Card>
         <Text style={sectionTitle}>Sync status</Text>
         <Row label="Status" value={status.kind} />
-        <Row label="Pending outbox entries" value={pendingCount === undefined ? '…' : String(pendingCount)} />
+        <Row
+          label="Pending outbox entries"
+          value={pendingCount === undefined ? '…' : String(pendingCount)}
+        />
         {status.kind === 'error' ? <Row label="Last error" value={status.message} warn /> : null}
       </Card>
 
       <Card>
         <Text style={sectionTitle}>AD1 — Hermes ICU</Text>
         <Row label="Asia/Jerusalem 08:00 → UTC" value={jerusalemDoseIso ?? 'failed to resolve'} />
-        <Row label="Matches expected fixture" value={icuLooksSane ? 'yes' : 'NO — see AD1'} warn={!icuLooksSane} />
+        <Row
+          label="Matches expected fixture"
+          value={icuLooksSane ? 'yes' : 'NO — see AD1'}
+          warn={!icuLooksSane}
+        />
       </Card>
 
       <Card>
@@ -125,17 +145,26 @@ export function DiagnosticsScreen(): React.JSX.Element {
 
       <Card>
         <Text style={sectionTitle}>The chime</Text>
-        <Text style={ui.subtitle}>Fires immediately through the same DoseAlarmService a scheduled alarm uses.</Text>
+        <Text style={ui.subtitle}>
+          Fires immediately through the same DoseAlarmService a scheduled alarm uses.
+        </Text>
         <Button label="Play test chime now (45s)" onPress={onPlayTestChime} />
       </Card>
 
       <Card>
         <Text style={sectionTitle}>Locked-phone dry run</Text>
         <Text style={ui.subtitle}>
-          Arms a real AlarmManager.setAlarmClock() 15 seconds out. Lock the phone immediately after tapping.
+          Arms a real AlarmManager.setAlarmClock() 15 seconds out. Lock the phone immediately after
+          tapping.
         </Text>
-        <Button label="Arm alarm in 15s" onPress={onScheduleLockedPhoneAlarm} disabled={armedOccurrenceKey != null} />
-        {armedOccurrenceKey ? <Button label="Cancel" onPress={onCancelArmedAlarm} variant="danger" /> : null}
+        <Button
+          label="Arm alarm in 15s"
+          onPress={onScheduleLockedPhoneAlarm}
+          disabled={armedOccurrenceKey != null}
+        />
+        {armedOccurrenceKey ? (
+          <Button label="Cancel" onPress={onCancelArmedAlarm} variant="danger" />
+        ) : null}
       </Card>
 
       <Card>
@@ -152,11 +181,21 @@ export function DiagnosticsScreen(): React.JSX.Element {
   );
 }
 
-function Row({ label, value, warn }: { label: string; value: string; warn?: boolean }): React.JSX.Element {
+function Row({
+  label,
+  value,
+  warn,
+}: {
+  label: string;
+  value: string;
+  warn?: boolean;
+}): React.JSX.Element {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
       <Text style={{ fontSize: 14, color: colors.textMuted }}>{label}</Text>
-      <Text style={{ fontSize: 14, fontWeight: '600', color: warn ? colors.locked : colors.text }}>{value}</Text>
+      <Text style={{ fontSize: 14, fontWeight: '600', color: warn ? colors.locked : colors.text }}>
+        {value}
+      </Text>
     </View>
   );
 }

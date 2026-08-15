@@ -333,12 +333,12 @@ tracking whether a transaction's `tx` argument actually called a write method
 | --- | --- | --- |
 | Alarm-volume audio through ringer-silent | Code confirms the mechanism | `DoseAlarmService.startChime()` builds `AudioAttributes.USAGE_ALARM` + `CONTENT_TYPE_SONIFICATION` and plays on `MediaPlayer`, which routes to the alarm stream regardless of ringer mode — this is the one Android API contract that makes "sounds through silent" true, not something to infer from a device test alone. |
 | Screen stays off, zero touches | Code confirms the mechanism | Nothing in `modules/medguard-alarms/android/**` acquires a `PowerManager.WakeLock`, sets `FLAG_TURN_SCREEN_ON`/`FLAG_KEEP_SCREEN_ON`/`setShowWhenLocked`, or calls `setTurnScreenOn` (grepped, zero matches). The ordinary dose path never builds a `PendingIntent.getActivity` at all — only escalation does, gated by `canUseFullScreenIntent()`. |
-| Full 45 seconds | Code confirms the mechanism | `chimeDurationSeconds` (PRD default 45, `DiagnosticsScreen.tsx`'s `onScheduleLockedPhoneAlarm`/`onPlayTestChime` both pass `45`) drives `stopHandler.postDelayed(runnable, durationSeconds * 1000L)` — the chime plays until that callback fires, not until some shorter internal timeout. |
-| Auto-stop, no lingering audio | Code confirms the mechanism | The delayed `stopChimeAndSelf()` calls `mediaPlayer.stop()` + `release()`, then `stopForeground(STOP_FOREGROUND_DETACH)`/`stopSelf()` — no user action is on that path. The **notification** deliberately does not disappear with it — see below. |
+| Full configured length | Code confirms the mechanism | `chimeDurationSeconds` (60s weekday / 30s Shabbat, resolved by `chimeDurationSecondsFor()`; `DiagnosticsScreen.tsx` reads the same configured value rather than a literal) drives the delayed stop callback — the chime plays until it fires, not until some shorter internal timeout. |
+| Auto-stop, no lingering audio | **Unit-tested** (`ChimeSessionTest`) plus code review | `ChimeSession` decides when the shared sound ends; the delayed `stopEverything()` stops and releases the one player, then `stopForeground(STOP_FOREGROUND_DETACH)`/`stopSelf()` — no user action is on that path. This row was previously code-review-only and is where the multi-alarm bug below hid. The **notification** deliberately does not disappear with it — see below. |
 
 Each row is a claim about what the code does, verified by reading it, not a claim about what fired
 on a phone. The actual device test — "does it audibly wake someone at 3 AM, does the screen
-genuinely never light up, does it feel like 45 seconds" — is qualitatively different and is what
+genuinely never light up, does it feel like the configured length" — is qualitatively different and is what
 "Testing the exit gate on a real device" below is for.
 
 ### Sprint A1 — storage and sync port
@@ -436,7 +436,8 @@ push-testing screen):
    UTC instant. If this is ever wrong on a real device, the fix is enabling the ICU-enabled Hermes
    variant or shipping a tzdata shim — **never** reimplementing `timezone.ts` (AD1).
 2. **"Play test chime now"** — fires the real `DoseAlarmService` immediately: posts a
-   notification, plays 45 seconds of looping audio on the alarm stream, auto-stops.
+   notification, plays the configured weekday length of looping audio on the alarm stream,
+   auto-stops.
 3. **"Arm alarm in 15s"** — the actual mechanism a dose alarm uses: a real
    `AlarmManager.setAlarmClock()` call 15 seconds out. Lock the phone immediately after tapping.
    The exit gate is this firing — at alarm volume, phone locked, screen off, zero touches — and
@@ -686,6 +687,55 @@ alarm fired correctly through a locked, silenced phone. Two more findings:
   `performance.now()` could — re-anchors after every reading, so normal sleep never accumulates into
   a false positive. `elapsedRealtimeMs` is mocked in `testUtils/mockMedguardAlarms.ts` for Jest; the
   Kotlin side is still unbuilt/unrun from this sandbox, same caveat as everything native here.
+
+### Alerts that rang all Shabbat (real-device finding, 2026-08-15)
+
+The worst failure this layer has had, reported from a household: on Shabbat the dose alerts rang
+**continuously, all day**, instead of sounding briefly and stopping. The same thing had happened
+before without being pinned down.
+
+**Root cause: `DoseAlarmService` could not handle two alarms at once, and that is the ordinary
+case.** Several medicines are given at 08:00, so two `AlarmReceiver`s fire and both call
+`startForegroundService` on the *same* service instance — `onStartCommand` runs twice. The service
+kept its state in three bare fields (`mediaPlayer`, `stopRunnable`, `currentPayload`), and the
+second call reassigned `mediaPlayer` over a player that was still `isLooping = true` on
+`USAGE_ALARM`. Nothing held a reference to the first one any more; `stopChimeAndSelf()` and
+`onDestroy()` both only ever touched the current field, so **nothing in the app could stop it**. It
+played until the process died, and every further collision through the day added another orphan.
+Two smaller faults rode along: the first alarm's stop callback stayed queued and cut a
+later-starting chime short, and `NotificationActionReceiver`'s unconditional `stopService` silenced
+a chime belonging to a *different* dose.
+
+On Shabbat there was no way out of it — the Shabbat channel deliberately carries no action buttons
+(D5), and force-stopping the app is not something to do on Shabbat.
+
+**Why it got this far.** Nothing in this repo could execute a `Service`, so the corrupted state
+lived somewhere no test could reach. That is now fixed structurally as well as behaviourally: the
+decision layer is `ChimeSession`, a plain Kotlin class with no Android imports, covered by
+`ChimeSessionTest` — this module's first automated tests — which
+`.github/workflows/android-apk.yml` runs after prebuild and before `assembleRelease`.
+
+**Fixed** (delta AD10 in `docs/android-client-plan.md`):
+
+- **One sound, several notifications.** However many doses are due at the same minute, one shared
+  `MediaPlayer` serves all of them and each keeps its own notification. The player is created only
+  on the idle→active transition and never reassigned while non-null, so an orphan is no longer
+  expressible. The sound runs to the *latest* deadline, so a dose that starts ringing partway
+  through another gets its own full length instead of being cut off.
+- **Two lengths.** 60 seconds on a weekday, 30 on Shabbat — the weekday alert can be acted on, so
+  its timeout is a backstop; the Shabbat one can only be heard. Both are on `ShabbatConfig`, and
+  both are clamped to `[5, 180]` in `chimeDurationSecondsFor()` *and* again in Kotlin immediately
+  before playback, so no stored, synced or corrupted value can express an endless ring.
+- **Three ways to stop, not one.** Marking the dose now actually silences the phone — a new
+  `stopChime` native call, because `cancelDoseAlarm` only unschedules a *future* `AlarmManager`
+  alarm and did nothing audible. A physical button counts too: screen-off and unlock immediately,
+  screen-on only outside a 3-second grace window (a high-importance notification can light the
+  screen itself and would otherwise silence its own alarm), and volume keys through a
+  `MediaSessionCompat` remote volume provider. And the timeout, unchanged in principle.
+
+Same caveat as the rest of `modules/medguard-alarms/`: the Kotlin around `ChimeSession` — the
+service, the receiver, the media session — is code-reviewed, not run. `ChimeSession` itself is the
+first part of this module that is genuinely tested.
 
 ### Revoked-device data retention (real-device finding, 2026-08-08)
 

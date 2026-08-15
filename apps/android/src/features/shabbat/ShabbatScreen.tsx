@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import {
   DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
-  DEFAULT_CHIME_DURATION_SECONDS,
   DEFAULT_HAVDALAH,
+  DEFAULT_SHABBAT_CHIME_DURATION_SECONDS,
+  DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
   SINGLE_PATIENT_ID,
   describeShabbatWindow,
   shabbatPhaseAt,
@@ -13,13 +14,7 @@ import type { ShabbatConfig, ShabbatWindow } from '@medguard/shared';
 import { useClock, useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
-import {
-  Button,
-  Card,
-  KeyboardAvoidingScreen,
-  colors,
-  styles as ui,
-} from '../../ui/primitives.js';
+import { Button, Card, KeyboardAvoidingScreen, colors, styles as ui } from '../../ui/primitives.js';
 
 /**
  * RN port of `apps/web/src/features/shabbat/ShabbatScreen.tsx` — the household's Shabbat settings,
@@ -97,7 +92,8 @@ export function ShabbatScreen(): React.JSX.Element {
         candleLightingOffsetMins: DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
         havdalahDegreesOrMins: DEFAULT_HAVDALAH,
         israelHolidays: true,
-        chimeDurationSeconds: DEFAULT_CHIME_DURATION_SECONDS,
+        chimeDurationSeconds: DEFAULT_SHABBAT_CHIME_DURATION_SECONDS,
+        weekdayChimeDurationSeconds: DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
         updatedAt: '',
         updatedByDeviceId: '',
         syncStatus: 'pending',
@@ -225,15 +221,44 @@ export function ShabbatScreen(): React.JSX.Element {
               />
             </View>
 
+            {/*
+              Two lengths, together, because the difference between them is the point. A weekday
+              alert can be acted on — marked, or silenced with a button — so its timeout is the
+              backstop for nobody reaching the phone. A Shabbat alert can only be listened to, so
+              it says what it has to say and stops.
+            */}
             <View>
-              <Text style={ui.label}>Chime length, seconds</Text>
+              <Text style={ui.label}>Weekday alert length, seconds</Text>
+              <TextInput
+                style={ui.input}
+                keyboardType="numeric"
+                value={String(
+                  draft.weekdayChimeDurationSeconds ?? DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
+                )}
+                onChangeText={(text) =>
+                  setDraft({ ...draft, weekdayChimeDurationSeconds: Number(text) })
+                }
+                accessibilityLabel="Weekday alert length, seconds"
+              />
+              <Text style={ui.helpText}>
+                Default {DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS}. Stops early when the dose is
+                marked, or when a button on the phone is pressed.
+              </Text>
+            </View>
+
+            <View>
+              <Text style={ui.label}>Shabbat alert length, seconds</Text>
               <TextInput
                 style={ui.input}
                 keyboardType="numeric"
                 value={String(draft.chimeDurationSeconds)}
                 onChangeText={(text) => setDraft({ ...draft, chimeDurationSeconds: Number(text) })}
-                accessibilityLabel="Chime length, seconds"
+                accessibilityLabel="Shabbat alert length, seconds"
               />
+              <Text style={ui.helpText}>
+                Default {DEFAULT_SHABBAT_CHIME_DURATION_SECONDS}. Nothing can be tapped on Shabbat,
+                so this alert only stops on its own.
+              </Text>
             </View>
 
             {error ? <Text style={ui.errorText}>{error}</Text> : null}

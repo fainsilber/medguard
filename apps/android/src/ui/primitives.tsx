@@ -39,6 +39,8 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   errorText: { color: colors.locked, fontSize: 13 },
+  /** Explanatory text under a field — what the default is, or what the setting actually does. */
+  helpText: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });
 
@@ -95,7 +97,13 @@ const badgeToneColor: Record<BadgeTone, { bg: string; text: string }> = {
   neutral: { bg: colors.surface, text: colors.textMuted },
 };
 
-export function Badge({ tone, children }: { tone: BadgeTone; children: ReactNode }): React.JSX.Element {
+export function Badge({
+  tone,
+  children,
+}: {
+  tone: BadgeTone;
+  children: ReactNode;
+}): React.JSX.Element {
   const { bg, text } = badgeToneColor[tone];
   return (
     <View style={[badgeStyles.badge, { backgroundColor: bg }]}>

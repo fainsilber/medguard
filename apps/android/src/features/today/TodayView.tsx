@@ -66,7 +66,7 @@ export function TodayView(): React.JSX.Element {
   const userId = useCurrentUserId();
   const deviceId = useCurrentDeviceId();
   const householdSettings = useHouseholdSettings();
-  const { snooze } = useAlarmHealth();
+  const { snooze, silenceChime } = useAlarmHealth();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [promptingKey, setPromptingKey] = useState<string | null>(null);
 
@@ -86,7 +86,10 @@ export function TodayView(): React.JSX.Element {
   // permanently cache an empty result from the one query that ran before settings arrived. A
   // day's lookback comfortably covers every occurrence shown today, the same margin
   // `AlarmEngine`'s reconcile pass uses.
-  const snoozes = useLiveQuery(() => repository.recentSnoozes(toIso(nowMs - MS_PER_DAY)), ['doseSnoozes']);
+  const snoozes = useLiveQuery(
+    () => repository.recentSnoozes(toIso(nowMs - MS_PER_DAY)),
+    ['doseSnoozes'],
+  );
 
   const rows = useMemo(() => {
     if (!schedules || !logs || !timeZone || !today || !snoozes) {
@@ -110,7 +113,9 @@ export function TodayView(): React.JSX.Element {
 
   const medicineNames = useMemo(() => {
     if (!medicines) return undefined;
-    return new Map(medicines.map((medicine) => [medicine.id, `${medicine.name} ${medicine.strength}`]));
+    return new Map(
+      medicines.map((medicine) => [medicine.id, `${medicine.name} ${medicine.strength}`]),
+    );
   }, [medicines]);
 
   const handleTaken = async (occurrence: Occurrence, key: string, actualTimeIso?: string) => {
@@ -131,6 +136,10 @@ export function TodayView(): React.JSX.Element {
         syncStatus: 'pending',
       });
       setPromptingKey(null);
+      // Marking the dose is one of the stop conditions for the alert (the others being a physical
+      // button and the timeout). Cancelling the alarm — which the reconcile pass does moments from
+      // now — only unschedules a *future* one, so without this the phone keeps ringing.
+      void silenceChime(key);
     } finally {
       setBusyKey(null);
     }
@@ -165,6 +174,7 @@ export function TodayView(): React.JSX.Element {
         loggedByDeviceId: deviceId,
         syncStatus: 'pending',
       });
+      void silenceChime(key);
     } finally {
       setBusyKey(null);
     }
@@ -202,7 +212,11 @@ export function TodayView(): React.JSX.Element {
 
   return (
     <KeyboardAvoidingScreen>
-      <ScrollView style={ui.screen} contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={ui.screen}
+        contentContainerStyle={ui.content}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={ui.title}>Today</Text>
         {rows.length === 0 ? <Text style={ui.subtitle}>Nothing scheduled today.</Text> : null}
 
@@ -212,19 +226,32 @@ export function TodayView(): React.JSX.Element {
 
           return (
             <View key={status} style={{ gap: 8 }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: STATUS_HEADING_COLOR[status], textTransform: 'uppercase' }}>
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '700',
+                  color: STATUS_HEADING_COLOR[status],
+                  textTransform: 'uppercase',
+                }}
+              >
                 {STATUS_LABEL[status]}
               </Text>
               <View style={{ gap: 8 }}>
                 {inSection.map(({ occurrence, log, key, snoozeState }) => (
                   <Card key={key}>
-                    <View style={[ui.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
+                    <View
+                      style={[
+                        ui.row,
+                        { justifyContent: 'space-between', alignItems: 'flex-start' },
+                      ]}
+                    >
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>
                           {medicineNames.get(occurrence.medicineId) ?? 'Unknown medicine'}
                         </Text>
                         <Text style={{ fontSize: 13, color: colors.textMuted }}>
-                          Due {formatLocalTime(timeZone, fromIso(occurrence.dueAt))} · {occurrence.dosageQuantity}
+                          Due {formatLocalTime(timeZone, fromIso(occurrence.dueAt))} ·{' '}
+                          {occurrence.dosageQuantity}
                         </Text>
                         {log ? (
                           <>
@@ -262,7 +289,9 @@ export function TodayView(): React.JSX.Element {
                             />
                           ) : null}
                           {!snoozeState.canSnooze ? (
-                            <Text style={{ fontSize: 12, color: colors.textMuted, alignSelf: 'center' }}>
+                            <Text
+                              style={{ fontSize: 12, color: colors.textMuted, alignSelf: 'center' }}
+                            >
                               Snoozed {snoozeState.count}/{MAX_SNOOZE_COUNT}
                             </Text>
                           ) : null}
@@ -276,7 +305,9 @@ export function TodayView(): React.JSX.Element {
                         nowMs={nowMs}
                         timeZone={timeZone}
                         saving={busyKey === key}
-                        onConfirm={(actualTimeIso) => void handleTaken(occurrence, key, actualTimeIso)}
+                        onConfirm={(actualTimeIso) =>
+                          void handleTaken(occurrence, key, actualTimeIso)
+                        }
                         onCancel={() => setPromptingKey(null)}
                       />
                     ) : null}

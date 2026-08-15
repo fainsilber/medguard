@@ -49,7 +49,8 @@ function makeConfig(overrides: Partial<ShabbatConfig> = {}): ShabbatConfig {
     candleLightingOffsetMins: 18,
     havdalahDegreesOrMins: '8.5_degrees',
     israelHolidays: true,
-    chimeDurationSeconds: 45,
+    chimeDurationSeconds: 30,
+    weekdayChimeDurationSeconds: 60,
     updatedAt: NOW,
     updatedByDeviceId: 'seed-device',
     syncStatus: 'synced',
@@ -131,9 +132,13 @@ describe('ShabbatScreen', () => {
     await user.clear(havdalah);
     await user.type(havdalah, '50_mins');
 
-    const chime = screen.getByLabelText('Chime length, seconds');
-    await user.clear(chime);
-    await user.type(chime, '60');
+    const weekdayChime = screen.getByLabelText('Weekday alert length, seconds');
+    await user.clear(weekdayChime);
+    await user.type(weekdayChime, '90');
+
+    const shabbatChime = screen.getByLabelText('Shabbat alert length, seconds');
+    await user.clear(shabbatChime);
+    await user.type(shabbatChime, '20');
 
     await user.click(screen.getByLabelText('In Israel (one day of Yom Tov rather than two)'));
     await user.click(screen.getByLabelText('Switch to Shabbat behaviour automatically'));
@@ -144,7 +149,9 @@ describe('ShabbatScreen', () => {
       longitude: 34.7818,
       candleLightingOffsetMins: 40,
       havdalahDegreesOrMins: '50_mins',
-      chimeDurationSeconds: 60,
+      // The two alert lengths are independent settings, saved on the one record.
+      weekdayChimeDurationSeconds: 90,
+      chimeDurationSeconds: 20,
       israelHolidays: false,
       autoShabbatEnabled: true,
     });

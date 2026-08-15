@@ -9,6 +9,7 @@ export const scheduleDoseAlarm = jest.fn().mockResolvedValue(undefined);
 export const armDoseAlarms = jest.fn().mockResolvedValue(undefined);
 export const cancelDoseAlarm = jest.fn().mockResolvedValue(undefined);
 export const cancelAllDoseAlarms = jest.fn().mockResolvedValue(undefined);
+export const stopChime = jest.fn().mockResolvedValue(undefined);
 export const listArmedAlarms = jest.fn().mockResolvedValue([]);
 export const showStatusNotification = jest.fn().mockResolvedValue(undefined);
 export const clearStatusNotification = jest.fn().mockResolvedValue(undefined);

@@ -119,6 +119,31 @@ class MedGuardAlarmsModule : Module() {
             }
 
             /**
+             * Silence a chime that is sounding *now*.
+             *
+             * Distinct from `cancelDoseAlarm`, which only unschedules a future `PendingIntent` and
+             * has no effect on audio already playing — which is why marking a dose taken in the
+             * app used to leave the phone ringing for the rest of the chime. Called with no key it
+             * stops the sound outright; with one it drops that dose and stops the sound only if it
+             * was the last sounding.
+             *
+             * Safe to call when nothing is playing: the service either isn't running or returns
+             * immediately, so JS never has to ask first.
+             */
+            AsyncFunction("stopChime") { occurrenceKey: String? ->
+                runCatching {
+                    context.startService(
+                        Intent(context, DoseAlarmService::class.java).apply {
+                            action = DoseAlarmService.ACTION_STOP_CHIME
+                            if (occurrenceKey != null) {
+                                putExtra(DoseAlarmService.EXTRA_OCCURRENCE_KEY, occurrenceKey)
+                            }
+                        },
+                    )
+                }
+            }
+
+            /**
              * What is armed right now, straight from the store `BootReceiver` re-arms from.
              *
              * JS reconciles against this rather than against a list of its own, because Kotlin's
@@ -137,6 +162,10 @@ class MedGuardAlarmsModule : Module() {
                         // or ending between reconciles — must be re-armed, or it rings with
                         // action buttons on Shabbat.
                         "channelId" to payload.channelId,
+                        // Likewise part of "already armed correctly": the length travels inside
+                        // the payload, so editing it on the Shabbat screen would otherwise not
+                        // reach an already-armed alarm for up to the 48-hour horizon.
+                        "chimeDurationSeconds" to payload.chimeDurationSeconds,
                     )
                 }
             }

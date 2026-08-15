@@ -106,7 +106,7 @@ Everything else in this document is cost. This is the return.
 
 | Capability | PWA today | Native Android |
 | --- | --- | --- |
-| 45s chime on a locked phone, auto-stopping, no touch | **Impossible** (D1) — approximated by 10 pushes ~1.11s apart | Real: alarm-stream audio for a configurable duration, `stopSelf()` at the end |
+| Auto-stopping chime on a locked phone, no touch | **Impossible** (D1) — approximated by 10 pushes ~1.11s apart | Real: alarm-stream audio for a configurable duration, `stopSelf()` at the end |
 | Alarm when the device has no network | **No** — depends on server push | Yes: `AlarmManager` fires from local data |
 | Alarm precision when backgrounded | Server-scheduled only; in-page timers showed a **54.5s** gap against a 5s interval | Exact, Doze-exempt |
 | Custom notification sound | **Never retained** — measured, `retainedOptions: ["tag","renotify","requireInteraction"]` | Per-channel custom sound |
@@ -149,6 +149,31 @@ burst is not merely unnecessary — it would be ten redundant notifications. **F
 for `push_provider: 'webpush'` devices; an `fcm` device receives a single informational message.
 The OS notification-coalescing limit that took four tuning rounds to work around
 (`docs/platform-capabilities.md`, "Burst density") stops applying on Android entirely.
+
+**AD10 — The chime is one sound for however many doses, with two lengths and three ways to stop.**
+Added after a Shabbat on which the alerts rang continuously all day. `DoseAlarmService` kept its
+state in three bare fields — one `MediaPlayer`, one stop `Runnable`, one payload — which is correct
+only if alarms never overlap. They do: a household gives several medicines at 08:00, so two
+`AlarmReceiver`s start the *same* service instance and `onStartCommand` runs twice. The second call
+reassigned `mediaPlayer` over a player that was still looping on `USAGE_ALARM` and that nothing held
+a reference to, so nothing could ever stop it; it rang until the process died, and each further
+collision through the day added another. On Shabbat the notification carries no buttons (D5) and
+force-stopping the app is not an option, so there was no way out of it at all.
+
+**Fix, in three parts.** *(1)* The state moves into `ChimeSession`, a plain Kotlin class with no
+Android imports and the module's first JVM unit tests (`ChimeSessionTest`, run by
+`.github/workflows/android-apk.yml`) — the bug got through precisely because nothing in this repo
+could execute a `Service`. One shared player serves every sounding dose, each keeps its own
+notification, and the sound runs to the *latest* deadline so a dose that starts ringing partway
+through another is not cut short. *(2)* Two lengths rather than one: 60s on a weekday, 30s on
+Shabbat, both on `ShabbatConfig` and both clamped to `[5, 180]` in `chimeDurationSecondsFor()` and
+again in Kotlin, so no configured or synced value can express an endless ring. *(3)* Three stop
+conditions instead of one. The dose being marked now actually silences the phone — `cancelDoseAlarm`
+only unschedules a *future* alarm, so tapping Taken on a ringing phone used to change nothing
+audible. A physical button counts too: screen-off and unlock unambiguously, screen-on only outside a
+3-second grace window, because a high-importance notification can light the screen itself and would
+otherwise silence its own alarm. Volume keys arrive through a `MediaSessionCompat` with a remote
+volume provider, the only way an app sees them while the sound is on the alarm stream.
 
 **AD4 — `USE_EXACT_ALARM` and `USE_FULL_SCREEN_INTENT` are Play-reviewed, not merely declared.**
 Both are restricted permissions requiring a Play Console declaration and a demo video. Medication
@@ -359,7 +384,7 @@ the Shabbat burst was retuned four times would require every caregiver to reinst
 | --- | --- | --- | --- |
 | `dose_standard_v1` | HIGH | default | Taken, Snooze |
 | `dose_escalation_v1` | HIGH, bypass DND if granted | default | Taken, Snooze; full-screen intent when permitted |
-| `shabbat_v1` | HIGH | custom 45s chime | **none** (D5) |
+| `shabbat_v1` | HIGH | custom chime, 30s default | **none** (D5) |
 | `low_stock_v1` | DEFAULT | default | Open inventory |
 | `sync_status_v1` | LOW, ongoing | silent | — (carries the "alarms unarmed" / "sync stale" states) |
 
@@ -450,8 +475,8 @@ consumer of a surface that already exists, which is what delta D8 bought.
 ## Shabbat on native
 
 - **The chime becomes literal.** `setAlarmClock` at the occurrence → `AlarmReceiver` →
-  `DoseAlarmService` → 45 seconds of alarm-stream audio that stops itself. No wake lock, no touch,
-  screen state untouched. This is exactly what D1 says a browser cannot do.
+  `DoseAlarmService` → alarm-stream audio that stops itself, 30 seconds on Shabbat by default. No
+  wake lock, no touch, screen state untouched. This is exactly what D1 says a browser cannot do.
 - **The push burst is retired on native** (AD3) and kept for web.
 - **No action buttons** (D5) — the Shabbat channel has none, and tapping the notification opens a
   passive read-only view. Reconciliation happens after Havdalah.

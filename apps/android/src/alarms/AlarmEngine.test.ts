@@ -1,6 +1,13 @@
 import Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SINGLE_PATIENT_ID, computeQuantity, deriveSnoozeState, fromIso, toIso } from '@medguard/shared';
+import {
+  DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
+  SINGLE_PATIENT_ID,
+  computeQuantity,
+  deriveSnoozeState,
+  fromIso,
+  toIso,
+} from '@medguard/shared';
 import type { Medicine, Schedule } from '@medguard/shared';
 import { fixedClock, sequentialIds } from '@medguard/shared/testing';
 import { MedGuardRepository, setLastSyncedAt } from '@medguard/store';
@@ -8,7 +15,11 @@ import { BetterSqliteDriver, SqliteStore, createSqliteSchema } from '@medguard/s
 import type { Store } from '@medguard/store';
 import { AlarmEngine } from './AlarmEngine.js';
 import type { AlarmNativeSurface } from './AlarmEngine.js';
-import type { ArmedAlarm, PendingActionRecord, ScheduleDoseAlarmInput } from '../../modules/medguard-alarms/src/index.js';
+import type {
+  ArmedAlarm,
+  PendingActionRecord,
+  ScheduleDoseAlarmInput,
+} from '../../modules/medguard-alarms/src/index.js';
 
 /**
  * The alarm engine against a real SQLite store (`better-sqlite3` standing in for `expo-sqlite`,
@@ -75,6 +86,7 @@ function fakeNative(overrides: Partial<AlarmNativeSurface> = {}) {
           occurrenceKey: input.occurrenceKey,
           triggerAtMs: input.triggerAtMs,
           channelId: input.channelId,
+          chimeDurationSeconds: input.chimeDurationSeconds,
         };
         if (existing >= 0) armed[existing] = record;
         else armed.push(record);
@@ -84,6 +96,7 @@ function fakeNative(overrides: Partial<AlarmNativeSurface> = {}) {
       const index = armed.findIndex((a) => a.occurrenceKey === key);
       if (index >= 0) armed.splice(index, 1);
     }),
+    stopChime: vi.fn(async () => {}),
     listArmedAlarms: vi.fn(async () => [...armed]),
     readPendingActions: vi.fn(async () => [...pending]),
     ackPendingActions: vi.fn(async (ids: string[]) => {
@@ -174,7 +187,11 @@ describe('reconcile', () => {
     const [inputs] = (context.native.armDoseAlarms as ReturnType<typeof vi.fn>).mock.calls[0] as [
       ScheduleDoseAlarmInput[],
     ];
-    expect(inputs[0]).toMatchObject({ channelId: 'dose_standard_v1', escalation: false, chimeDurationSeconds: 45 });
+    expect(inputs[0]).toMatchObject({
+      channelId: 'dose_standard_v1',
+      escalation: false,
+      chimeDurationSeconds: DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
+    });
   });
 
   it('is idempotent — a second reconcile with nothing changed arms nothing new', async () => {
@@ -314,7 +331,11 @@ describe('applyPendingActions — a lock-screen tap becomes a dose', () => {
 
   it('moves stock, because it went through recordDose and not a second implementation', async () => {
     const context = await withSchedule(await setup());
-    await context.repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+    await context.repository.adjustInventory({
+      medicineId: 'medicine-1',
+      delta: 10,
+      reason: 'initial',
+    });
     context.native.setPending([takenAction()]);
 
     await context.engine.applyPendingActions();
@@ -337,7 +358,11 @@ describe('applyPendingActions — a lock-screen tap becomes a dose', () => {
     // `recordDose` is not idempotent: a second call would mint a second inventory adjustment and
     // decrement stock twice for one dose.
     const context = await withSchedule(await setup());
-    await context.repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+    await context.repository.adjustInventory({
+      medicineId: 'medicine-1',
+      delta: 10,
+      reason: 'initial',
+    });
 
     context.native.setPending([takenAction()]);
     await context.engine.applyPendingActions();
@@ -411,8 +436,16 @@ describe('applyPendingActions — a lock-screen tap becomes a dose', () => {
   it('applies taps oldest-first, so two taps resolve in the order they were made', async () => {
     const context = await withSchedule(await setup());
     context.native.setPending([
-      takenAction({ id: 'second', action: 'taken', tappedAtMs: fromIso('2026-06-15T09:05:00.000Z') }),
-      takenAction({ id: 'first', action: 'snooze', tappedAtMs: fromIso('2026-06-15T09:01:00.000Z') }),
+      takenAction({
+        id: 'second',
+        action: 'taken',
+        tappedAtMs: fromIso('2026-06-15T09:05:00.000Z'),
+      }),
+      takenAction({
+        id: 'first',
+        action: 'snooze',
+        tappedAtMs: fromIso('2026-06-15T09:01:00.000Z'),
+      }),
     ]);
 
     await context.engine.applyPendingActions();
@@ -442,7 +475,11 @@ describe('applyPendingActions — a lock-screen tap becomes a dose', () => {
     // the same fake alarm — the 'taken' path already had this guard; 'snooze' did not).
     const context = await withSchedule(await setup());
     context.native.setPending([
-      takenAction({ id: 'bogus-snooze', action: 'snooze', occurrenceKey: '8b6cb702-0a85-499d-99eb-35a7e6ff6798' }),
+      takenAction({
+        id: 'bogus-snooze',
+        action: 'snooze',
+        occurrenceKey: '8b6cb702-0a85-499d-99eb-35a7e6ff6798',
+      }),
     ]);
 
     const applied = await context.engine.applyPendingActions();
@@ -480,12 +517,78 @@ describe('applyPendingActions — a lock-screen tap becomes a dose', () => {
     await context.engine.reconcile();
 
     context.native.setPending([
-      takenAction({ id: 'snooze-tap', action: 'snooze', tappedAtMs: fromIso('2026-06-15T09:01:00.000Z') }),
+      takenAction({
+        id: 'snooze-tap',
+        action: 'snooze',
+        tappedAtMs: fromIso('2026-06-15T09:01:00.000Z'),
+      }),
     ]);
     await context.engine.applyPendingActions();
 
     const armed = context.native.armedList.find((a) => a.occurrenceKey === OCCURRENCE);
     expect(toIso(armed!.triggerAtMs)).toBe('2026-06-15T09:21:00.000Z');
+  });
+});
+
+/**
+ * Cancelling an alarm and silencing one are different operations, and conflating them is what let
+ * a caregiver tap Taken on a ringing phone and keep hearing it: `cancelDoseAlarm` unschedules a
+ * *future* `AlarmManager` alarm and has no effect on audio already playing.
+ */
+describe('silenceChime — stopping an alert that is sounding now', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('stops the sound for one occurrence', async () => {
+    const context = await withSchedule(await setup());
+
+    await context.engine.silenceChime(OCCURRENCE);
+
+    expect(context.native.stopChime).toHaveBeenCalledWith(OCCURRENCE);
+  });
+
+  it('stops the sound outright when given no occurrence', async () => {
+    const context = await withSchedule(await setup());
+
+    await context.engine.silenceChime();
+
+    expect(context.native.stopChime).toHaveBeenCalledWith(undefined);
+  });
+
+  it('never fails a caller because the sound could not be stopped', async () => {
+    // The dose record is what matters. A chime that keeps playing stops on its own within a
+    // minute anyway, so this must not be able to take a `recordDose` call down with it.
+    const context = await withSchedule(await setup());
+    (context.native.stopChime as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('service unreachable'),
+    );
+
+    await expect(context.engine.silenceChime(OCCURRENCE)).resolves.toBeUndefined();
+  });
+
+  it('silences when a captured lock-screen tap is applied', async () => {
+    const context = await withSchedule(await setup());
+    context.native.setPending([
+      {
+        id: 'pending-1',
+        occurrenceKey: OCCURRENCE,
+        action: 'taken',
+        tappedAtMs: fromIso('2026-06-15T09:00:30.000Z'),
+      },
+    ]);
+
+    await context.engine.applyPendingActions();
+
+    expect(context.native.stopChime).toHaveBeenCalled();
+  });
+
+  it('silences the dose being snoozed', async () => {
+    const context = await withSchedule(await setup());
+
+    await context.engine.snooze(OCCURRENCE);
+
+    expect(context.native.stopChime).toHaveBeenCalledWith(OCCURRENCE);
   });
 });
 

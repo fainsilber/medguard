@@ -21,7 +21,7 @@ Because a dosing error here can harm a child, this plan treats the safety logic 
 
 | Question | Decision |
 | --- | --- |
-| Shabbat chime | **No dedicated device.** Web Push for locked phones; in-app 45s chime engine when foregrounded. Native Android app (Phase 2) solves the locked-device case properly. |
+| Shabbat chime | **No dedicated device.** Web Push for locked phones; in-app chime engine when foregrounded. Native Android app (Phase 2) solves the locked-device case properly. Length is 30s on Shabbat and 60s on a weekday since D9. |
 | Shabbat alert style | **Burst of 10 pushes, ~1.11s apart**, shared tag + `renotify`, approximating the PRD's 45s. Started at 3×/15s and was retuned four times against a real Android phone — see Sprint 0 and `docs/platform-capabilities.md`. |
 | Auth | **Join code + device token only.** No magic link, no email provider. |
 | Devices | **Mixed iOS + Android, Android prioritized.** Native Android planned; no iOS native planned. iOS best-effort. |
@@ -64,6 +64,20 @@ Places where the PRD as written is not achievable or not safe. **Most worth your
 **D7 — Device clock skew can permit an early dose.** A wrong local clock defeats every cooldown. **Fix:** server-time offset check; implausible skew forces RED with a visible warning (invariant 3).
 
 **D8 — The backend must be client-agnostic from day one.** You plan a native Android client against this same backend. **Fix, cheap now:** `devices` carries a `pushProvider` discriminator (`'webpush' | 'fcm'`) plus `pushCredentials` JSON, so an FCM client needs no migration. Routes versioned under `/api/v1/`. All domain logic stays pure TypeScript in `packages/shared`.
+
+**D9 — A dose alert is one sound, with two lengths and three ways to stop.** Added 2026-08-15
+after a Shabbat on which the alerts rang continuously all day. The native chime service could not
+handle two alarms at once — the ordinary case, since several medicines are given at the same time —
+and left a looping `MediaPlayer` that nothing could reach; on Shabbat, where the notification
+carries no buttons (D5), there was no way to stop it at all. **Fix:** the state moves into a pure,
+unit-tested `ChimeSession` (this repo's first Kotlin tests, run in `android-apk.yml`); one shared
+player serves every sounding dose while each keeps its own notification; the length splits into 60s
+weekday / 30s Shabbat, clamped at both ends in shared code and again in Kotlin; and marking the dose
+or pressing a physical button now silences a chime that is playing, neither of which previously did
+anything. Server-side, several doses due at the same instant now drive one web push burst rather
+than one each — the browser's version of the same "one sound, several notifications" rule. Full
+write-up in `apps/android/README.md`, "Alerts that rang all Shabbat", and delta AD10 in
+`docs/android-client-plan.md`.
 
 ---
 

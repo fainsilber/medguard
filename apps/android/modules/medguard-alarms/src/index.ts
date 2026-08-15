@@ -27,6 +27,17 @@ interface MedGuardAlarmsNativeModule {
   /** For leaving a household or clearing local data, when there is nothing left to reconcile against. */
   cancelAllDoseAlarms(): Promise<void>;
   /**
+   * Silence a chime that is sounding *right now*.
+   *
+   * `cancelDoseAlarm` unschedules a future alarm and does nothing to audio already playing, which
+   * is why marking a dose taken in the app used to leave the phone ringing. Pass an occurrence key
+   * to drop just that dose (the sound stops only if it was the last one sounding), or nothing to
+   * stop the sound outright. Every notification survives either way, non-ongoing and dismissible.
+   *
+   * Safe to call when nothing is playing, so callers never have to ask first.
+   */
+  stopChime(occurrenceKey?: string): Promise<void>;
+  /**
    * What Android currently holds armed. The reconcile pass diffs against this rather than against
    * a JS-side list, because `BootReceiver` re-arms and expires alarms without JS ever seeing it.
    */
@@ -34,7 +45,10 @@ interface MedGuardAlarmsNativeModule {
   /** The ongoing, silent `sync_status_v1` notification carrying the two degradation states. */
   showStatusNotification(title: string, body: string): Promise<void>;
   clearStatusNotification(): Promise<void>;
-  addListener(event: 'onPendingAction', listener: (payload: PendingActionEvent) => void): EventSubscription;
+  addListener(
+    event: 'onPendingAction',
+    listener: (payload: PendingActionEvent) => void,
+  ): EventSubscription;
   addListener(event: 'onPushToken', listener: (payload: PushTokenEvent) => void): EventSubscription;
   /** Fires immediately: the standalone chime demo for the A0 exit gate and manual QA item 1. */
   playTestChime(chimeDurationSeconds: number): Promise<void>;
@@ -93,6 +107,9 @@ export const cancelDoseAlarm = (occurrenceKey: string): Promise<void> =>
 
 export const cancelAllDoseAlarms = (): Promise<void> => nativeModule.cancelAllDoseAlarms();
 
+export const stopChime = (occurrenceKey?: string): Promise<void> =>
+  nativeModule.stopChime(occurrenceKey);
+
 export const listArmedAlarms = (): Promise<ArmedAlarm[]> => nativeModule.listArmedAlarms();
 
 export const showStatusNotification = (title: string, body: string): Promise<void> =>
@@ -114,9 +131,11 @@ export const playTestChime = (chimeDurationSeconds: number): Promise<void> =>
 
 export const canScheduleExactAlarms = (): Promise<boolean> => nativeModule.canScheduleExactAlarms();
 
-export const requestScheduleExactAlarm = (): Promise<void> => nativeModule.requestScheduleExactAlarm();
+export const requestScheduleExactAlarm = (): Promise<void> =>
+  nativeModule.requestScheduleExactAlarm();
 
-export const hasNotificationPermission = (): Promise<boolean> => nativeModule.hasNotificationPermission();
+export const hasNotificationPermission = (): Promise<boolean> =>
+  nativeModule.hasNotificationPermission();
 
 export const requestNotificationPermission = (): Promise<boolean> =>
   nativeModule.requestNotificationPermission().then((result) => result.granted);
@@ -129,14 +148,17 @@ export const isIgnoringBatteryOptimizations = (): Promise<boolean> =>
 export const requestIgnoreBatteryOptimizations = (): Promise<void> =>
   nativeModule.requestIgnoreBatteryOptimizations();
 
-export const hasNotificationPolicyAccess = (): Promise<boolean> => nativeModule.hasNotificationPolicyAccess();
+export const hasNotificationPolicyAccess = (): Promise<boolean> =>
+  nativeModule.hasNotificationPolicyAccess();
 
 export const requestNotificationPolicyAccess = (): Promise<void> =>
   nativeModule.requestNotificationPolicyAccess();
 
-export const readPendingActions = (): Promise<PendingActionRecord[]> => nativeModule.readPendingActions();
+export const readPendingActions = (): Promise<PendingActionRecord[]> =>
+  nativeModule.readPendingActions();
 
-export const ackPendingActions = (ids: string[]): Promise<void> => nativeModule.ackPendingActions(ids);
+export const ackPendingActions = (ids: string[]): Promise<void> =>
+  nativeModule.ackPendingActions(ids);
 
 export const elapsedRealtimeMs = (): Promise<number> => nativeModule.elapsedRealtimeMs();
 

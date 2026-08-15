@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { parseOccurrenceKey } from './schedule.js';
+import { MAX_CHIME_DURATION_SECONDS, MIN_CHIME_DURATION_SECONDS } from './settings.js';
 
 /**
  * Runtime validation for everything that crosses a trust boundary: user input, IndexedDB reads
@@ -35,6 +36,17 @@ export const localTimeSchema = z
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Must be HH:MM (24-hour)');
 
 export const syncStatusSchema = z.enum(['synced', 'pending']);
+
+/**
+ * An alert length a caregiver may configure. The same bounds `chimeDurationSecondsFor()` clamps
+ * to, asserted here so a bad value is refused at the edit rather than quietly rounded later — and
+ * so a synced record from another device cannot carry one in.
+ */
+const chimeDurationSecondsSchema = z
+  .number()
+  .int()
+  .min(MIN_CHIME_DURATION_SECONDS)
+  .max(MAX_CHIME_DURATION_SECONDS);
 
 const syncableFields = {
   updatedAt: isoInstantSchema,
@@ -75,7 +87,11 @@ export const medicineSchema = z.object({
   asNeeded: z.boolean(),
   // Positive, not just non-negative: a zero-hour cooldown is indistinguishable from "no cooldown"
   // but reads as if a limit exists. Omit the field instead.
-  minHoursBetweenDoses: z.number().positive().max(24 * 7).optional(),
+  minHoursBetweenDoses: z
+    .number()
+    .positive()
+    .max(24 * 7)
+    .optional(),
   maxDailyDoses: z.number().int().positive().max(100).optional(),
   instructions: z.string().max(2000).optional(),
   archived: z.boolean(),
@@ -274,9 +290,15 @@ export const shabbatConfigSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   candleLightingOffsetMins: z.number().int().min(0).max(120),
-  havdalahDegreesOrMins: z.string().regex(/^\d+(\.\d+)?_(degrees|mins)$/, 'e.g. 8.5_degrees or 50_mins'),
+  havdalahDegreesOrMins: z
+    .string()
+    .regex(/^\d+(\.\d+)?_(degrees|mins)$/, 'e.g. 8.5_degrees or 50_mins'),
   israelHolidays: z.boolean(),
-  chimeDurationSeconds: z.number().int().positive().max(600),
+  chimeDurationSeconds: chimeDurationSecondsSchema,
+  // Optional: households created before the weekday/Shabbat split have a config without it, and
+  // rejecting their record here would stop those devices syncing rather than degrade gracefully.
+  // `chimeDurationSecondsFor()` fills the default in.
+  weekdayChimeDurationSeconds: chimeDurationSecondsSchema.optional(),
   ...syncableFields,
 });
 
