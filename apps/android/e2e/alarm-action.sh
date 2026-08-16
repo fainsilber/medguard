@@ -6,15 +6,25 @@
 # Read this whole comment before trusting a green run. What this proves and what it doesn't is
 # deliberately narrow:
 #
-#   - The process is killed with `adb shell kill -9 <pid>`, deliberately NOT `am force-stop`.
-#     Confirmed the hard way in CI: force-stop puts the app into Android's "stopped" state, where
-#     the OS refuses to deliver ANY broadcast to it — including an explicit one aimed at it by
-#     component name — until it's explicitly relaunched. That's a real platform mechanism (stops a
-#     force-stopped app from silently resurrecting itself), but it's a much stronger kill than what
-#     actually happens to a real locked phone's backgrounded process reclaimed by Android's normal
-#     lifecycle, and it defeats the exact interaction this flow exists to prove: that a broadcast
-#     reaches a dead-but-not-force-stopped process at all. `kill -9` matches that real scenario —
-#     the process is gone, but the app was never told to stop, so broadcasts still route to it.
+#   - The process is reclaimed with `adb shell am kill <package>` (falling back to `kill -9 <pid>`
+#     only if that doesn't take), deliberately NOT `am force-stop` and, it turns out, not a bare
+#     `kill -9` either. Confirmed the hard way in CI, twice:
+#       - `am force-stop` puts the app into Android's "stopped" state, where the OS refuses to
+#         deliver ANY broadcast to it — including an explicit one aimed at it by component name —
+#         until it's explicitly relaunched. Real platform mechanism (stops a force-stopped app from
+#         silently resurrecting itself), but defeats the exact thing this flow needs to prove.
+#       - A raw `kill -9` on the backgrounded app's PID looked right, but the broadcast this script
+#         sends kept completing in well under 100ms — too fast for a genuine cold app start — and
+#         the tap was captured *and already drained* by a live JS runtime before this script's own
+#         "captured durably" check ever ran. Best explanation: ActivityManagerService still had
+#         that PID recorded as the most-recently-shown task, and a raw SIGKILL looks to it exactly
+#         like that task's process unexpectedly crashing — which Android auto-relaunches, the same
+#         mechanism that flashes a foregrounded app back onscreen after a real crash.
+#     `am kill` goes through AMS's own controlled removal path instead — it only touches processes
+#     AMS has already demoted to "cached"/background importance (which is why this still backgrounds
+#     with HOME first), so there's no "an app I thought was alive just disappeared" event for the
+#     platform to react to. Matches the real scenario — the process is gone, but the app was never
+#     told to stop, so broadcasts still route to it — without the raw-signal relaunch risk.
 #   - NotificationActionReceiver is android:exported="false" (plugins/withMedGuardAlarms.ts), so
 #     `am broadcast -n` from the plain shell UID gets "Permission Denial". This requires `adb
 #     root` first (root is exempt) and a `google_apis` system image (not `google_play`, which
@@ -68,20 +78,38 @@ if [ -z "$occurrence_key" ]; then
 fi
 echo "Armed occurrenceKey: $occurrence_key"
 
-echo "== Killing the app's process (no live JS runtime for the broadcast to find) =="
-# Home first: `am kill` (Android's own "safe to kill" reclaim) refuses to touch a foreground
-# process, and Maestro's last interaction left the app in the foreground. `kill -9` on the raw PID
-# doesn't have that restriction, but backgrounding first keeps this closer to the real scenario
-# (a locked, backgrounded app) rather than killing something visibly on screen.
+echo "== Reclaiming the app's process (no live JS runtime for the broadcast to find) =="
+# Home first: both `am kill` and the raw-signal fallback refuse/risk trouble on a foreground
+# process — `am kill` because AMS won't touch anything above "cached" importance, `kill -9` because
+# (see the header comment) a foreground/most-recent process getting SIGKILLed looks like a crash
+# Android will auto-relaunch. Backgrounding first also keeps this closer to the real scenario this
+# flow simulates: a locked, backgrounded app, not something visibly on screen.
 adb shell input keyevent KEYCODE_HOME
-sleep 1
+sleep 2
+
 app_pid=$(adb shell pidof "$APP_ID" | tr -d '\r')
 if [ -z "$app_pid" ]; then
   echo "FAIL: could not find a running process for $APP_ID to kill." >&2
   exit 1
 fi
-adb shell kill -9 "$app_pid"
+
+adb shell am kill "$APP_ID"
 sleep 1
+
+app_pid=$(adb shell pidof "$APP_ID" | tr -d '\r')
+if [ -n "$app_pid" ]; then
+  echo "'am kill' didn't take (pid $app_pid still running — the process may not have aged into" >&2
+  echo "the cached bucket yet); falling back to kill -9 on it directly." >&2
+  adb shell kill -9 "$app_pid"
+  sleep 1
+fi
+
+app_pid=$(adb shell pidof "$APP_ID" | tr -d '\r')
+if [ -n "$app_pid" ]; then
+  echo "FAIL: $APP_ID is still running (pid $app_pid) after both am kill and kill -9." >&2
+  exit 1
+fi
+echo "Confirmed dead: no process for $APP_ID."
 
 echo "== Broadcasting the Taken action directly at NotificationActionReceiver =="
 adb shell am broadcast -a com.medguard.alarms.action.TAKEN -n "$RECEIVER" \

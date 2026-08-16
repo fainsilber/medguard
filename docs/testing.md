@@ -185,7 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first eight real runs each caught a problem this had no way to catch locally:
+That job's first nine real runs each caught a problem this had no way to catch locally:
 
 1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
    `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
@@ -245,6 +245,20 @@ That job's first eight real runs each caught a problem this had no way to catch 
    Diagnostics "Cancel" button in a new `cancel-armed-alarm.yaml` subflow that deliberately skips
    `launchApp` to keep the in-memory `armedOccurrenceKey` state that button depends on) right after
    confirming the re-arm, so nothing is left ticking when `alarm-action.sh` starts.
+9. **Same first assertion again — the stray-alarm fix from #8 landed, but the broadcast still
+   completed suspiciously fast (71ms this time)**, ruling out finding 8's cause and pointing at the
+   kill mechanism itself. Best explanation: `kill -9` on the backgrounded app's PID looks, to
+   ActivityManagerService, exactly like that PID's process — still on record as the most-recently-
+   shown task — crashing unexpectedly, which triggers Android's own auto-relaunch of a recently-
+   visible app. The broadcast then lands on this already-warm, already-live resurrected process
+   (explaining the sub-100ms round trip), whose live JS runtime captures and acks the tap in
+   milliseconds, before this script's own check ever runs — a correctly-handled tap looking exactly
+   like a lost one, for the second time running, with two different apparent causes. Fixed by
+   switching to `adb shell am kill <package>` as the primary reclaim mechanism: AMS's own
+   controlled "remove a cached background process" path, which only acts on processes already
+   demoted to background importance (the same reason this still backgrounds with HOME first) and so
+   never looks like a crash to the platform, with a `kill -9` fallback (and an explicit `pidof`
+   confirmation either way) only if `am kill` doesn't take effect.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
 run gets far enough to actually exercise it — every fix above came from watching a real run get
