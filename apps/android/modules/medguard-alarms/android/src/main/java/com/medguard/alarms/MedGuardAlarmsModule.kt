@@ -134,7 +134,7 @@ class MedGuardAlarmsModule : Module() {
                 runCatching {
                     context.startService(
                         Intent(context, DoseAlarmService::class.java).apply {
-                            action = DoseAlarmService.ACTION_STOP_CHIME
+                            this.action = DoseAlarmService.ACTION_STOP_CHIME
                             if (occurrenceKey != null) {
                                 putExtra(DoseAlarmService.EXTRA_OCCURRENCE_KEY, occurrenceKey)
                             }

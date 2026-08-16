@@ -74,7 +74,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
         runCatching {
             context.startService(
                 Intent(context, DoseAlarmService::class.java).apply {
-                    action = DoseAlarmService.ACTION_STOP_CHIME
+                    // `this.`, not a bare `action =`: the local `val action` above shadows the
+                    // Intent's own property inside this lambda. Same reason `DoseNotifications`
+                    // qualifies it.
+                    this.action = DoseAlarmService.ACTION_STOP_CHIME
                 },
             )
         }

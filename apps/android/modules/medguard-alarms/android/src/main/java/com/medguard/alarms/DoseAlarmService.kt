@@ -295,7 +295,14 @@ class DoseAlarmService : Service() {
         if (mediaSession == null) {
             runCatching {
                 val volumeProvider =
-                    object : VolumeProviderCompat(VOLUME_CONTROL_RELATIVE, VOLUME_CONTROL_MAX, 0) {
+                    // The control type is spelled out rather than left to the inherited constant,
+                    // so it is obvious which of RELATIVE/ABSOLUTE/FIXED this session claims —
+                    // the choice is what makes a volume press arrive here as an *adjustment*.
+                    object : VolumeProviderCompat(
+                        VolumeProviderCompat.VOLUME_CONTROL_RELATIVE,
+                        VOLUME_CONTROL_MAX,
+                        0,
+                    ) {
                         override fun onAdjustVolume(direction: Int) {
                             stopEverything()
                         }

@@ -36,7 +36,7 @@ interface MedGuardAlarmsNativeModule {
    *
    * Safe to call when nothing is playing, so callers never have to ask first.
    */
-  stopChime(occurrenceKey?: string): Promise<void>;
+  stopChime(occurrenceKey: string | null): Promise<void>;
   /**
    * What Android currently holds armed. The reconcile pass diffs against this rather than against
    * a JS-side list, because `BootReceiver` re-arms and expires alarms without JS ever seeing it.
@@ -107,8 +107,10 @@ export const cancelDoseAlarm = (occurrenceKey: string): Promise<void> =>
 
 export const cancelAllDoseAlarms = (): Promise<void> => nativeModule.cancelAllDoseAlarms();
 
+// Always one argument, explicitly `null` for "stop everything", rather than letting `undefined`
+// reach the bridge — the native function's arity is then never in question.
 export const stopChime = (occurrenceKey?: string): Promise<void> =>
-  nativeModule.stopChime(occurrenceKey);
+  nativeModule.stopChime(occurrenceKey ?? null);
 
 export const listArmedAlarms = (): Promise<ArmedAlarm[]> => nativeModule.listArmedAlarms();
 
