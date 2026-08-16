@@ -90,6 +90,14 @@ class BootReceiverTest {
 
     @Test
     fun `also re-arms on LOCKED_BOOT_COMPLETED, MY_PACKAGE_REPLACED, and a clock or timezone change`() {
+        // The same occurrenceKey every iteration, deliberately: AlarmScheduler derives the
+        // PendingIntent's identity from occurrenceKey (AlarmScheduler.kt's firePendingIntent doc
+        // comment), so a distinct key per action here would arm four separate AlarmManager
+        // entries that never get replaced — `clearArmedAlarms()` only wipes ArmedAlarmStore's
+        // SharedPreferences record between iterations, not whatever's already sitting in
+        // AlarmManager's shadow. A shared key makes each `schedule()` call in BootReceiver replace
+        // the previous one via FLAG_UPDATE_CURRENT, so `scheduledAlarms.size` stays a real
+        // "did this action re-arm" check each time round, not an accumulating count.
         for (action in listOf(
             Intent.ACTION_LOCKED_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
@@ -98,7 +106,7 @@ class BootReceiverTest {
         )) {
             clearArmedAlarms()
             val future = System.currentTimeMillis() + 10_000_000L
-            ArmedAlarmStore.put(context, payload("schedule-1:$action", future))
+            ArmedAlarmStore.put(context, payload("schedule-1:reboot", future))
 
             BootReceiver().onReceive(context, Intent(action))
 
