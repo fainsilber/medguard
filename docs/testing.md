@@ -185,7 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first six real runs each caught a problem this had no way to catch locally:
+That job's first seven real runs each caught a problem this had no way to catch locally:
 
 1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
    `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
@@ -220,6 +220,18 @@ That job's first six real runs each caught a problem this had no way to catch lo
    flattens to one string ("Ondansetron 4mg"). Maestro's text selectors match the *whole* node
    against the regex, so a bare "Ondansetron" never matched. Fixed by matching `"Ondansetron.*"`
    instead, in both places this flow checks it.
+7. **The furthest run yet — `offline-smoke.yaml` fully passed, `boot-rearm.sh` fully passed
+   (BootReceiver genuinely re-armed after a real `BOOT_COMPLETED` broadcast) — then
+   `alarm-action.sh` failed its own first assertion**: `PendingActionStore` was empty immediately
+   after the broadcast that should have populated it, even though `am broadcast` itself reported
+   success. Root cause was the script, not the app: it killed the app with `adb shell am
+   force-stop`, which puts an app into Android's "stopped" state — the OS then refuses to deliver
+   *any* broadcast to it, including an explicit one aimed at it by component name, until it's
+   explicitly relaunched. That's a real platform mechanism (stopping a force-stopped app from
+   silently resurrecting itself), but a much stronger kill than what happens to a real locked
+   phone's backgrounded process reclaimed by Android's normal lifecycle — and it defeats the exact
+   thing this flow needs to prove. Fixed by killing the process directly (`kill -9` on its PID)
+   instead, which doesn't trigger the stopped state.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
 run gets far enough to actually exercise it — every fix above came from watching a real run get
@@ -248,10 +260,14 @@ top-level ones without also being run, and failing, as one itself):
   and checks `adb shell dumpsys alarm` for evidence it re-armed. `BootReceiver` is
   `android:exported="true"` with a real intent filter, so this needs no `adb root`.
 - **`alarm-notification-action.yaml` + `e2e/alarm-action.sh`** — the flow that justifies the native
-  client existing. Arms an alarm, force-stops the app, then broadcasts a "Taken" action straight at
-  `NotificationActionReceiver` — which **is** `android:exported="false"`, so this needs `adb root`
-  and a `google_apis` image specifically (`google_play` images aren't rootable, which is exactly
-  why the *manual* drill below recommends `google_play` instead — a deliberate divergence). Reads
+  client existing. Arms an alarm, kills the app's process (`kill -9` on its PID, deliberately not
+  `am force-stop` — force-stop puts the app into Android's "stopped" state, where the OS blocks
+  *every* broadcast to it, including an explicit one by component name, which defeats the exact
+  thing this flow needs to prove; confirmed the hard way in CI), then broadcasts a "Taken" action
+  straight at `NotificationActionReceiver` — which **is** `android:exported="false"`, so this needs
+  `adb root` and a `google_apis` image specifically (`google_play` images aren't rootable, which is
+  exactly why the *manual* drill below recommends `google_play` instead — a deliberate divergence).
+  Reads
   the SharedPreferences file `ArmedAlarmStore` wrote to recover the occurrenceKey it armed (keyed
   by the occurrenceKey itself, so no app-side logging is needed), then checks `PendingActionStore`'s
   SharedPreferences before and after to prove the tap was captured durably and then drained by

@@ -4,7 +4,7 @@ appId: il.co.fainsilber.med
 # phone's notification, with the app process dead, still lands durably (safety invariant 7) even
 # before the app is ever brought back to the foreground. This flow only does the app-side setup —
 # arm one real alarm via Diagnostics (the same scheduleDoseAlarm() path boot-rearm.yaml uses) — and
-# a final sanity relaunch. The interesting part (force-stopping the app, broadcasting the
+# a final sanity relaunch. The interesting part (killing the app's process, broadcasting the
 # notification action directly at NotificationActionReceiver, and checking PendingActionStore's
 # SharedPreferences before and after) happens in ../e2e/alarm-action.sh, which runs this flow
 # first, in the middle, and last.

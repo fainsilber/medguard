@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 # Drives ../.maestro/alarm-notification-action.yaml, then exercises the part no Maestro command
-# reaches: force-stopping the app and broadcasting a notification action directly at
+# reaches: killing the app's process and broadcasting a notification action directly at
 # NotificationActionReceiver, the way a real locked-phone tap would arrive with the process dead.
 #
 # Read this whole comment before trusting a green run. What this proves and what it doesn't is
 # deliberately narrow:
 #
+#   - The process is killed with `adb shell kill -9 <pid>`, deliberately NOT `am force-stop`.
+#     Confirmed the hard way in CI: force-stop puts the app into Android's "stopped" state, where
+#     the OS refuses to deliver ANY broadcast to it — including an explicit one aimed at it by
+#     component name — until it's explicitly relaunched. That's a real platform mechanism (stops a
+#     force-stopped app from silently resurrecting itself), but it's a much stronger kill than what
+#     actually happens to a real locked phone's backgrounded process reclaimed by Android's normal
+#     lifecycle, and it defeats the exact interaction this flow exists to prove: that a broadcast
+#     reaches a dead-but-not-force-stopped process at all. `kill -9` matches that real scenario —
+#     the process is gone, but the app was never told to stop, so broadcasts still route to it.
 #   - NotificationActionReceiver is android:exported="false" (plugins/withMedGuardAlarms.ts), so
 #     `am broadcast -n` from the plain shell UID gets "Permission Denial". This requires `adb
 #     root` first (root is exempt) and a `google_apis` system image (not `google_play`, which
@@ -59,8 +68,20 @@ if [ -z "$occurrence_key" ]; then
 fi
 echo "Armed occurrenceKey: $occurrence_key"
 
-echo "== Force-stopping the app (no live JS runtime for the broadcast to find) =="
-adb shell am force-stop "$APP_ID"
+echo "== Killing the app's process (no live JS runtime for the broadcast to find) =="
+# Home first: `am kill` (Android's own "safe to kill" reclaim) refuses to touch a foreground
+# process, and Maestro's last interaction left the app in the foreground. `kill -9` on the raw PID
+# doesn't have that restriction, but backgrounding first keeps this closer to the real scenario
+# (a locked, backgrounded app) rather than killing something visibly on screen.
+adb shell input keyevent KEYCODE_HOME
+sleep 1
+app_pid=$(adb shell pidof "$APP_ID" | tr -d '\r')
+if [ -z "$app_pid" ]; then
+  echo "FAIL: could not find a running process for $APP_ID to kill." >&2
+  exit 1
+fi
+adb shell kill -9 "$app_pid"
+sleep 1
 
 echo "== Broadcasting the Taken action directly at NotificationActionReceiver =="
 adb shell am broadcast -a com.medguard.alarms.action.TAKEN -n "$RECEIVER" \
