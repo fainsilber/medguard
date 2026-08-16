@@ -181,11 +181,25 @@ Runtime: roughly a minute locally; CI runs with `retries: 2, workers: 1`, which 
 
 ### Maestro + adb — Android device/emulator e2e
 
-**Not run anywhere yet** — written against the real screens, receivers, manifest `exported` flags
-and `SharedPreferences` schemas, but this repo has never had `maestro`, `adb`, or an emulator
-available to actually execute any of it. The `maestro` job in `android-apk.yml` is
-`workflow_dispatch`- and label-gated for exactly this reason — see that workflow's own comments.
-Treat every claim below as "should be true given the source", not "observed passing".
+Written against the real screens, receivers, manifest `exported` flags and `SharedPreferences`
+schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
+locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
+`workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
+That job's own first two real runs each caught an infrastructure problem this had no way to catch
+locally, neither one in the Maestro flows themselves:
+
+1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
+   `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
+   way to trigger this job. Fixed by uploading unconditionally.
+2. **"Timeout waiting for emulator to boot"**, after polling `sys.boot_completed` for 6+ minutes
+   straight — GitHub-hosted runners have no `/dev/kvm` group access by default, so
+   `reactivecircus/android-emulator-runner` fell back to fully unaccelerated software emulation and
+   never finished booting inside its timeout. Fixed with the standard udev-rule workaround (that
+   action's own documented fix) in an `Enable KVM group permissions` step before the emulator boots.
+
+Treat any claim below about what a flow itself proves as "should be true given the source" until a
+run gets far enough to actually exercise it — the infrastructure now boots, but no flow inside it
+has been watched passing yet.
 
 ```bash
 # Once: boot an AVD — API 33+, google_apis (not google_play — see below), x86_64.
