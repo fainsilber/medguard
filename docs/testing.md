@@ -185,7 +185,9 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first eleven real runs each caught a problem this had no way to catch locally:
+That job's first twelve real runs each caught a problem this had no way to catch locally — the
+twelfth is the first of these that was a real bug in the app rather than in the test harness or CI
+infrastructure, and exactly the kind of thing this whole layer was built to find:
 
 1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
    `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
@@ -286,6 +288,24 @@ That job's first eleven real runs each caught a problem this had no way to catch
     EXCEPTION`, `NotificationActionReceiver`, or `PendingActionStore` — enough to see directly
     whether `onReceive()` ran at all, hit one of its early returns, or threw, rather than continuing
     to infer it from broadcast timing alone.
+12. **The logcat dump answered it, and it was never process liveness at all**: `onReceive()` ran
+    fine, called `PendingActionStore.add()`, then reached `ContextCompat.startForegroundService(…,
+    MedGuardHeadlessService)` — and roughly 200ms later the *entire app process* was killed with an
+    uncaught `android.app.RemoteServiceException$ForegroundServiceDidNotStartInTimeException:
+    Context.startForegroundService() did not then call Service.startForeground()`. A process started
+    via `startForegroundService()` has to call `Service.startForeground()` almost immediately or the
+    platform kills it outright — and `MedGuardHeadlessService` (a bare `HeadlessJsTaskService`
+    subclass with no override) had nothing calling `startForeground()` until deep inside RN-bridge
+    startup, nowhere near fast enough on a cold-started process. The `runCatching {}` around the
+    `startForegroundService()` call in `NotificationActionReceiver` couldn't help: the exception is
+    thrown asynchronously by the platform on the main thread's looper, well after that call already
+    returned, not synchronously inside it. This is a real production bug, not a test artifact — on
+    an actual locked phone with the app process dead, a caregiver's "Taken" tap would crash the app
+    this exact way, and safety invariant 7's headless drain would never run. Fixed by overriding
+    `MedGuardHeadlessService.onCreate()` to call `startForeground()` immediately (with a silent,
+    low-importance notification on the existing `SYNC_STATUS` channel), before any JS-task machinery
+    runs. This is the first of these twelve findings that was a genuine app bug rather than test
+    harness or CI infrastructure — exactly what this Maestro layer exists to catch.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
 run gets far enough to actually exercise it — every fix above came from watching a real run get
