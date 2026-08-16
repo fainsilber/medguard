@@ -1,0 +1,33 @@
+appId: il.co.fainsilber.med
+---
+# The Android-only path that justifies the native client existing: a "Taken" tap on a locked
+# phone's notification, with the app process dead, still lands durably (safety invariant 7) even
+# before the app is ever brought back to the foreground. This flow only does the app-side setup —
+# arm one real alarm via Diagnostics (the same scheduleDoseAlarm() path boot-rearm.yaml uses) — and
+# a final sanity relaunch. The interesting part (force-stopping the app, broadcasting the
+# notification action directly at NotificationActionReceiver, and checking PendingActionStore's
+# SharedPreferences before and after) happens in ../e2e/alarm-action.sh, which runs this flow
+# first, in the middle, and last.
+#
+# Read ../e2e/alarm-action.sh's own header comment before this file — it explains exactly what a
+# green run here does and does not prove, most importantly that the Diagnostics test alarm's
+# occurrenceKey is *not* a real schedule occurrence, so this cannot assert an IntakeLog was
+# written. What it proves instead: NotificationActionReceiver captures the tap durably even with
+# no live JS runtime, MedGuardHeadlessService starts and drains it without crashing, and the
+# pending-action queue is empty again afterwards — the full round trip invariant 7 depends on,
+# exercised through the real BroadcastReceiver -> foreground service -> headless JS chain rather
+# than a unit test's mocks.
+
+- launchApp
+
+- runFlow: subflows/ensure-onboarded.yaml
+
+- tapOn: "More screens"
+- tapOn: "Diagnostics"
+- scrollUntilVisible:
+    element:
+      text: "Arm alarm in 15s"
+    direction: DOWN
+
+- tapOn: "Arm alarm in 15s"
+- assertVisible: "Cancel"

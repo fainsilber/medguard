@@ -1,0 +1,64 @@
+appId: il.co.fainsilber.med
+---
+# The RN mirror of apps/web/e2e/offline-smoke.spec.ts's happy path — standalone onboarding, add a
+# medicine, track its stock, log a dose, confirm the stock ledger moved — proven against a real
+# installed build rather than a component render. Deliberately scoped to the as-needed/PRN lane
+# rather than a scheduled "due now" dose: a scheduled occurrence needs a due time computed relative
+# to whenever this happens to run, which Maestro's YAML has no clean way to express, and the PRN
+# lane exercises the same recordDose()/inventory-adjustment path (packages/store/src/repository.ts)
+# without it. See docs/testing.md for how to run this against a real emulator or device.
+#
+# What this does NOT prove: anything scheduled/alarm-related (see boot-rearm.yaml and
+# alarm-notification-action.yaml for that), or sync (no household is created here).
+
+- launchApp:
+    clearState: true
+
+- runFlow: subflows/ensure-onboarded.yaml
+
+# Today is the default landing route (AppNavigator's initialRouteName).
+- assertVisible: "MedGuard"
+
+# The header's Medicines shortcut (App.tsx), not the hamburger menu.
+- tapOn: "Medicines list"
+- tapOn: "+ Add medicine"
+
+# Name has no placeholder text by design (see MedicineForm.tsx's comment on this field), so it
+# needs the testID added for this flow rather than a text match.
+- tapOn:
+    id: "medicine-name-input"
+- inputText: "Ondansetron"
+- tapOn:
+    id: "medicine-strength-input"
+- inputText: "4mg"
+- hideKeyboard
+- tapOn: "As needed — no fixed times, given when it's needed"
+- tapOn: "Save"
+
+- assertVisible: "Ondansetron"
+
+# Stock tracking lives on the Inventory screen, reached through the hamburger menu (App.tsx's
+# MENU_ITEMS) rather than the bottom Today/As-needed switcher.
+- tapOn: "More screens"
+- tapOn: "Inventory"
+- tapOn: "Track stock"
+# "Starting count" labels both the static field label and the TextInput's accessibilityLabel
+# (InventoryCard.tsx's SetupForm) — index 1 is the actual input, index 0 is the inert label text.
+- tapOn:
+    text: "Starting count"
+    index: 1
+- inputText: "10"
+- hideKeyboard
+- tapOn: "Start tracking stock"
+- assertVisible: "10 pills remaining"
+
+# Log a PRN dose and confirm recordDose()'s paired inventory adjustment actually landed — the
+# assertion this whole flow exists for, not just "the form submitted".
+- tapOn: "As needed"
+- assertVisible: "Ondansetron"
+- assertVisible: "Safe to take"
+- tapOn: "Give dose"
+
+- tapOn: "More screens"
+- tapOn: "Inventory"
+- assertVisible: "9 pills remaining"
