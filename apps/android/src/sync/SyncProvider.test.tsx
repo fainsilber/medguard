@@ -307,7 +307,12 @@ describe('SyncProvider', () => {
     fireEvent.press(await findByRole('button', { name: 'Clear local data' }));
     fireEvent.press(getByRole('button', { name: 'Yes, clear it' }));
 
-    await waitFor(() => expect(queryByText(/removed from the household/)).toBeFalsy());
+    // Longer than this file's other waitFor calls: the banner unmounting goes through two
+    // sequential async hops — clearRevokedDevice's own await chain, then the
+    // onHouseholdSessionChange listener's `getHouseholdSession()` re-read and the resulting
+    // re-render — not just one, so RTL's default 1000ms timeout is tighter than this legitimately
+    // needs under a loaded CI runner.
+    await waitFor(() => expect(queryByText(/removed from the household/)).toBeFalsy(), { timeout: 5_000 });
     expect(await getHouseholdSession()).toBeNull();
   });
 });

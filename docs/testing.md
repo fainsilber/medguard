@@ -123,6 +123,16 @@ battery manager — that's what Maestro and the manual QA list below are for.
 discovered — a silent Gradle/AGP config regression that stops most tests from running would
 otherwise "pass" by running almost nothing.
 
+**A gotcha worth knowing before it wastes a CI cycle**: `src/test/resources/robolectric.properties`
+pins every `@RunWith(RobolectricTestRunner)` test to `sdk=34`, independent of `build.gradle`'s
+`compileSdk`/`targetSdk` (36). Without it, Robolectric defaults to the manifest's `targetSdk` and
+every single Robolectric test class fails at construction time
+(`IllegalArgumentException` at `DefaultSdkPicker`) the moment that level is newer than what the
+pinned `robolectric:4.13` release ships `android-all`/shadow support for — not a test failure, an
+`initializationError` on every class, which is exactly what happened the first time this suite
+actually ran anywhere with a real Android SDK (this sandbox has never had one). If `compileSdk`
+moves again, this file may need to move with it.
+
 Runtime: a few seconds once Gradle and Robolectric's dependencies are cached; the first run
 downloads Robolectric's ~50MB `android-all` jar.
 
