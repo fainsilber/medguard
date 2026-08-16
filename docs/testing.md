@@ -185,8 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's own first two real runs each caught an infrastructure problem this had no way to catch
-locally, neither one in the Maestro flows themselves:
+That job's first three real runs each caught a problem this had no way to catch locally:
 
 1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
    `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
@@ -196,10 +195,18 @@ locally, neither one in the Maestro flows themselves:
    `reactivecircus/android-emulator-runner` fell back to fully unaccelerated software emulation and
    never finished booting inside its timeout. Fixed with the standard udev-rule workaround (that
    action's own documented fix) in an `Enable KVM group permissions` step before the emulator boots.
+   Once fixed, the real boot took 44 seconds.
+3. **"Config Section Required" on `maestro-subflows/ensure-onboarded.yaml`** — the first genuine
+   flow-authoring bug, not infrastructure: `apk install` and `maestro test offline-smoke.yaml` both
+   ran, and Maestro requires every flow file to carry its own `appId` + `---` Config Section, even
+   one that's only ever reached through another flow's `runFlow:` and never run standalone.
+   `relaunch-sanity.yaml` already had one (it *is* run standalone, by `alarm-action.sh`);
+   `ensure-onboarded.yaml` didn't, on the assumption that a pure-subflow file wouldn't need one.
+   Fixed by adding one there too.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
-run gets far enough to actually exercise it — the infrastructure now boots, but no flow inside it
-has been watched passing yet.
+run gets far enough to actually exercise it — the infrastructure now boots and installs the app,
+but no flow has been watched running to completion yet.
 
 ```bash
 # Once: boot an AVD — API 33+, google_apis (not google_play — see below), x86_64.

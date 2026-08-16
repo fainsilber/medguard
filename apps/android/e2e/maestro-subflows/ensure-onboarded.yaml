@@ -1,10 +1,18 @@
-# Shared by every top-level flow in ../*.yaml. `CaregiverGate` (src/identity/CaregiverGate.tsx)
-# is the app's entry point: nothing behind it renders until a caregiver name exists on the
-# device. Since `launchApp` here deliberately does NOT clearState (boot-rearm.yaml and
-# alarm-notification-action.yaml both need the app already force-stopped and relaunched mid-flow,
-# which a wipe would defeat), this has to tolerate two different starting points: a brand-new
-# install showing the onboarding choice, or a device that already has a caregiver name saved from
-# a previous run. `runFlow.when` makes both safe to include unconditionally.
+# Shared by every top-level flow in ../*.yaml via runFlow. `CaregiverGate`
+# (src/identity/CaregiverGate.tsx) is the app's entry point: nothing behind it renders until a
+# caregiver name exists on the device. Since `launchApp` here deliberately does NOT clearState
+# (boot-rearm.yaml and alarm-notification-action.yaml both need the app already force-stopped and
+# relaunched mid-flow, which a wipe would defeat), this has to tolerate two different starting
+# points: a brand-new install showing the onboarding choice, or a device that already has a
+# caregiver name saved from a previous run. `runFlow.when` makes both safe to include
+# unconditionally.
+#
+# Maestro requires a Config Section (appId + `---`) on every flow file, including one that's only
+# ever reached via another flow's `runFlow:` and never run standalone — confirmed the hard way in
+# CI ("Config Section Required"), since nothing in this sandbox can run `maestro` to catch it
+# first. `appId` here is otherwise redundant with the caller's own.
+appId: il.co.fainsilber.med
+---
 - runFlow:
     when:
       visible: "Use this device on its own for now"
