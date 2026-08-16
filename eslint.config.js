@@ -100,6 +100,24 @@ export default tseslint.config(
     },
   },
 
+  // Two Jest test files need `jest.resetModules()` to give module-scoped state (a cached
+  // `anchor`/`trust` pair, a `PendingActionApplier`'s in-flight guard) a clean slate per test —
+  // there is no other way to get a fresh instance of code that deliberately keeps state at module
+  // scope. `require()` inside a helper, not a dynamic `import()`, because this Jest project runs
+  // under CommonJS and `import()` throws ("invoked without --experimental-vm-modules") without a
+  // much bigger config change; `require()`'s return value is then cast with `as typeof import(...)`
+  // for the real type, since `require()` itself only returns `any`.
+  {
+    files: [
+      'apps/android/src/clock/localClockGuard.test.tsx',
+      'apps/android/src/alarms/headlessTask.test.tsx',
+    ],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/consistent-type-imports': 'off',
+    },
+  },
+
   // Build-time Node scripts.
   {
     files: ['scripts/**/*.mjs'],

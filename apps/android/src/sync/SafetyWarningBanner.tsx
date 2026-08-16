@@ -1,7 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { BlockReason } from '@medguard/shared';
+import type { BlockReason, Medicine } from '@medguard/shared';
 import { useRepository } from '../app/RepositoryContext.js';
-import { useLiveQuery } from '../store/useLiveQuery.js';
 import { colors } from '../ui/primitives.js';
 import { useSyncStatus } from './SyncProvider.js';
 
@@ -11,6 +11,15 @@ import { useSyncStatus } from './SyncProvider.js';
  * is that a race between two phones is visible to both, immediately. Android equivalent of
  * `apps/web/src/sync/SafetyWarningBanner.tsx`, reading the medicine through the repository
  * instead of a raw Dexie query.
+ *
+ * Deliberately *not* `useLiveQuery` here, unlike almost everywhere else in this app. Web's version
+ * refetches on `[db, lastSafetyWarning]` — `dexie-react-hooks`' `useLiveQuery` takes an explicit
+ * dependency array and reruns whenever it changes. `store/useLiveQuery.ts` has no such parameter:
+ * it only reruns when a transaction *writes* one of `watchTables`, which `lastSafetyWarning`
+ * becoming non-null is not. Wired that way, this banner would show its `'A medicine'` fallback
+ * essentially always — the fetch's very first run happens at mount, while `lastSafetyWarning` is
+ * still null, and nothing about a warning arriving later touches the `medicines` table itself. A
+ * plain effect keyed on `lastSafetyWarning` is what web's dependency array actually needs here.
  */
 
 const REASON_LABEL: Record<BlockReason, string> = {
@@ -22,11 +31,23 @@ const REASON_LABEL: Record<BlockReason, string> = {
 export function SafetyWarningBanner(): React.JSX.Element | null {
   const repository = useRepository();
   const { lastSafetyWarning, dismissSafetyWarning } = useSyncStatus();
+  const [medicine, setMedicine] = useState<Medicine | undefined>(undefined);
 
-  const medicine = useLiveQuery(
-    () => (lastSafetyWarning ? repository.getMedicine(lastSafetyWarning.medicineId) : Promise.resolve(undefined)),
-    ['medicines'],
-  );
+  useEffect(() => {
+    if (!lastSafetyWarning) {
+      setMedicine(undefined);
+      return;
+    }
+    let cancelled = false;
+    void repository.getMedicine(lastSafetyWarning.medicineId).then((result) => {
+      if (!cancelled) {
+        setMedicine(result);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [repository, lastSafetyWarning]);
 
   if (!lastSafetyWarning) {
     return null;

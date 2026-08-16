@@ -72,8 +72,8 @@ export default defineConfig({
         'apps/android/src/testUtils/**',
         'apps/android/src/ui/**',
         'apps/android/src/version.ts',
-        // Not yet covered by either runner — see docs/testing.md's "Adding a new test" section.
-        // Delete this line once apps/android/src/alarms/headlessTask.test.tsx lands.
+        // headlessTask.ts imports expo-sqlite and the native alarm module, so it's covered by
+        // apps/android/src/alarms/headlessTask.test.tsx under Jest, not here.
         'apps/android/src/alarms/headlessTask.ts',
         'apps/android/index.ts',
         'apps/android/App.tsx',
