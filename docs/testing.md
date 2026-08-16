@@ -185,7 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first nine real runs each caught a problem this had no way to catch locally:
+That job's first ten real runs each caught a problem this had no way to catch locally:
 
 1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
    `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
@@ -259,6 +259,18 @@ That job's first nine real runs each caught a problem this had no way to catch l
    demoted to background importance (the same reason this still backgrounds with HOME first) and so
    never looks like a crash to the platform, with a `kill -9` fallback (and an explicit `pidof`
    confirmation either way) only if `am kill` doesn't take effect.
+10. **Not an Android bug at all — a Bash bug in finding 9's own fix**: the job failed with a bare
+    "exit code 1" and no diagnostic message, right where the new `am kill`/`pidof` confirmation
+    logic runs. `pidof` exits non-zero on the device when it finds *no* matching process — which is
+    the whole point of that check once `am kill` has actually worked — and `adb shell` mirrors the
+    remote command's exit code as its own. Under `set -euo pipefail`, that made the script abort at
+    the `app_pid=$(adb shell pidof "$APP_ID" | tr -d '\r')` assignment itself, before ever reaching
+    the `if` block meant to interpret an empty result as success. The exact same latent bug was
+    already present in the script's original "is anything running to kill" check, just never
+    triggered there because `pidof` had always found something. Fixed by adding `2>/dev/null |
+    tr -d '\r' || true` to all three `pidof` reads (and `|| true` on the `kill -9` fallback call
+    too), so an absent process is data for the following `if` to interpret, not a script-ending
+    error.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
 run gets far enough to actually exercise it — every fix above came from watching a real run get

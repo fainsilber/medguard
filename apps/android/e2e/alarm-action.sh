@@ -87,7 +87,7 @@ echo "== Reclaiming the app's process (no live JS runtime for the broadcast to f
 adb shell input keyevent KEYCODE_HOME
 sleep 2
 
-app_pid=$(adb shell pidof "$APP_ID" | tr -d '\r')
+app_pid=$(adb shell pidof "$APP_ID" 2>/dev/null | tr -d '\r' || true)
 if [ -z "$app_pid" ]; then
   echo "FAIL: could not find a running process for $APP_ID to kill." >&2
   exit 1
@@ -96,15 +96,15 @@ fi
 adb shell am kill "$APP_ID"
 sleep 1
 
-app_pid=$(adb shell pidof "$APP_ID" | tr -d '\r')
+app_pid=$(adb shell pidof "$APP_ID" 2>/dev/null | tr -d '\r' || true)
 if [ -n "$app_pid" ]; then
   echo "'am kill' didn't take (pid $app_pid still running — the process may not have aged into" >&2
   echo "the cached bucket yet); falling back to kill -9 on it directly." >&2
-  adb shell kill -9 "$app_pid"
+  adb shell kill -9 "$app_pid" || true
   sleep 1
 fi
 
-app_pid=$(adb shell pidof "$APP_ID" | tr -d '\r')
+app_pid=$(adb shell pidof "$APP_ID" 2>/dev/null | tr -d '\r' || true)
 if [ -n "$app_pid" ]; then
   echo "FAIL: $APP_ID is still running (pid $app_pid) after both am kill and kill -9." >&2
   exit 1
