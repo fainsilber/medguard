@@ -58,6 +58,48 @@ jobs:
       - name: Prebuild native Android project
         working-directory: apps/android
         run: npx expo prebuild --platform android
+      # The only place this repo's Kotlin is executed rather than merely read. It lives here and
+      # not in ci.yml because it needs the JDK and the `expo prebuild` output above — `ci.yml` has
+      # neither. `ChimeSession` is deliberately Android-free so it can run as a plain JVM test:
+      # the bug it pins down (two doses on the same minute leaving a looping MediaPlayer nothing
+      # could stop) reached a household and rang for a whole Shabbat, precisely because the state
+      # it corrupted sat inside a Service that nothing here could execute.
+      #
+      # Before `assembleRelease`, so a broken chime fails the build rather than shipping an APK.
+      - name: Native alarm unit tests
+        working-directory: apps/android/android
+        # Gradle's `Test` task prints nothing at all when it passes, so a run that discovered no
+        # tests looks exactly like a run where every test passed — and "the chime suite is green"
+        # is not a claim worth resting on an absence of output. The JUnit XML Gradle always writes
+        # is read back: the counts go in the log, and discovering nothing fails the step.
+        run: |
+          set -euo pipefail
+          ./gradlew :medguard-alarms:testDebugUnitTest
+          python3 - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+
+          results = sorted(
+              glob.glob('../modules/medguard-alarms/android/build/test-results/**/TEST-*.xml',
+                        recursive=True)
+          )
+          if not results:
+              sys.exit('::error::No JUnit results written — the native alarm unit tests did not run.')
+
+          total = failed = skipped = 0
+          for path in results:
+              suite = ET.parse(path).getroot()
+              total += int(suite.get('tests', 0))
+              failed += int(suite.get('failures', 0)) + int(suite.get('errors', 0))
+              skipped += int(suite.get('skipped', 0))
+              print(f"  {suite.get('name')}: {suite.get('tests')} tests")
+
+          print(f'Native alarm unit tests: {total} run, {failed} failed, {skipped} skipped')
+          if total == 0:
+              sys.exit('::error::No tests were discovered in :medguard-alarms.')
+          if failed:
+              sys.exit(f'::error::{failed} native alarm unit test(s) failed.')
+          PY
+
       - name: Build release APK
         working-directory: apps/android/android
         # `debug` builds don't embed the JS bundle — they expect a Metro server reachable at

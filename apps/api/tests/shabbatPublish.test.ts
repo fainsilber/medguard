@@ -78,7 +78,8 @@ function shabbatConfig(overrides: Record<string, unknown> = {}) {
     candleLightingOffsetMins: 18,
     havdalahDegreesOrMins: '8.5_degrees',
     israelHolidays: true,
-    chimeDurationSeconds: 45,
+    chimeDurationSeconds: 30,
+    weekdayChimeDurationSeconds: 60,
     updatedAt: toIso(NOW_MS),
     updatedByDeviceId: 'device',
     syncStatus: 'synced',
@@ -128,9 +129,14 @@ describe('publishWindows', () => {
     const published = await countWindows(session.householdId);
     expect(published).toBeGreaterThan(10);
 
+    // Bounded against the real clock, not `NOW_MS`: this publication came from the Durable Object
+    // on the config write, which uses the real clock. Measuring it from the fixture date instead
+    // spent its 5-day slack on however far today had drifted from that date — a deadline, not a
+    // test.
+    const publishedFromMs = Date.now();
     const furthest = await furthestPublishedMs(env.DB, session.householdId);
-    expect(furthest).toBeGreaterThan(NOW_MS);
-    expect(furthest).toBeLessThanOrEqual(NOW_MS + PUBLISH_HORIZON_MS + 5 * 86_400_000);
+    expect(furthest).toBeGreaterThan(publishedFromMs);
+    expect(furthest).toBeLessThanOrEqual(publishedFromMs + PUBLISH_HORIZON_MS + 5 * 86_400_000);
 
     // And they arrive over the ordinary sync surface, not a new channel.
     const response = await SELF.fetch(`${BASE}/sync/bootstrap`, authed(session));
@@ -150,7 +156,15 @@ describe('publishWindows', () => {
       { table: 'shabbatConfig', record: shabbatConfig() },
     ]);
 
+    // Baseline from a publish at `NOW_MS`, not from the push. The push publishes through
+    // `publishWindowsIfStale`, which reads the *real* clock, so its 90-day horizon starts wherever
+    // today happens to be while `NOW_MS` is pinned to a fixture date. Every Shabbat that falls
+    // into the widening gap between the two is a genuinely new window, so counting the push's
+    // output as the baseline made this fail on a date rather than on a defect — which it duly did
+    // once the real date drifted a Shabbat past the fixture.
+    await publishWindows(env.DB, session.householdId, NOW_MS);
     const before = await countWindows(session.householdId);
+
     await publishWindows(env.DB, session.householdId, NOW_MS);
     await publishWindows(env.DB, session.householdId, NOW_MS);
 

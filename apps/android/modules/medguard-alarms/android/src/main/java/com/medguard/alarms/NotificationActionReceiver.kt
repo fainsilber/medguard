@@ -66,6 +66,20 @@ class NotificationActionReceiver : BroadcastReceiver() {
             manager.cancel(notificationId)
         }
 
-        context.stopService(Intent(context, DoseAlarmService::class.java))
+        // The caregiver pressed something, so the alert has done its job — stop the sound. Not
+        // `stopService`, which this used to call: that killed the service outright, taking any
+        // *other* dose sounding at the same moment with it, and left the orphaned player case
+        // untouched. The stop command lets `DoseAlarmService` settle every notification it is
+        // holding before it goes.
+        runCatching {
+            context.startService(
+                Intent(context, DoseAlarmService::class.java).apply {
+                    // `this.`, not a bare `action =`: the local `val action` above shadows the
+                    // Intent's own property inside this lambda. Same reason `DoseNotifications`
+                    // qualifies it.
+                    this.action = DoseAlarmService.ACTION_STOP_CHIME
+                },
+            )
+        }
     }
 }

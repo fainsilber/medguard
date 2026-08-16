@@ -33,4 +33,14 @@ dependencies {
   // `google-services.json` being present — so without one the class exists and is simply never
   // instantiated, rather than the build failing for a household that only uses local alarms.
   implementation 'com.google.firebase:firebase-messaging:24.0.0'
+
+  // `MediaSessionCompat` + `VolumeProviderCompat`, which is how `DoseAlarmService` receives a
+  // volume-key press while the chime is on the alarm stream — one of the "a button was pressed"
+  // stop conditions. Not available from `expo-module-gradle-plugin`'s own classpath.
+  implementation 'androidx.media:media:1.7.0'
+
+  // `ChimeSessionTest` — the decision layer of the chime (which doses are sounding, when the
+  // sound stops, what silences it early) is a plain Kotlin class precisely so it can be proven
+  // here rather than only on a phone. Run by `.github/workflows/android-apk.yml` after prebuild.
+  testImplementation 'junit:junit:4.13.2'
 }

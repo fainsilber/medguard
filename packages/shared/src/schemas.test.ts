@@ -112,7 +112,11 @@ describe('medicineSchema', () => {
   });
 
   it('accepts configured safety guards', () => {
-    const result = medicineSchema.safeParse({ ...valid, minHoursBetweenDoses: 4, maxDailyDoses: 4 });
+    const result = medicineSchema.safeParse({
+      ...valid,
+      minHoursBetweenDoses: 4,
+      maxDailyDoses: 4,
+    });
     expect(result.success).toBe(true);
   });
 
@@ -246,7 +250,11 @@ describe('intakeLogSchema', () => {
   it('accepts a properly attributed override', () => {
     const result = intakeLogSchema.safeParse({
       ...valid,
-      override: { confirmedByUserId: 'mom', reason: 'Vomiting, dose not retained', blockedBy: 'cooldown' },
+      override: {
+        confirmedByUserId: 'mom',
+        reason: 'Vomiting, dose not retained',
+        blockedBy: 'cooldown',
+      },
     });
     expect(result.success).toBe(true);
   });
@@ -282,8 +290,12 @@ describe('inventoryAdjustmentSchema', () => {
   });
 
   it('accepts a correction in either direction', () => {
-    expect(inventoryAdjustmentSchema.safeParse({ ...valid, reason: 'correction', delta: 2 }).success).toBe(true);
-    expect(inventoryAdjustmentSchema.safeParse({ ...valid, reason: 'correction', delta: -2 }).success).toBe(true);
+    expect(
+      inventoryAdjustmentSchema.safeParse({ ...valid, reason: 'correction', delta: 2 }).success,
+    ).toBe(true);
+    expect(
+      inventoryAdjustmentSchema.safeParse({ ...valid, reason: 'correction', delta: -2 }).success,
+    ).toBe(true);
   });
 });
 
@@ -336,7 +348,8 @@ describe('shabbatConfigSchema', () => {
     candleLightingOffsetMins: 18,
     havdalahDegreesOrMins: '8.5_degrees',
     israelHolidays: true,
-    chimeDurationSeconds: 45,
+    chimeDurationSeconds: 30,
+    weekdayChimeDurationSeconds: 60,
     ...syncable,
   };
 
@@ -345,11 +358,15 @@ describe('shabbatConfigSchema', () => {
   });
 
   it('accepts a minutes-based havdalah', () => {
-    expect(shabbatConfigSchema.safeParse({ ...valid, havdalahDegreesOrMins: '50_mins' }).success).toBe(true);
+    expect(
+      shabbatConfigSchema.safeParse({ ...valid, havdalahDegreesOrMins: '50_mins' }).success,
+    ).toBe(true);
   });
 
   it('rejects an unparseable havdalah setting', () => {
-    expect(shabbatConfigSchema.safeParse({ ...valid, havdalahDegreesOrMins: 'soon' }).success).toBe(false);
+    expect(shabbatConfigSchema.safeParse({ ...valid, havdalahDegreesOrMins: 'soon' }).success).toBe(
+      false,
+    );
   });
 
   it('rejects impossible coordinates', () => {

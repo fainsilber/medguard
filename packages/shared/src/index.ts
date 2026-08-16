@@ -75,10 +75,7 @@ export {
   hasUnreconciledDoses,
   isReconcilableAt,
 } from './shabbatReconciliation.js';
-export type {
-  CollectReconciliationInput,
-  ReconciliationItem,
-} from './shabbatReconciliation.js';
+export type { CollectReconciliationInput, ReconciliationItem } from './shabbatReconciliation.js';
 
 // Snooze (delta AD5): bounded, append-only deferral of a scheduled dose
 export { MAX_SNOOZE_COUNT, buildDoseSnooze, deriveSnoozeState } from './snooze.js';
@@ -87,12 +84,19 @@ export type { SnoozeContext, SnoozeState } from './snooze.js';
 // Household setting defaults, shared so two clients cannot bootstrap different safety windows
 export {
   DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
-  DEFAULT_CHIME_DURATION_SECONDS,
   DEFAULT_ESCALATION_MINUTES,
   DEFAULT_HAVDALAH,
+  DEFAULT_SHABBAT_CHIME_DURATION_SECONDS,
   DEFAULT_SNOOZE_MINUTES,
+  DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
+  MAX_CHIME_DURATION_SECONDS,
+  MIN_CHIME_DURATION_SECONDS,
   MISSED_AFTER_MINUTES,
 } from './settings.js';
+
+// How long an alert rings, in one place — the weekday and Shabbat lengths resolved and clamped
+export { chimeDurationSecondsFor } from './chime.js';
+export type { ChimeDurationInput } from './chime.js';
 
 // PRN safety guards
 export {

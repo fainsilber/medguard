@@ -77,12 +77,7 @@ const MAX_WORK_PER_WAKE = 20;
  * was acknowledged.
  */
 type AlarmState =
-  | 'pending'
-  | 'notified'
-  | 'escalated'
-  | 'acknowledged'
-  | 'missed'
-  | 'pending_shabbat';
+  'pending' | 'notified' | 'escalated' | 'acknowledged' | 'missed' | 'pending_shabbat';
 
 interface DoseAlarmRow extends Record<string, SqlStorageValue> {
   occurrence_id: string;
@@ -592,7 +587,21 @@ export class DoseAlarmChain {
 
     // Only schedule the rest of the burst if there is a browser to hear it. A household on
     // native-only phones would otherwise wake this object nine more times to send nothing.
-    if (webTargets.length > 0 && SHABBAT_BURST_COUNT > 1) {
+    //
+    // And only one chain per *instant*. Several medicines given at 08:00 is the ordinary case, not
+    // an edge one, and a chain each would mean twenty or thirty notification tones for what a
+    // caregiver hears as a single alert going off — the browser-side version of the same "one
+    // sound, several notifications" rule the native chime now follows. Each dose still gets its
+    // own initial push above, so the count of notifications is unchanged; what is deduplicated is
+    // the repetition that stands in for a chime.
+    const chainAlreadyRunning = this.sql
+      .exec<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM shabbat_bursts WHERE due_at_ms = ?',
+        row.due_at_ms,
+      )
+      .toArray()[0];
+
+    if (webTargets.length > 0 && SHABBAT_BURST_COUNT > 1 && (chainAlreadyRunning?.n ?? 0) === 0) {
       this.sql.exec(
         `INSERT INTO shabbat_bursts (
            occurrence_id, schedule_id, medicine_id, medicine_name, dosage_quantity, due_at_ms,

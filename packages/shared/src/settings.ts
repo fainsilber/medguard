@@ -49,5 +49,36 @@ export const DEFAULT_CANDLE_LIGHTING_OFFSET_MINS = 18;
 /** Tzeit hakochavim. The alternative form the schema accepts is a fixed `"<n>_mins"`. */
 export const DEFAULT_HAVDALAH = '8.5_degrees';
 
-/** PRD §3: the Shabbat chime plays for 45 seconds and stops on its own. */
-export const DEFAULT_CHIME_DURATION_SECONDS = 45;
+/**
+ * How long a dose alert rings before stopping on its own, per mode.
+ *
+ * These were one number (the PRD's 45 seconds) until a Shabbat where the alerts rang all day: the
+ * chime service could be left with an orphaned, un-stoppable `MediaPlayer` when two doses fell on
+ * the same minute, and the auto-stop timeout was the only stop path that existed at all. Splitting
+ * the number in two came out of the same review, because the two modes want different lengths for
+ * different reasons.
+ *
+ * **Weekday: 60 seconds.** A caregiver can act on the alert — mark the dose, press a button, pick
+ * the phone up — so the timeout is the backstop for nobody reaching the phone, and a minute is how
+ * long it is worth ringing before giving up and leaving the notification to be found later.
+ *
+ * **Shabbat: 30 seconds.** Nothing can be tapped and nothing is recorded (delta D5), so the alert
+ * is purely informational: it has said everything it has to say well inside half a minute, and
+ * every further second is noise in a house that cannot silence it.
+ */
+export const DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS = 60;
+
+/** See `DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS`. */
+export const DEFAULT_SHABBAT_CHIME_DURATION_SECONDS = 30;
+
+/**
+ * Bounds every configured chime length is clamped into, on the client *and* again in Kotlin
+ * (`ChimeSession`) before a note is played.
+ *
+ * Belt and braces rather than redundancy: the Shabbat that prompted this had a phone ringing for
+ * hours, and the clamp is what makes that impossible to express at all — whatever a settings
+ * screen, a stale synced record, or a corrupted alarm payload happens to say, the sound cannot
+ * outlive `MAX_CHIME_DURATION_SECONDS`.
+ */
+export const MIN_CHIME_DURATION_SECONDS = 5;
+export const MAX_CHIME_DURATION_SECONDS = 180;

@@ -29,7 +29,13 @@ const log = appLog('alarms');
  * the same `NotifyingStore` this subscribes to, so nesting needs no explicit hook between them.
  */
 
-const WATCHED_TABLES = ['schedules', 'intakeLogs', 'doseSnoozes', 'householdSettings', 'medicines'] as const;
+const WATCHED_TABLES = [
+  'schedules',
+  'intakeLogs',
+  'doseSnoozes',
+  'householdSettings',
+  'medicines',
+] as const;
 
 /** Independent store-change notifications inside one sync pull collapse to one reconcile. */
 const RECONCILE_DEBOUNCE_MS = 500;
@@ -38,6 +44,12 @@ interface AlarmContextValue {
   health: AlarmHealth | undefined;
   staleness: SyncStaleness | undefined;
   snooze: (occurrenceKey: string) => Promise<void>;
+  /**
+   * Silence a chime that is playing right now, without recording anything. The Today screen calls
+   * it after marking a dose: cancelling the alarm only unschedules a future one, so without this
+   * a caregiver who taps Taken while the phone is ringing keeps hearing it.
+   */
+  silenceChime: (occurrenceKey?: string) => Promise<void>;
   /** Undefined until the first registration attempt finishes (see `isPushRegistered` below). */
   pushRegistration: PushRegistrationOutcome | undefined;
   /** Lets a caregiver retry from the UI — e.g. after fixing a household sign-in problem. */
@@ -60,7 +72,9 @@ export function AlarmProvider({ children }: { children: ReactNode }) {
   // shows up in the same place every other degradation does. Undefined until the first attempt
   // finishes — see `isPushRegistered` on `AlarmEngineDeps` for why that is not `false`.
   const pushRegisteredRef = useRef<boolean | undefined>(undefined);
-  const [pushRegistration, setPushRegistration] = useState<PushRegistrationOutcome | undefined>(undefined);
+  const [pushRegistration, setPushRegistration] = useState<PushRegistrationOutcome | undefined>(
+    undefined,
+  );
 
   const engineRef = useRef<AlarmEngine | null>(null);
   if (!engineRef.current) {
@@ -195,12 +209,17 @@ export function AlarmProvider({ children }: { children: ReactNode }) {
     await engineRef.current!.snooze(occurrenceKey);
   };
 
+  const silenceChime = async (occurrenceKey?: string) => {
+    await engineRef.current!.silenceChime(occurrenceKey);
+  };
+
   return (
     <AlarmReactContext.Provider
       value={{
         health: state?.health,
         staleness: state?.staleness,
         snooze,
+        silenceChime,
         pushRegistration,
         retryPushRegistration: registerPush,
       }}

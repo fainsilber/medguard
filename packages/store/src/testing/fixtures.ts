@@ -77,7 +77,9 @@ export function makeInventoryItem(overrides: Partial<InventoryItem> = {}): Inven
   };
 }
 
-export function makeInventoryAdjustment(overrides: Partial<InventoryAdjustment> = {}): InventoryAdjustment {
+export function makeInventoryAdjustment(
+  overrides: Partial<InventoryAdjustment> = {},
+): InventoryAdjustment {
   return {
     id: 'adjustment-1',
     medicineId: 'medicine-1',
@@ -118,7 +120,8 @@ export function makeShabbatConfig(overrides: Partial<ShabbatConfig> = {}): Shabb
     candleLightingOffsetMins: 18,
     havdalahDegreesOrMins: '8.5_degrees',
     israelHolidays: true,
-    chimeDurationSeconds: 45,
+    chimeDurationSeconds: 30,
+    weekdayChimeDurationSeconds: 60,
     updatedAt: CONFORMANCE_NOW,
     updatedByDeviceId: 'device-1',
     syncStatus: 'pending',

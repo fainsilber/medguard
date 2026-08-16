@@ -10,6 +10,11 @@ import {
   seedScheduleFor,
   seedSnooze,
 } from '../../testUtils/seedAlarmData.js';
+import * as MedGuardAlarms from '../../../modules/medguard-alarms/src';
+
+// Mapped to `testUtils/mockMedguardAlarms.ts` by jest.config.js, so every export is a jest.Mock
+// at runtime — the static type is the real module's, which knows nothing about that.
+const stopChime = MedGuardAlarms.stopChime as unknown as jest.Mock;
 import { TodayView } from './TodayView.js';
 
 const NOW = '2026-06-15T12:00:00.000Z'; // 15:00 Jerusalem
@@ -96,6 +101,41 @@ describe('TodayView', () => {
     // database and confirm the dose still reads as snoozed rather than back to due-now.
     const second = renderTodayView(dbName);
     await waitFor(() => expect(second.getByText('Snoozed')).toBeTruthy(), WAIT_OPTIONS);
+  });
+
+  /**
+   * Marking the dose is one of the alert's stop conditions, and it used not to work: cancelling
+   * the alarm only unschedules a *future* one, so a caregiver could tap Taken while the phone was
+   * still ringing and keep hearing it for the rest of the chime.
+   */
+  it('silences a ringing alert when the dose is marked taken', async () => {
+    const dbName = 'today-view-taken-silences.db';
+    await seedHouseholdSettings(dbName, { snoozeMinutes: 20 });
+    await seedMedicine(dbName, makeMedicine());
+    await seedScheduleFor(dbName, makeSchedule());
+    stopChime.mockClear();
+
+    const { getByText } = renderTodayView(dbName);
+
+    await waitFor(() => expect(getByText('Taken')).toBeTruthy(), WAIT_OPTIONS);
+    fireEvent.press(getByText('Taken'));
+
+    await waitFor(() => expect(stopChime).toHaveBeenCalledWith(OCCURRENCE), WAIT_OPTIONS);
+  });
+
+  it('silences a ringing alert when the dose is skipped', async () => {
+    const dbName = 'today-view-skip-silences.db';
+    await seedHouseholdSettings(dbName, { snoozeMinutes: 20 });
+    await seedMedicine(dbName, makeMedicine());
+    await seedScheduleFor(dbName, makeSchedule());
+    stopChime.mockClear();
+
+    const { getByText } = renderTodayView(dbName);
+
+    await waitFor(() => expect(getByText('Skip')).toBeTruthy(), WAIT_OPTIONS);
+    fireEvent.press(getByText('Skip'));
+
+    await waitFor(() => expect(stopChime).toHaveBeenCalledWith(OCCURRENCE), WAIT_OPTIONS);
   });
 
   it('bounds at three snoozes: the fourth is refused and the UI shows the count, not a button', async () => {

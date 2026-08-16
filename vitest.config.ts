@@ -96,6 +96,12 @@ export default defineConfig({
         // record on Shabbat; a wrong `true` silences an escalation on a weekday.
         'packages/shared/src/shabbat.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
 
+        // How long an alert rings, and the clamp that bounds it. Held here because the failure
+        // this replaced was not theoretical: a Shabbat spent with phones ringing continuously.
+        // The number decided here is baked into an alarm payload days ahead and consumed by a
+        // Kotlin service that may run with no JS process alive to correct it.
+        'packages/shared/src/chime.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+
         // Sprint A1 (docs/android-client-plan.md, "Storage and the sync port"): the extracted
         // outbox/transaction code and the LWW-vs-append-only merge dispatch carry the same
         // safety invariant 7 (no log lost across an offline→online cycle, no retry ever

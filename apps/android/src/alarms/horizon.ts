@@ -1,6 +1,6 @@
 import {
-  DEFAULT_CHIME_DURATION_SECONDS,
   MS_PER_HOUR,
+  chimeDurationSecondsFor,
   deriveSnoozeState,
   expandSchedules,
   findLogForOccurrence,
@@ -64,7 +64,11 @@ export interface PlannedAlarm {
    * tapping one writes a record (delta D5).
    */
   channelId: MedGuardChannelId;
-  /** How long the chime plays before auto-stopping. From `ShabbatConfig`, or the PRD's 45s. */
+  /**
+   * How long the chime plays before auto-stopping, resolved per alarm by
+   * `chimeDurationSecondsFor` — the weekday length, or the shorter Shabbat one for a dose falling
+   * inside a published window.
+   */
   chimeDurationSeconds: number;
   /** Kept so the caller can turn a fired alarm back into a dose without re-expanding. */
   occurrence: Occurrence;
@@ -90,7 +94,10 @@ export interface MaterializeHorizonInput {
   shabbatConfig?: ShabbatConfig | undefined;
 }
 
-function describeDose(medicine: Medicine | undefined, occurrence: Occurrence): { title: string; body: string } {
+function describeDose(
+  medicine: Medicine | undefined,
+  occurrence: Occurrence,
+): { title: string; body: string } {
   const name = medicine?.name ?? 'Medicine';
   const strength = medicine?.strength ? ` ${medicine.strength}` : '';
   const unit = occurrence.dosageQuantity === 1 ? 'dose' : 'doses';
@@ -121,8 +128,6 @@ export function materializeHorizon(input: MaterializeHorizonInput): PlannedAlarm
   const { schedules, medicines, logs, snoozes, timeZone, nowMs, shabbatConfig } = input;
   const horizonMs = input.horizonMs ?? ALARM_HORIZON_MS;
   const shabbatWindows = input.shabbatWindows ?? [];
-  const chimeDurationSeconds =
-    shabbatConfig?.chimeDurationSeconds ?? DEFAULT_CHIME_DURATION_SECONDS;
 
   const medicinesById = new Map(medicines.map((medicine) => [medicine.id, medicine]));
 
@@ -172,7 +177,11 @@ export function materializeHorizon(input: MaterializeHorizonInput): PlannedAlarm
       triggerAtMs,
       occurrence,
       channelId: inShabbat ? 'shabbat_v1' : 'dose_standard_v1',
-      chimeDurationSeconds,
+      // Per alarm, from the same `inShabbat` that picks the channel — the two must agree, because
+      // an alert with no buttons to press (Shabbat) and one a caregiver is expected to act on
+      // want different lengths, and the length is baked into a payload that may fire days later
+      // with no JS process alive to correct it.
+      chimeDurationSeconds: chimeDurationSecondsFor({ inShabbat, shabbatConfig }),
       ...describeDose(medicine, occurrence),
     });
   }

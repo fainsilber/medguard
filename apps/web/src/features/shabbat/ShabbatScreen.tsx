@@ -2,8 +2,11 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useState } from 'react';
 import {
   DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
-  DEFAULT_CHIME_DURATION_SECONDS,
   DEFAULT_HAVDALAH,
+  DEFAULT_SHABBAT_CHIME_DURATION_SECONDS,
+  DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
+  MAX_CHIME_DURATION_SECONDS,
+  MIN_CHIME_DURATION_SECONDS,
   SINGLE_PATIENT_ID,
   describeShabbatWindow,
   shabbatPhaseAt,
@@ -17,7 +20,13 @@ import {
   useRepository,
 } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
-import { Card, buttonClass, inputClass, labelClass, primaryButtonClass } from '../../ui/primitives.js';
+import {
+  Card,
+  buttonClass,
+  inputClass,
+  labelClass,
+  primaryButtonClass,
+} from '../../ui/primitives.js';
 
 /**
  * Shabbat & Yom Tov (Sprint A5): what the household's times are, and the check that they are
@@ -44,7 +53,11 @@ export function ShabbatScreen() {
   const ids = useIdGenerator();
   const householdSettings = useHouseholdSettings();
 
-  const config = useLiveQuery(async () => (await db.shabbatConfig.toArray())[0], [db]);
+  // `?? null` matters: `useLiveQuery` returns `undefined` until the query first resolves, and the
+  // query itself would return `undefined` for "no row" — making "not read yet" and "no config"
+  // indistinguishable at every call site below. Collapsing the empty case to `null` keeps
+  // `undefined` meaning exactly one thing: still loading.
+  const config = useLiveQuery(async () => (await db.shabbatConfig.toArray())[0] ?? null, [db]);
   const windows = useLiveQuery(() => db.shabbatWindows.toArray(), [db]);
 
   const [draft, setDraft] = useState<ShabbatConfig | null>(null);
@@ -63,7 +76,7 @@ export function ShabbatScreen() {
   const timeZone = householdSettings?.timeZone;
 
   const phase = useMemo(
-    () => shabbatPhaseAt({ config, windows: windows ?? [], atMs: nowMs }),
+    () => shabbatPhaseAt({ config: config ?? undefined, windows: windows ?? [], atMs: nowMs }),
     [config, windows, nowMs],
   );
 
@@ -85,7 +98,8 @@ export function ShabbatScreen() {
         candleLightingOffsetMins: DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
         havdalahDegreesOrMins: DEFAULT_HAVDALAH,
         israelHolidays: true,
-        chimeDurationSeconds: DEFAULT_CHIME_DURATION_SECONDS,
+        chimeDurationSeconds: DEFAULT_SHABBAT_CHIME_DURATION_SECONDS,
+        weekdayChimeDurationSeconds: DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
         // Replaced by the repository's own stamp; placeholders satisfy the type.
         updatedAt: '',
         updatedByDeviceId: '',
@@ -107,13 +121,13 @@ export function ShabbatScreen() {
     }
   };
 
-  if (windows === undefined) {
-    return (
-      <Card>
-        <p className="text-sm text-slate-400">Loading…</p>
-      </Card>
-    );
-  }
+  // Only the published-times half waits on `windows`. The settings form does not depend on them
+  // at all, and gating the whole screen on an IndexedDB read meant the screen — its heading
+  // included — simply did not exist until that read landed. On a loaded machine that read is slow
+  // enough to be a real wait, which is what made the Shabbat-tab e2e assertion flaky: it had been
+  // given a longer and longer timeout when what it was waiting for was never the heading.
+  const windowsLoading = windows === undefined;
+  const configLoading = config === undefined;
 
   return (
     <div className="flex flex-col gap-3">
@@ -130,7 +144,15 @@ export function ShabbatScreen() {
       <Card>
         <h2 className="text-lg font-semibold">Shabbat &amp; Yom Tov</h2>
 
-        {!config && !draft && (
+        {/*
+          `config === undefined` is "not read yet", `null`/absent after the read is "genuinely not
+          configured" — and the two must not look alike here. Announcing "Not set up" to a
+          household that *is* set up, for as long as an IndexedDB read takes, would be a false
+          statement about whether Shabbat alarms are working at all.
+        */}
+        {configLoading && !draft && <p className="text-sm text-slate-400">Loading…</p>}
+
+        {!configLoading && !config && !draft && (
           <>
             <p className="text-sm text-slate-400">
               Not set up. Until this household has coordinates, no Shabbat times are computed and
@@ -163,9 +185,7 @@ export function ShabbatScreen() {
                   type="number"
                   step="0.0001"
                   value={draft.latitude}
-                  onChange={(event) =>
-                    setDraft({ ...draft, latitude: Number(event.target.value) })
-                  }
+                  onChange={(event) => setDraft({ ...draft, latitude: Number(event.target.value) })}
                 />
               </label>
               <label className={labelClass}>
@@ -225,19 +245,47 @@ export function ShabbatScreen() {
               In Israel (one day of Yom Tov rather than two)
             </label>
 
+            {/*
+              Two lengths, together, because the difference between them is the point. A weekday
+              alert can be acted on — marked, or silenced with a button — so its timeout is the
+              backstop for nobody reaching the phone. A Shabbat alert can only be listened to, so
+              it says what it has to say and stops.
+            */}
             <label className={labelClass}>
-              Chime length, seconds
+              Weekday alert length, seconds
               <input
                 className={inputClass}
                 type="number"
-                min={1}
-                max={600}
+                min={MIN_CHIME_DURATION_SECONDS}
+                max={MAX_CHIME_DURATION_SECONDS}
+                value={draft.weekdayChimeDurationSeconds ?? DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS}
+                onChange={(event) =>
+                  setDraft({ ...draft, weekdayChimeDurationSeconds: Number(event.target.value) })
+                }
+              />
+            </label>
+            <span className="-mt-2 text-xs text-slate-400">
+              Default {DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS}. Stops early when the dose is marked,
+              or when a button on the phone is pressed.
+            </span>
+
+            <label className={labelClass}>
+              Shabbat alert length, seconds
+              <input
+                className={inputClass}
+                type="number"
+                min={MIN_CHIME_DURATION_SECONDS}
+                max={MAX_CHIME_DURATION_SECONDS}
                 value={draft.chimeDurationSeconds}
                 onChange={(event) =>
                   setDraft({ ...draft, chimeDurationSeconds: Number(event.target.value) })
                 }
               />
             </label>
+            <span className="-mt-2 text-xs text-slate-400">
+              Default {DEFAULT_SHABBAT_CHIME_DURATION_SECONDS}. Nothing can be tapped on Shabbat, so
+              this alert only stops on its own.
+            </span>
 
             {error && <p className="text-sm text-locked">{error}</p>}
 
@@ -267,7 +315,9 @@ export function ShabbatScreen() {
           timezone. Check these against your luach before relying on them.
         </p>
 
-        {upcoming.length === 0 ? (
+        {windowsLoading ? (
+          <p className="text-sm text-slate-400">Loading…</p>
+        ) : upcoming.length === 0 ? (
           <p className="text-sm text-slate-400">
             {config
               ? 'No times published yet — they arrive with the next sync.'

@@ -3,7 +3,11 @@ import type { Clock, DoseSnooze, IdGenerator } from '@medguard/shared';
 import type { MedGuardRepository } from '@medguard/store';
 import { PendingActionApplier, getLastSyncedAt } from '@medguard/store';
 import type { Store } from '@medguard/store';
-import type { ArmedAlarm, PendingActionRecord, ScheduleDoseAlarmInput } from '../../modules/medguard-alarms/src/index.js';
+import type {
+  ArmedAlarm,
+  PendingActionRecord,
+  ScheduleDoseAlarmInput,
+} from '../../modules/medguard-alarms/src/index.js';
 import { diffAlarms } from './alarmReconciler.js';
 import { deriveAlarmHealth, deriveSyncStaleness, describeAlarmStatus } from './alarmHealth.js';
 import type { AlarmHealth, AlarmPermissions, SyncStaleness } from './alarmHealth.js';
@@ -25,6 +29,8 @@ import { ALARM_HORIZON_MS, materializeHorizon } from './horizon.js';
 export interface AlarmNativeSurface {
   armDoseAlarms(inputs: ScheduleDoseAlarmInput[]): Promise<void>;
   cancelDoseAlarm(occurrenceKey: string): Promise<void>;
+  /** Silences audio that is playing now, which `cancelDoseAlarm` does not. */
+  stopChime(occurrenceKey?: string): Promise<void>;
   listArmedAlarms(): Promise<ArmedAlarm[]>;
   readPendingActions(): Promise<PendingActionRecord[]>;
   ackPendingActions(ids: string[]): Promise<void>;
@@ -203,7 +209,30 @@ export class AlarmEngine {
    *    second call for the same occurrence would mint a second inventory adjustment and
    *    double-decrement stock — and property 1 makes repeated reads normal, not exceptional.
    */
+  /**
+   * Stop a chime that is audibly playing, without recording anything.
+   *
+   * Marking a dose has to silence the phone that is ringing about it — until this existed the two
+   * were unconnected, because `cancelDoseAlarm` only unschedules a *future* `AlarmManager` alarm.
+   * A caregiver could tap Taken while the room was still full of the alarm and have it keep going
+   * for the rest of the chime.
+   *
+   * Never allowed to fail a dose write: the record is the thing that matters, and a chime that
+   * keeps playing stops on its own within a minute anyway.
+   */
+  async silenceChime(occurrenceKey?: string): Promise<void> {
+    try {
+      await this.deps.native.stopChime(occurrenceKey);
+    } catch (error) {
+      this.log.error('failed to stop chime', { error: String(error) });
+    }
+  }
+
   async applyPendingActions(): Promise<number> {
+    // The notification-action path already stopped the sound natively at the instant of the tap
+    // (`NotificationActionReceiver`), which is the only path that works with the app dead. This
+    // covers the rest: a tap handed to a live runtime, and a drain that runs at launch.
+    await this.silenceChime();
     const applied = await this.applier.applyPendingActions();
     // Reconcile whether or not anything applied: a tap that turned into a dose has changed what
     // should be armed, and one that was skipped as already-logged usually means another device
@@ -214,6 +243,7 @@ export class AlarmEngine {
 
   /** The Today screen's Snooze button — the same path a notification-action snooze takes. */
   async snooze(key: string): Promise<DoseSnooze | undefined> {
+    await this.silenceChime(key);
     const snooze = await this.applier.snooze(key);
     await this.reconcile();
     return snooze;
