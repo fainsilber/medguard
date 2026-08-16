@@ -32,6 +32,14 @@ appId: il.co.fainsilber.med
     id: "medicine-strength-input"
 - inputText: "4mg"
 - hideKeyboard
+# Below the fold on a small emulator screen — Name, Strength, the five Form chips, and this row
+# are more than 640px of portrait height fits at once (confirmed the hard way in CI: `tapOn`
+# doesn't auto-scroll, and "Element not found" is what an off-screen element looks like, not a
+# text-matching problem).
+- scrollUntilVisible:
+    element:
+      text: "As needed — no fixed times, given when it's needed"
+    direction: DOWN
 - tapOn: "As needed — no fixed times, given when it's needed"
 - tapOn: "Save"
 

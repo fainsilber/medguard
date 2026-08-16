@@ -185,7 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first three real runs each caught a problem this had no way to catch locally:
+That job's first four real runs each caught a problem this had no way to catch locally:
 
 1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
    `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
@@ -203,6 +203,14 @@ That job's first three real runs each caught a problem this had no way to catch 
    `relaunch-sanity.yaml` already had one (it *is* run standalone, by `alarm-action.sh`);
    `ensure-onboarded.yaml` didn't, on the assumption that a pure-subflow file wouldn't need one.
    Fixed by adding one there too.
+4. **`tapOn` on the "As needed" chip found nothing**, after onboarding, adding a medicine, and
+   filling in Name and Strength all ran correctly — genuine UI automation working end to end for
+   the first time. The chip was simply off-screen: Name, Strength, five Form chips, and this row
+   don't all fit in 640px of portrait height on the emulator's small default skin, and `tapOn`
+   doesn't auto-scroll to find an element the way a human eye would. Fixed with
+   `scrollUntilVisible` before the tap, the same pattern `boot-rearm.yaml` and
+   `alarm-notification-action.yaml` already used for Diagnostics' "Arm alarm in 15s" button — this
+   file just hadn't needed it yet.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
 run gets far enough to actually exercise it — the infrastructure now boots and installs the app,
