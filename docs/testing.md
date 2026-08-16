@@ -185,7 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first thirteen real runs each caught a problem this had no way to catch locally — the
+That job's first fourteen real runs each caught a problem this had no way to catch locally — the
 twelfth is the first of these that was a real bug in the app rather than in the test harness or CI
 infrastructure, and exactly the kind of thing this whole layer was built to find:
 
@@ -323,6 +323,27 @@ infrastructure, and exactly the kind of thing this whole layer was built to find
     false — all under one `MedGuardAlarms` tag alarm-action.sh's existing logcat filter already
     catches. Not yet fixed — next run's dump is what finally settles whether `commit()` is
     genuinely returning `false`, or something else entirely.
+14. **The logging settled it: `commit()=true, entries now 1`, logged and gone by the next check** —
+    the write was never in doubt; `PendingActionStore.add()` genuinely succeeds every single time.
+    The actual bug was in this script's own assumption about *when* to look. The `sleep 1` between
+    "Broadcast completed" and the "captured durably" check was there on the theory that the write
+    might need "a beat" to land — but `am broadcast` only prints "Broadcast completed" once the
+    ordered broadcast's receiver has fully returned, which for a manifest receiver with no
+    `goAsync()` means `add()`'s synchronous `commit()` has *already* happened by that point,
+    proven directly by the new logging. What that `sleep 1` actually did was give
+    `MedGuardHeadlessService`'s own drain — started moments earlier by the same `onReceive()`, and
+    just as fast to spin up on this emulator — a full second's head start to read, ack, and clear
+    the very entry the check exists to find. The Diagnostics alarm's synthetic UUID
+    `occurrenceKey` makes that ack happen almost immediately *by design* (this script's own header
+    comment: no matching schedule means the drain acks-without-applying), so the delay was working
+    directly against the assertion it was meant to protect — and the process-liveness fixes in
+    findings 8, 9 and 11 were chasing a symptom of this same race, not its cause (finding 12's
+    crash fix was independently real and correct — the app really was crashing — it just wasn't
+    *this* bug). Fixed by removing the sleep entirely: checking immediately, right as the
+    broadcast's own completion already guarantees the write landed, reliably reads it before the
+    drain gets there. This is finding 14 — fourteen real runs, four of which (11 through 14) were
+    needed just to separate this one true root cause from a genuine app bug and a Bash bug that
+    both happened to manifest as the identical symptom.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
 run gets far enough to actually exercise it — every fix above came from watching a real run get

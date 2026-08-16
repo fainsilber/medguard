@@ -119,9 +119,19 @@ adb logcat -c
 adb shell am broadcast -a com.medguard.alarms.action.TAKEN -n "$RECEIVER" \
   --es com.medguard.alarms.extra.OCCURRENCE_KEY "$occurrence_key"
 
-# The receiver's PendingActionStore.add() call is synchronous (commit(), not apply() — see the
-# class doc comment), so this should already be true, but give the filesystem a beat.
-sleep 1
+# Deliberately NO sleep here — confirmed the hard way in CI, this was the actual bug behind
+# findings 8 through 13. `am broadcast` only prints "Broadcast completed" once the ordered
+# broadcast's receiver has fully returned, which for a manifest BroadcastReceiver with no
+# goAsync() means PendingActionStore.add()'s synchronous commit() has *already* happened — a
+# `Log.i` added while chasing this confirmed `commit()=true` at that exact point, every time.
+# The `sleep 1` that used to sit here wasn't giving the filesystem "a beat", as the comment
+# claimed — it was giving MedGuardHeadlessService's own drain (started moments earlier by the
+# same onReceive(), and just as fast on this emulator) a full second's head start to read, ack,
+# and clear the very entry this check exists to find. Diagnostics' synthetic UUID occurrenceKey
+# makes that ack happen almost immediately by design (see this script's header comment: no
+# matching schedule means the drain acks-without-applying), so the delay was actively working
+# against the assertion it was meant to protect. Checking immediately, right as the broadcast's
+# own completion already guarantees the write landed, reads it before the drain gets there.
 echo "== Checking the tap was captured durably before anything else ran =="
 pending_after_broadcast=$(adb shell "cat $PENDING_PREFS 2>/dev/null" || true)
 if ! echo "$pending_after_broadcast" | grep -q "$occurrence_key"; then
