@@ -4,8 +4,12 @@
  * environments can't execute the actual React Native renderer; `jest-expo`'s preset provides the
  * native-module mocks (NativeModules, TurboModules, Expo's own modules) that doing so requires.
  *
- * Split by extension, not directory: `.test.ts` (pure logic, no RN import) stays on Vitest per
- * `vitest.config.ts`'s `include`; `.test.tsx` (anything that renders a component) runs here.
+ * Split by extension, not directory — but "extension" here is shorthand for "does it import
+ * react-native or an Expo/native module". Every remaining untested leaf under `src/` does (e.g.
+ * `api/config.ts` → expo-constants, `clock/localClockGuard.ts` → RN's AppState,
+ * `identity/*.ts` → expo-secure-store), so those get named `.test.tsx` and run here even with no
+ * JSX in them — `.test.ts` is reserved for files with zero RN/native imports, which stay on
+ * Vitest per `vitest.config.ts`'s `include`.
  */
 module.exports = {
   preset: 'jest-expo',
@@ -28,4 +32,41 @@ module.exports = {
   transformIgnorePatterns: [
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg)',
   ],
+  // The other half of the coverage split introduced alongside vitest.config.ts's narrowed
+  // apps/android/src exclusion: that config gates exactly the pure/native-free surface
+  // (alarms/*.ts, store/expoSqliteDriver.ts); this gates exactly its complement, so every
+  // shipped line of apps/android/src is under one gate or the other, never both and never
+  // neither. collectCoverageFrom excludes what belongs to the other gate, composition roots
+  // (app/RepositoryContext.tsx, app/useHouseholdSettings.ts — no logic of their own, same
+  // rationale as apps/web/src/main.tsx), and thin platform adapters (version.ts, api/config.ts,
+  // features/export/shareTextFile.ts).
+  //
+  // A merged single report (`nyc merge` across both istanbul outputs) would be the technically
+  // cleaner answer — one true apps/android/src number — but it's an accounting improvement, not
+  // a coverage one; see docs/testing.md.
+  collectCoverage: true,
+  coverageDirectory: '<rootDir>/coverage',
+  coverageReporters: ['text-summary', 'html', 'lcov', 'json'],
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/testUtils/**',
+    '!src/alarms/*.ts',
+    '!src/store/expoSqliteDriver.ts',
+    '!src/store/useLiveQuery.ts',
+    '!src/runtime/**',
+    '!src/ui/primitives.tsx',
+    '!src/version.ts',
+    '!src/api/config.ts',
+    '!src/features/export/shareTextFile.ts',
+    '!src/app/RepositoryContext.tsx',
+    '!src/app/useHouseholdSettings.ts',
+  ],
+  // Measured baseline (2026-08-16): lines 50.62%, functions 40.83%, branches 40.3%, statements
+  // 50.1%, floored for headroom against incidental fluctuation. See docs/testing.md. Ratchet
+  // rule: raise as coverage improves (this will move once the Phase 1 gap-fill tests land),
+  // never lower to make a build pass.
+  coverageThreshold: {
+    global: { lines: 50, functions: 40, branches: 40, statements: 50 },
+  },
 };
