@@ -25,6 +25,18 @@ happened 2026-08-07: a caregiver installed the build, joined a household, and hi
 (see "Sync and household join" below) that no amount of in-sandbox testing could have caught, since
 it only reproduces against `expo-sqlite`'s real native connection.
 
+## Running the tests
+
+```bash
+npm run test:jest --workspace=@medguard/android          # RN screens/components (Jest + jest-expo)
+npx vitest run --project android                          # pure/native-free alarm logic (Vitest)
+cd apps/android && npx expo prebuild --platform android && cd android && ./gradlew :medguard-alarms:testDebugUnitTest   # Kotlin (Robolectric)
+```
+
+Maestro/adb flows against a real emulator or device live in `.maestro/` and `e2e/` — see
+[`docs/testing.md`](../../docs/testing.md) for the full picture across every layer, including what
+each one proves and doesn't.
+
 ### Sprint A4 — the push backstop and the headless drain
 
 **Code-complete (2026-08-09), not device-confirmed.** Most of A4 is server work
@@ -201,7 +213,16 @@ needed this sprint) are all green. Not built: the plan's Robolectric/instrumente
 layer — there's no Kotlin test harness in this repo and no Android SDK in this sandbox, so the
 Kotlin changes (`PendingActionStore`'s peek/ack split, the `onPendingAction` event, `StatusNotifier`,
 `AlarmScheduler.cancelAll`, the batch `armDoseAlarms`) are verified by `expo prebuild` parsing and
-production-code review, not by an on-device or emulator run. **What genuinely needs a real
+production-code review, not by an on-device or emulator run.
+
+> **Update, 2026-08-16:** the paragraph above is preserved as it was written at the time (Sprint
+> A3) rather than edited to fit later reality. Robolectric landed since, along with a Maestro e2e
+> layer for the notification-action and boot-rearm paths — see [`docs/testing.md`](../../docs/testing.md)
+> for how to run both, and what they do and don't prove. The instrumented `androidTest` layer was
+> never built and is not planned; Robolectric plus Maestro cover what it would have without needing
+> an emulator inside the Gradle job itself.
+
+**What genuinely needs a real
 device**: the sprint's actual exit gate — a 25-hour locked-phone dry run where every alert fires,
 every one auto-stops, none repeats, zero touches — plus the lock-screen-tap-with-app-force-stopped
 path, a reboot and a timezone change mid-schedule, and the three-snooze bound exercised from the

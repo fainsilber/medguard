@@ -79,22 +79,31 @@ npm run dev:api
 
 ## Verification
 
-Everything machine-verifiable runs from these three commands. The short list of things that
-genuinely need a real phone is called out in the sprint plan's manual QA section.
+The everyday commands, run from repo root. **[`docs/testing.md`](docs/testing.md)** is the full
+picture — why there are six separate runners instead of one, what each layer proves and doesn't,
+the coverage gates, and the Android/Maestro layers this short list only gestures at. The short
+list of things that genuinely need a real phone is called out in the sprint plan's manual QA
+section.
 
 ```bash
 npm test
 ```
 
-All layers in one run: domain unit and `fast-check` property tests, Dexie under `fake-indexeddb`,
-React Testing Library component tests, and Worker/D1/Durable Object integration tests in the real
-workerd runtime. No Cloudflare account required.
+Every JS/TS layer in one run: domain unit and `fast-check` property tests, Dexie under
+`fake-indexeddb`, Worker/D1/Durable Object integration tests in the real workerd runtime, web React
+Testing Library component tests (all via Vitest), **and** the Android RN component test suite (Jest
++ `jest-expo`, since jsdom can't execute the real React Native renderer). No Cloudflare account
+required. Does not include the Kotlin native-alarm suite (needs a JDK and an `expo prebuild`) —
+that runs in `android-apk.yml`, not here.
 
 ```bash
 npm run test:coverage
 ```
 
-Same suite, plus the coverage gates — 80% global, 100% branch on the safety-critical modules.
+Same two suites, both with their coverage gate enabled — see `docs/testing.md`'s "Coverage gates"
+section for why they're two separate reports (80% global / 100% branch on the safety-critical
+modules for Vitest; a separately-measured threshold for the Android RN layer under Jest) rather
+than one merged number.
 
 ```bash
 npm run e2e
@@ -102,7 +111,9 @@ npm run e2e
 
 Playwright against a production build, headless. Includes an offline smoke test that runs the full
 create-medicine → schedule → log-a-dose → verify-stock-decrement flow with no backend running at
-all.
+all, plus real end-to-end coverage of the PRN override confirmation, append-only dose correction,
+and push notification delivery via `ServiceWorker.deliverPushMessage`. Does not include Android —
+that's Maestro, a manual/emulator step documented separately in `docs/testing.md`.
 
 Also available: `npm run lint`, `npm run typecheck`, `npm run format`.
 
@@ -120,6 +131,7 @@ fine. This cost real diagnostic time once already; `features/prn/` is now `featu
 | [`docs/medguard-prd.md`](docs/medguard-prd.md) | Product requirements — the source of truth for behaviour. |
 | [`docs/medguard-sprint-plan.md`](docs/medguard-sprint-plan.md) | Sprint-by-sprint plan, progress, and every deviation from the PRD with its reasoning. |
 | [`docs/android-client-plan.md`](docs/android-client-plan.md) | Plan for the native Android client — feature parity, real locked-device alarms, and the server-side push work it absorbs. Signed off; A0-A2 code-complete, A3 (local alarm engine) is next. |
+| [`docs/testing.md`](docs/testing.md) | How to run every test layer by hand — Vitest, Jest, Gradle/Robolectric, Playwright, Maestro/adb — what each one proves and doesn't, the coverage gates, and the CI map. |
 | [`docs/data-handling.md`](docs/data-handling.md) | What medical data is stored, where, who can reach it, and the known gaps. |
 | [`docs/platform-capabilities.md`](docs/platform-capabilities.md) | Real-device probe results — what push and background timers actually do on Android and iOS, measured rather than assumed. |
 | [`docs/halachic-decisions.md`](docs/halachic-decisions.md) | Working answers on Shabbat behaviour. **Pragmatic placeholders, not a ruling** — the questions still need to go to a rav before Sprint 6 ships. |
