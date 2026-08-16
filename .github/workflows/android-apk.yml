@@ -96,6 +96,12 @@ jobs:
           print(f'Native alarm unit tests: {total} run, {failed} failed, {skipped} skipped')
           if total == 0:
               sys.exit('::error::No tests were discovered in :medguard-alarms.')
+          # A floor, not just a zero-check: 70 tests exist across 10 files as of the Robolectric
+          # suite landing (2026-08-16). A Gradle/AGP config change that silently stops discovering
+          # most of them — everything still "passes" because nothing ran — must fail loudly the
+          # same way zero-discovered already does, not read as a green build.
+          if total < 60:
+              sys.exit(f'::error::Only {total} native alarm unit tests were discovered — expected at least 60.')
           if failed:
               sys.exit(f'::error::{failed} native alarm unit test(s) failed.')
           PY
