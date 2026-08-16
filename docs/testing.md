@@ -156,6 +156,16 @@ return serialization drops prototype getters, so a bare `registration.getNotific
 back across the CDP boundary as `[{}]` — silently empty-looking, not an error. The spec's
 `shownNotifications()` helper reads each field out explicitly, inside the page, before returning.
 
+**Why `playwright.config.ts` sets `channel: 'chromium'`**: Playwright's headless `chromium` project
+launches `chrome-headless-shell` by default — a separate, stripped-down build downloaded alongside
+full Chromium (`npx playwright install chromium` fetches both; see `playwright-core`'s own registry
+source, `options.headless ? "chromium-headless-shell" : "chromium"` unless `channel` is set). The
+shell build doesn't deliver on the Notifications/Push/ServiceWorker CDP surface the same way:
+`ServiceWorker.deliverPushMessage` returns success with no error, but `showNotification()` never
+actually renders anything under it — `push-delivery.spec.ts` timed out polling `getNotifications()`
+for the full 30s on every CI retry until this was set. Silent under the shell in every other way
+too, which is exactly why it surfaced only once this suite actually ran somewhere real.
+
 Runtime: roughly a minute locally; CI runs with `retries: 2, workers: 1`, which is part of why
 `ci.yml`'s job needs 25 minutes rather than 20.
 

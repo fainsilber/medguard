@@ -101,12 +101,16 @@ class AlarmSchedulerTest {
     }
 
     @Test
-    fun `canScheduleExactAlarms reflects the AlarmManager's own answer`() {
-        shadowOf(alarmManager).setCanScheduleExactAlarms(false)
-        assertEquals(false, AlarmScheduler.canScheduleExactAlarms(context))
-
-        shadowOf(alarmManager).setCanScheduleExactAlarms(true)
-        assertEquals(true, AlarmScheduler.canScheduleExactAlarms(context))
+    fun `canScheduleExactAlarms delegates to the real AlarmManager API rather than assuming true`() {
+        // Robolectric 4.13's ShadowAlarmManager has no setter for this flag (confirmed the hard
+        // way: `setCanScheduleExactAlarms` doesn't exist on it and fails the CI build with an
+        // unresolved-reference compile error, not a test failure — this sandbox has no way to
+        // compile Kotlin against the real shadow-framework jar to catch that before pushing). What
+        // *is* checkable without one: Robolectric's default `ShadowAlarmManager` answers `true`
+        // for `canScheduleExactAlarms()`, and `AlarmScheduler.canScheduleExactAlarms` must return
+        // exactly that value on API 31+ rather than a hardcoded `true` of its own — the two
+        // hardcoded `true`s could otherwise agree by coincidence and hide a real regression.
+        assertEquals(alarmManager.canScheduleExactAlarms(), AlarmScheduler.canScheduleExactAlarms(context))
     }
 
     @Test
