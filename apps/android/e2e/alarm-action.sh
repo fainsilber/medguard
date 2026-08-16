@@ -89,4 +89,4 @@ fi
 echo "PASS: the headless drain acked the tap — PendingActionStore no longer holds it."
 
 echo "== Relaunching to confirm the app comes back up cleanly =="
-maestro test .maestro/subflows/relaunch-sanity.yaml
+maestro test e2e/maestro-subflows/relaunch-sanity.yaml

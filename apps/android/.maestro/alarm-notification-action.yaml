@@ -20,7 +20,7 @@ appId: il.co.fainsilber.med
 
 - launchApp
 
-- runFlow: subflows/ensure-onboarded.yaml
+- runFlow: ../e2e/maestro-subflows/ensure-onboarded.yaml
 
 - tapOn: "More screens"
 - tapOn: "Diagnostics"

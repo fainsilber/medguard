@@ -57,7 +57,9 @@ module.exports = {
   // a coverage one; see docs/testing.md.
   collectCoverage: true,
   coverageDirectory: '<rootDir>/coverage',
-  coverageReporters: ['text-summary', 'html', 'lcov', 'json'],
+  // json-summary feeds ci.yml's coverage-summary step, same as vitest.config.ts's own reporter
+  // list does for the other four projects — one aggregate number per run, not just per-file HTML.
+  coverageReporters: ['text-summary', 'html', 'lcov', 'json', 'json-summary'],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.test.{ts,tsx}',

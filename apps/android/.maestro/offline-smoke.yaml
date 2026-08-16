@@ -14,7 +14,7 @@ appId: il.co.fainsilber.med
 - launchApp:
     clearState: true
 
-- runFlow: subflows/ensure-onboarded.yaml
+- runFlow: ../e2e/maestro-subflows/ensure-onboarded.yaml
 
 # Today is the default landing route (AppNavigator's initialRouteName).
 - assertVisible: "MedGuard"

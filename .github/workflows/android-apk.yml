@@ -10,6 +10,12 @@ on:
         description: Save the built APK as a downloadable artifact
         type: boolean
         default: false
+  # Deliberately not scheduled (yet). The `maestro` job below runs entirely unverified code —
+  # this sandbox has no adb/emulator/maestro tooling at all, so none of it has ever actually
+  # executed. Per the original test-coverage plan's own rollout guidance, a human should trigger
+  # it a few times via `workflow_dispatch` (or the `run-e2e-android` PR label) and watch it
+  # directly before this workflow adds a `schedule:` trigger and widens the `maestro` job's `if`
+  # to include `push`/`schedule`. See docs/testing.md.
 
 # Cancel superseded runs on the same PR branch, but never a push to main — a merge should
 # always finish and produce its artifact even if another merge follows quickly.
@@ -32,6 +38,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      # No Gradle caching existed before this: every run recompiled from scratch and re-downloaded
+      # Robolectric's ~50MB android-all jar (the Kotlin suite's first-run cost, since that jar is
+      # not something Gradle's own dependency cache skips). Also a prerequisite for the `maestro`
+      # job below to run in reasonable time, since it needs a build-apk run first either way.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
       - name: Install dependencies
         run: npm ci
       # Optional, and a no-op unless the repo has the secret set. `google-services.json` is
@@ -106,6 +118,17 @@ jobs:
               sys.exit(f'::error::{failed} native alarm unit test(s) failed.')
           PY
 
+      # `if: always()` — a failing native suite is exactly when these results are worth being able
+      # to open without re-running the job.
+      - name: Upload native alarm test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-alarm-test-results
+          path: apps/android/modules/medguard-alarms/android/build/test-results/**/*.xml
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Build release APK
         working-directory: apps/android/android
         # `debug` builds don't embed the JS bundle — they expect a Metro server reachable at
@@ -114,13 +137,75 @@ jobs:
         # into assets. The RN template's `release` signingConfig defaults to the debug keystore
         # (no real signing set up), so this stays installable without any secrets.
         run: ./gradlew assembleRelease
-      # Every push to main (i.e. every merge) uploads the APK. PR runs exist to catch build
-      # breakage early and never upload. Manual workflow_dispatch runs — e.g. building a
-      # side branch to hand someone an APK — only upload when save_artifact is checked,
-      # since most ad-hoc runs are just "does this still build" checks.
+      # Every push to main (i.e. every merge) uploads the APK, with the default 90-day retention.
+      # PR runs now upload too — short retention, since the only reason a PR needs this artifact
+      # is so the `maestro` job below (label-gated, not every PR) can install it; nobody needs a
+      # PR-build APK to stick around after that. Manual workflow_dispatch runs — e.g. building a
+      # side branch to hand someone an APK — only upload when save_artifact is checked, since most
+      # ad-hoc runs are just "does this still build" checks.
       - name: Upload APK
-        if: github.event_name == 'push' || inputs.save_artifact == true
+        if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.save_artifact == true
         uses: actions/upload-artifact@v4
         with:
           name: medguard-release-apk
           path: apps/android/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 90 }}
+
+  maestro:
+    name: Android E2E (Maestro, emulator)
+    needs: build-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # See the comment on this workflow's `on:` block: this job's every dependency — the emulator
+    # runner action, `adb root` against a google_apis image, the three .maestro/ flows, the two
+    # e2e/*.sh driver scripts — was written with no way to run any of it locally, so it starts
+    # human-triggered only rather than wired into every PR or a nightly schedule.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'run-e2e-android')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: medguard-release-apk
+          path: apk
+
+      - name: Install Maestro CLI
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      # The difference between a ~90s and a ~6min emulator boot.
+      - name: Cache AVD
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb_keys
+          key: avd-api33-google_apis-x86_64-v1
+
+      - name: Run Maestro flows and adb driver scripts
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          # Deliberately google_apis, not google_play: only a google_apis image is rootable, and
+          # `adb root` is required — NotificationActionReceiver and DoseAlarmService are both
+          # android:exported="false" (plugins/withMedGuardAlarms.ts), so `am broadcast -n` from
+          # the plain shell UID gets a Permission Denial. This is a deliberate divergence from the
+          # *manual* QA drill in docs/android-client-plan.md, which recommends google_play for a
+          # more production-representative image — see apps/android/e2e/alarm-action.sh.
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -camera-back none -camera-front none
+          script: |
+            adb root
+            adb wait-for-device
+            adb install -r apk/app-release.apk
+            maestro test apps/android/.maestro/offline-smoke.yaml
+            bash apps/android/e2e/boot-rearm.sh
+            bash apps/android/e2e/alarm-action.sh
