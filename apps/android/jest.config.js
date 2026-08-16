@@ -15,6 +15,14 @@ module.exports = {
   preset: 'jest-expo',
   rootDir: '.',
   testMatch: ['<rootDir>/src/**/*.test.tsx'],
+  // Jest's 5000ms default has twice now been the actual cause of a CI-only failure — a different
+  // test each time (SyncProvider.test.tsx's revoked-device-clear, then PrnCard.test.tsx's
+  // give-dose test), neither reproducible in dozens of local full-suite runs. Both are exactly the
+  // shape of "fine on an idle machine, tight when ci.yml and android-apk.yml are both running on
+  // the runner at once" rather than a real hang in either test — see docs/testing.md. Raising the
+  // default here, instead of bumping one waitFor at a time as each new test happens to draw the
+  // short straw, actually fixes the class of failure.
+  testTimeout: 15_000,
   // Source uses explicit `.js`-suffixed relative specifiers (required for real Node ESM/workerd
   // resolution — see metro.config.js's matching resolver.resolveRequest hack). Strip the
   // extension so Jest's own moduleFileExtensions (which tries .tsx/.ts before .js) resolves it.
