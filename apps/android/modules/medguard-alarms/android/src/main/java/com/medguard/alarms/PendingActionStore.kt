@@ -1,6 +1,7 @@
 package com.medguard.alarms
 
 import android.content.Context
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -33,12 +34,19 @@ data class PendingAction(
  * the log it already wrote.
  */
 object PendingActionStore {
+    private const val TAG = "MedGuardAlarms"
     private const val PREFS_NAME = "medguard_pending_actions"
     private const val KEY_ENTRIES = "entries"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun add(context: Context, occurrenceKey: String, action: String, tappedAtMs: Long) {
+        // `commit()`'s return value was previously discarded — this durable write is the entire
+        // safety guarantee this class exists for, so a silent `false` here (a real possibility:
+        // `SharedPreferences.Editor.commit()` can fail) must not disappear without a trace. Logged
+        // rather than asserted/thrown: this call has no caller in a position to handle a retry
+        // (it's the last line of defense in a BroadcastReceiver with no live JS runtime to surface
+        // an error to), so a loud logcat line is the most this call site can do.
         val store = prefs(context)
         val existing = JSONArray(store.getString(KEY_ENTRIES, "[]"))
         val entry =
@@ -52,7 +60,8 @@ object PendingActionStore {
                 .put("action", action)
                 .put("tappedAtMs", tappedAtMs)
         existing.put(entry)
-        store.edit().putString(KEY_ENTRIES, existing.toString()).commit()
+        val ok = store.edit().putString(KEY_ENTRIES, existing.toString()).commit()
+        Log.i(TAG, "PendingActionStore.add(occurrenceKey=$occurrenceKey, action=$action): commit()=$ok, entries now ${existing.length()}")
     }
 
     /** Non-destructive: entries stay until `ack()` confirms JS has committed them. */

@@ -185,7 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first twelve real runs each caught a problem this had no way to catch locally — the
+That job's first thirteen real runs each caught a problem this had no way to catch locally — the
 twelfth is the first of these that was a real bug in the app rather than in the test harness or CI
 infrastructure, and exactly the kind of thing this whole layer was built to find:
 
@@ -306,6 +306,23 @@ infrastructure, and exactly the kind of thing this whole layer was built to find
     low-importance notification on the existing `SYNC_STATUS` channel), before any JS-task machinery
     runs. This is the first of these twelve findings that was a genuine app bug rather than test
     harness or CI infrastructure — exactly what this Maestro layer exists to catch.
+13. **The crash from #12 is gone — logcat shows a clean cold start with no `FATAL EXCEPTION` at
+    all — and the assertion still fails the same way**: `PendingActionStore` is still `[]`
+    immediately after the broadcast, even though the log evidence (`Start proc … for broadcast
+    {NotificationActionReceiver}` followed by `Background started FGS: … MedGuardHeadlessService`)
+    still proves `onReceive()` ran past `PendingActionStore.add()` at line 46 to reach the
+    `startForegroundService()` call at line 56, with nothing crashing in between. That directly
+    disproves finding 12's implicit assumption that fixing the crash would also explain the empty
+    file — it doesn't. The empty store has been an independent problem all along, one that #12's
+    crash was simply masking every time it fired first. `PendingActionStore.add()` doesn't log
+    anything of its own, so there was no way to see past "it should have run" to "did `commit()`
+    actually return `true`". Rather than reason about `SharedPreferences` semantics from source
+    once more, `PendingActionStore.add()` now logs its `commit()` result and the resulting entry
+    count, and `NotificationActionReceiver.onReceive()` logs its action/occurrenceKey at entry, why
+    it took either early return (previously silent), and whether `hasLiveRuntime()` was true or
+    false — all under one `MedGuardAlarms` tag alarm-action.sh's existing logcat filter already
+    catches. Not yet fixed — next run's dump is what finally settles whether `commit()` is
+    genuinely returning `false`, or something else entirely.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
 run gets far enough to actually exercise it — every fix above came from watching a real run get

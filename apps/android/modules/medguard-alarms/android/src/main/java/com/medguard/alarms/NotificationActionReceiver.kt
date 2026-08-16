@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.content.ContextCompat
 
 /**
@@ -27,17 +28,31 @@ class NotificationActionReceiver : BroadcastReceiver() {
         const val ACTION_SNOOZE = "com.medguard.alarms.action.SNOOZE"
         const val EXTRA_OCCURRENCE_KEY = "com.medguard.alarms.extra.OCCURRENCE_KEY"
         const val EXTRA_NOTIFICATION_ID = "com.medguard.alarms.extra.NOTIFICATION_ID"
+        private const val TAG = "MedGuardAlarms"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        val occurrenceKey = intent.getStringExtra(EXTRA_OCCURRENCE_KEY) ?: return
+        // Traces which of the two early returns below (if either) fires, and with what — a real
+        // gap in this receiver's observability until now: neither return leaves any evidence in
+        // logcat that onReceive() ran at all, let alone why it stopped short of
+        // PendingActionStore.add().
+        Log.i(TAG, "onReceive: action=${intent.action} occurrenceKey=${intent.getStringExtra(EXTRA_OCCURRENCE_KEY)}")
+
+        val occurrenceKey = intent.getStringExtra(EXTRA_OCCURRENCE_KEY)
+        if (occurrenceKey == null) {
+            Log.w(TAG, "onReceive: no occurrenceKey extra, dropping")
+            return
+        }
         val tappedAtMs = System.currentTimeMillis()
 
         val action =
             when (intent.action) {
                 ACTION_TAKEN -> "taken"
                 ACTION_SNOOZE -> "snooze"
-                else -> return
+                else -> {
+                    Log.w(TAG, "onReceive: unrecognized action '${intent.action}', dropping")
+                    return
+                }
             }
 
         // Durable first, notify second — never the reverse. If the process dies between these two
@@ -45,7 +60,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
         // event and then died would leave no record anywhere that the caregiver had acted.
         PendingActionStore.add(context, occurrenceKey, action, tappedAtMs)
 
-        if (MedGuardAlarmsModule.hasLiveRuntime()) {
+        val hasLiveRuntime = MedGuardAlarmsModule.hasLiveRuntime()
+        Log.i(TAG, "onReceive: PendingActionStore.add() returned, hasLiveRuntime=$hasLiveRuntime")
+        if (hasLiveRuntime) {
             MedGuardAlarmsModule.emitPendingAction(occurrenceKey, action, tappedAtMs)
         } else {
             // No JS runtime at all — the app process is dead, which is the normal state for a
@@ -57,7 +74,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     context,
                     Intent(context, MedGuardHeadlessService::class.java),
                 )
-            }
+            }.onFailure { Log.w(TAG, "onReceive: startForegroundService(MedGuardHeadlessService) threw", it) }
         }
 
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
