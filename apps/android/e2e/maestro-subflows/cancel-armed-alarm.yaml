@@ -1,0 +1,10 @@
+appId: il.co.fainsilber.med
+---
+# Deliberately has NO `launchApp` — the whole point is to keep interacting with whatever app
+# instance is already on screen, since `armedOccurrenceKey` (DiagnosticsScreen.tsx) lives in React
+# state, not persisted storage. `launchApp` would remount the screen and lose it, along with the
+# "Cancel" button that depends on it. boot-rearm.sh runs this right after arming a 15s test alarm
+# and confirming BootReceiver re-armed it, so the alarm never actually fires later — see
+# boot-rearm.sh's header comment for why an unfired, uncancelled test alarm is a real bug, not just
+# untidy cleanup.
+- tapOn: "Cancel"

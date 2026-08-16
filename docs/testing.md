@@ -185,7 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first seven real runs each caught a problem this had no way to catch locally:
+That job's first eight real runs each caught a problem this had no way to catch locally:
 
 1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
    `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
@@ -232,6 +232,19 @@ That job's first seven real runs each caught a problem this had no way to catch 
    phone's backgrounded process reclaimed by Android's normal lifecycle — and it defeats the exact
    thing this flow needs to prove. Fixed by killing the process directly (`kill -9` on its PID)
    instead, which doesn't trigger the stopped state.
+8. **Same first assertion, still failing after the `kill -9` fix — but this time the broadcast
+   completed suspiciously fast (56ms)**, far too fast for a cold app start. The real cause: this
+   flow runs immediately after `boot-rearm.sh`, which arms its own real 15s `AlarmManager` alarm and
+   never cancelled it. That alarm fires mid-way through `alarm-action.sh`'s own flow, resurrecting
+   the app process (via `DoseAlarmService`'s notification) with a live JS runtime moments before
+   `alarm-action.sh` kills the process and broadcasts its own "Taken" action. With a live runtime
+   present, `NotificationActionReceiver` takes the `emitPendingAction` branch instead of the
+   headless-service one, and the live JS listener acks the tap in milliseconds — before this
+   script's own "captured durably" check ever runs, making a correctly-handled tap look like a lost
+   one. Fixed by having `boot-rearm.sh` cancel its test alarm (`AlarmScheduler.cancel()`, via the
+   Diagnostics "Cancel" button in a new `cancel-armed-alarm.yaml` subflow that deliberately skips
+   `launchApp` to keep the in-memory `armedOccurrenceKey` state that button depends on) right after
+   confirming the re-arm, so nothing is left ticking when `alarm-action.sh` starts.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
 run gets far enough to actually exercise it — every fix above came from watching a real run get
@@ -258,7 +271,11 @@ top-level ones without also being run, and failing, as one itself):
 - **`boot-rearm.yaml` + `e2e/boot-rearm.sh`** — arms a real `AlarmManager` alarm via Diagnostics'
   "Arm alarm in 15s", then the script broadcasts `BOOT_COMPLETED` at the exported `BootReceiver`
   and checks `adb shell dumpsys alarm` for evidence it re-armed. `BootReceiver` is
-  `android:exported="true"` with a real intent filter, so this needs no `adb root`.
+  `android:exported="true"` with a real intent filter, so this needs no `adb root`. Finally cancels
+  that alarm (`e2e/maestro-subflows/cancel-armed-alarm.yaml`, tapping Diagnostics' "Cancel" without
+  relaunching the app, since the button depends on in-memory state a relaunch would lose) — an
+  uncancelled test alarm fires later and corrupts `alarm-action.sh`, which runs right after this
+  script (see finding 8 above).
 - **`alarm-notification-action.yaml` + `e2e/alarm-action.sh`** — the flow that justifies the native
   client existing. Arms an alarm, kills the app's process (`kill -9` on its PID, deliberately not
   `am force-stop` — force-stop puts the app into Android's "stopped" state, where the OS blocks
