@@ -27,6 +27,18 @@ module.exports = {
     // testUtils/mockExpoSecureStore.ts and testUtils/mockExpoCrypto.ts.
     '^expo-secure-store$': '<rootDir>/src/testUtils/mockExpoSecureStore.ts',
     '^expo-crypto$': '<rootDir>/src/testUtils/mockExpoCrypto.ts',
+    // BackupRestoreCard's import path (document picker + a read) and export path (a write + the
+    // OS share sheet) — none of the three has a headless equivalent under Jest. See
+    // testUtils/mockExpoDocumentPicker.ts, mockExpoFileSystem.ts, mockExpoSharing.ts.
+    //
+    // expo-file-system/legacy is deliberately NOT mapped here, unlike the other two: jest-expo's
+    // own preset (node_modules/jest-expo/src/preset/setup.js) already calls
+    // `jest.mock('expo-file-system/legacy', ...)` with its own (no-op, no cacheDirectory) stub —
+    // a moduleNameMapper entry for it would just be shadowed. BackupRestoreCard.test.tsx
+    // re-registers its own `jest.mock('expo-file-system/legacy', ...)` instead, which — being
+    // called from the test file itself, after the preset's setupFiles already ran — wins.
+    '^expo-document-picker$': '<rootDir>/src/testUtils/mockExpoDocumentPicker.ts',
+    '^expo-sharing$': '<rootDir>/src/testUtils/mockExpoSharing.ts',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transformIgnorePatterns: [
@@ -38,8 +50,7 @@ module.exports = {
   // shipped line of apps/android/src is under one gate or the other, never both and never
   // neither. collectCoverageFrom excludes what belongs to the other gate, composition roots
   // (app/RepositoryContext.tsx, app/useHouseholdSettings.ts — no logic of their own, same
-  // rationale as apps/web/src/main.tsx), and thin platform adapters (version.ts, api/config.ts,
-  // features/export/shareTextFile.ts).
+  // rationale as apps/web/src/main.tsx), and thin platform adapters (version.ts, api/config.ts).
   //
   // A merged single report (`nyc merge` across both istanbul outputs) would be the technically
   // cleaner answer — one true apps/android/src number — but it's an accounting improvement, not
@@ -58,15 +69,14 @@ module.exports = {
     '!src/ui/primitives.tsx',
     '!src/version.ts',
     '!src/api/config.ts',
-    '!src/features/export/shareTextFile.ts',
     '!src/app/RepositoryContext.tsx',
     '!src/app/useHouseholdSettings.ts',
   ],
-  // Measured baseline (2026-08-16): lines 50.62%, functions 40.83%, branches 40.3%, statements
-  // 50.1%, floored for headroom against incidental fluctuation. See docs/testing.md. Ratchet
-  // rule: raise as coverage improves (this will move once the Phase 1 gap-fill tests land),
-  // never lower to make a build pass.
+  // Re-measured (2026-08-16) after the Phase 1 gap-fill tests landed: lines 73.17%, functions
+  // 62.86%, branches 58.92%, statements 72.05%, floored for headroom against incidental
+  // fluctuation. See docs/testing.md. Ratchet rule: raise as coverage improves, never lower to
+  // make a build pass.
   coverageThreshold: {
-    global: { lines: 50, functions: 40, branches: 40, statements: 50 },
+    global: { lines: 72, functions: 62, branches: 58, statements: 71 },
   },
 };

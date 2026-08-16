@@ -118,6 +118,18 @@ export default tseslint.config(
     },
   },
 
+  // BackupRestoreCard.test.tsx re-registers `jest.mock('expo-file-system/legacy', ...)` from
+  // inside the test file itself, overriding jest-expo's own preset-level mock for that module
+  // (see jest.config.js's moduleNameMapper comment for why). The factory's `require(...)` has to
+  // be a real `require()` call, not an `import` at module scope, so it's evaluated lazily when
+  // Jest actually resolves the mocked module rather than eagerly at file-load time.
+  {
+    files: ['apps/android/src/features/export/BackupRestoreCard.test.tsx'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+
   // Build-time Node scripts.
   {
     files: ['scripts/**/*.mjs'],
