@@ -53,7 +53,11 @@ export function ShabbatScreen() {
   const ids = useIdGenerator();
   const householdSettings = useHouseholdSettings();
 
-  const config = useLiveQuery(async () => (await db.shabbatConfig.toArray())[0], [db]);
+  // `?? null` matters: `useLiveQuery` returns `undefined` until the query first resolves, and the
+  // query itself would return `undefined` for "no row" — making "not read yet" and "no config"
+  // indistinguishable at every call site below. Collapsing the empty case to `null` keeps
+  // `undefined` meaning exactly one thing: still loading.
+  const config = useLiveQuery(async () => (await db.shabbatConfig.toArray())[0] ?? null, [db]);
   const windows = useLiveQuery(() => db.shabbatWindows.toArray(), [db]);
 
   const [draft, setDraft] = useState<ShabbatConfig | null>(null);
@@ -72,7 +76,7 @@ export function ShabbatScreen() {
   const timeZone = householdSettings?.timeZone;
 
   const phase = useMemo(
-    () => shabbatPhaseAt({ config, windows: windows ?? [], atMs: nowMs }),
+    () => shabbatPhaseAt({ config: config ?? undefined, windows: windows ?? [], atMs: nowMs }),
     [config, windows, nowMs],
   );
 
@@ -117,13 +121,13 @@ export function ShabbatScreen() {
     }
   };
 
-  if (windows === undefined) {
-    return (
-      <Card>
-        <p className="text-sm text-slate-400">Loading…</p>
-      </Card>
-    );
-  }
+  // Only the published-times half waits on `windows`. The settings form does not depend on them
+  // at all, and gating the whole screen on an IndexedDB read meant the screen — its heading
+  // included — simply did not exist until that read landed. On a loaded machine that read is slow
+  // enough to be a real wait, which is what made the Shabbat-tab e2e assertion flaky: it had been
+  // given a longer and longer timeout when what it was waiting for was never the heading.
+  const windowsLoading = windows === undefined;
+  const configLoading = config === undefined;
 
   return (
     <div className="flex flex-col gap-3">
@@ -140,7 +144,15 @@ export function ShabbatScreen() {
       <Card>
         <h2 className="text-lg font-semibold">Shabbat &amp; Yom Tov</h2>
 
-        {!config && !draft && (
+        {/*
+          `config === undefined` is "not read yet", `null`/absent after the read is "genuinely not
+          configured" — and the two must not look alike here. Announcing "Not set up" to a
+          household that *is* set up, for as long as an IndexedDB read takes, would be a false
+          statement about whether Shabbat alarms are working at all.
+        */}
+        {configLoading && !draft && <p className="text-sm text-slate-400">Loading…</p>}
+
+        {!configLoading && !config && !draft && (
           <>
             <p className="text-sm text-slate-400">
               Not set up. Until this household has coordinates, no Shabbat times are computed and
@@ -303,7 +315,9 @@ export function ShabbatScreen() {
           timezone. Check these against your luach before relying on them.
         </p>
 
-        {upcoming.length === 0 ? (
+        {windowsLoading ? (
+          <p className="text-sm text-slate-400">Loading…</p>
+        ) : upcoming.length === 0 ? (
           <p className="text-sm text-slate-400">
             {config
               ? 'No times published yet — they arrive with the next sync.'

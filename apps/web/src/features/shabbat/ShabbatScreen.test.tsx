@@ -68,6 +68,43 @@ async function putWindows(store: Store, windows: ShabbatWindow[]) {
 }
 
 describe('ShabbatScreen', () => {
+  /**
+   * The heading is what tells a caregiver which screen they are on, and it depends on nothing.
+   * It used to sit behind a guard that withheld the entire screen until the published Shabbat
+   * windows had been read out of IndexedDB — so on a loaded machine the tab could look blank for
+   * as long as that read took. The Motzei e2e spec was failing on exactly that wait, and had been
+   * given a longer and longer timeout in response; this pins the real property instead.
+   */
+  it('shows the heading immediately, before any data has been read', async () => {
+    await renderWithRepository(<ShabbatScreen />, {
+      clock: fixedClock(NOW),
+      timeZone: JERUSALEM,
+    });
+
+    // Deliberately synchronous — no `find*`, no `waitFor`. If the heading needed a query to
+    // resolve first, this is the assertion that would fail.
+    expect(screen.getByRole('heading', { name: 'Shabbat & Yom Tov' })).toBeInTheDocument();
+  });
+
+  /**
+   * "Not read yet" and "genuinely not configured" must not look alike: telling a household that
+   * *is* set up that it is not, even for a moment, is a false statement about whether their
+   * Shabbat alarms work.
+   */
+  it('never claims a configured household is not set up while the config is still loading', async () => {
+    await renderWithRepository(<ShabbatScreen />, {
+      clock: fixedClock(NOW),
+      timeZone: JERUSALEM,
+      seed: async (repository) => {
+        await repository.saveShabbatConfig(makeConfig(), 'CREATE');
+      },
+    });
+
+    expect(screen.queryByText(/Not set up/)).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('Latitude')).toBeInTheDocument();
+    expect(screen.queryByText(/Not set up/)).not.toBeInTheDocument();
+  });
+
   it('says it is not set up when the household has no coordinates', async () => {
     await renderWithRepository(<ShabbatScreen />, {
       clock: fixedClock(NOW),
@@ -75,7 +112,10 @@ describe('ShabbatScreen', () => {
     });
 
     expect(await screen.findByText(/Not set up/)).toBeInTheDocument();
-    expect(screen.getByText(/No times yet/)).toBeInTheDocument();
+    // Awaited separately from the form above: the two halves of this screen no longer load
+    // together. The settings form renders immediately, while the published-times list waits on
+    // its own read — which is the point, so that the form is not held hostage to it.
+    expect(await screen.findByText(/No times yet/)).toBeInTheDocument();
   });
 
   it('creates a configuration and queues it for sync', async () => {
