@@ -50,7 +50,12 @@ appId: il.co.fainsilber.med
     direction: DOWN
 - tapOn: "Save"
 
-- assertVisible: "Ondansetron"
+# MedicineList renders name and strength inside one compound Text node
+# ({medicine.name} <Text>{medicine.strength}</Text>), which the accessibility tree exposes as one
+# flattened string ("Ondansetron 4mg") — Maestro's text selectors match the *whole* node against
+# the regex, so a bare "Ondansetron" (implicitly anchored) never matched it. Confirmed the hard
+# way in CI: the Save tap itself succeeded, only this assertion failed, for 18s of retries.
+- assertVisible: "Ondansetron.*"
 
 # Stock tracking lives on the Inventory screen, reached through the hamburger menu (App.tsx's
 # MENU_ITEMS) rather than the bottom Today/As-needed switcher.
@@ -70,7 +75,9 @@ appId: il.co.fainsilber.med
 # Log a PRN dose and confirm recordDose()'s paired inventory adjustment actually landed — the
 # assertion this whole flow exists for, not just "the form submitted".
 - tapOn: "As needed"
-- assertVisible: "Ondansetron"
+# Same compound-Text situation as MedicineList above — PrnCard's title is
+# {medicine.name} <Text>{medicine.strength}</Text> too.
+- assertVisible: "Ondansetron.*"
 - assertVisible: "Safe to take"
 - tapOn: "Give dose"
 

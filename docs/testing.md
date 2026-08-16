@@ -185,7 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first four real runs each caught a problem this had no way to catch locally:
+That job's first six real runs each caught a problem this had no way to catch locally:
 
 1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
    `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
@@ -211,10 +211,19 @@ That job's first four real runs each caught a problem this had no way to catch l
    `scrollUntilVisible` before the tap, the same pattern `boot-rearm.yaml` and
    `alarm-notification-action.yaml` already used for Diagnostics' "Arm alarm in 15s" button — this
    file just hadn't needed it yet.
+5. **Same story one field later**: selecting "As needed" reveals two more inputs (Min hours
+   between doses, Max doses/day), pushing "Save" off-screen too on the same small skin. Fixed the
+   same way.
+6. **`assertVisible: "Ondansetron"` never matched, even though Save visibly succeeded** —
+   `MedicineList` and `PrnCard` both render a medicine's name and strength inside one compound
+   `Text` node (`{medicine.name} <Text>{medicine.strength}</Text>`), which the accessibility tree
+   flattens to one string ("Ondansetron 4mg"). Maestro's text selectors match the *whole* node
+   against the regex, so a bare "Ondansetron" never matched. Fixed by matching `"Ondansetron.*"`
+   instead, in both places this flow checks it.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
-run gets far enough to actually exercise it — the infrastructure now boots and installs the app,
-but no flow has been watched running to completion yet.
+run gets far enough to actually exercise it — every fix above came from watching a real run get
+one step further and fail at the next one, not from getting a flow fully green yet.
 
 ```bash
 # Once: boot an AVD — API 33+, google_apis (not google_play — see below), x86_64.
