@@ -41,6 +41,13 @@ appId: il.co.fainsilber.med
       text: "As needed — no fixed times, given when it's needed"
     direction: DOWN
 - tapOn: "As needed — no fixed times, given when it's needed"
+# Selecting "As needed" reveals two more fields (Min hours between doses, Max doses/day —
+# MedicineForm.tsx's conditional block), pushing Save further down and off-screen again on this
+# emulator's 320x640 skin. Confirmed the hard way in CI, same as the scroll above.
+- scrollUntilVisible:
+    element:
+      text: "Save"
+    direction: DOWN
 - tapOn: "Save"
 
 - assertVisible: "Ondansetron"
