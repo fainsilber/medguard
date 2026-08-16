@@ -313,5 +313,11 @@ exports a Vitest-based conformance suite that fails to `require()` under Jest's 
 
 Artifacts: `ci.yml` uploads `coverage-reports` (7 days, always) and `playwright-report` (7 days, on
 failure only — traces are large and only useful when something's actually red). `android-apk.yml`
-uploads `native-alarm-test-results` (7 days, always) and `medguard-release-apk` (90 days on a push
-to `main`, 3 days on a PR, only with `save_artifact` checked on a manual `workflow_dispatch` run).
+uploads `native-alarm-test-results` (7 days, always) and `medguard-release-apk` unconditionally on
+every event (90 days on a push to `main`, 7 on a manual `workflow_dispatch` run, 3 on a PR) — it
+used to skip the upload on `workflow_dispatch` unless a `save_artifact` input was checked, which
+broke the first real run of the `maestro` job below with "Artifact not found for name:
+medguard-release-apk": `maestro` `needs: build-apk` and downloads this exact artifact, and
+`workflow_dispatch` is the only way to trigger `maestro` at all, so gating the upload behind an
+easy-to-forget checkbox meant the one event type that actually needed the artifact was also the one
+most likely to not have it.

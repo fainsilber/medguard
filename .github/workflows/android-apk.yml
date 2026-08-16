@@ -5,11 +5,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      save_artifact:
-        description: Save the built APK as a downloadable artifact
-        type: boolean
-        default: false
   # Deliberately not scheduled (yet). The `maestro` job below runs entirely unverified code —
   # this sandbox has no adb/emulator/maestro tooling at all, so none of it has ever actually
   # executed. Per the original test-coverage plan's own rollout guidance, a human should trigger
@@ -137,19 +132,23 @@ jobs:
         # into assets. The RN template's `release` signingConfig defaults to the debug keystore
         # (no real signing set up), so this stays installable without any secrets.
         run: ./gradlew assembleRelease
-      # Every push to main (i.e. every merge) uploads the APK, with the default 90-day retention.
-      # PR runs now upload too — short retention, since the only reason a PR needs this artifact
-      # is so the `maestro` job below (label-gated, not every PR) can install it; nobody needs a
-      # PR-build APK to stick around after that. Manual workflow_dispatch runs — e.g. building a
-      # side branch to hand someone an APK — only upload when save_artifact is checked, since most
-      # ad-hoc runs are just "does this still build" checks.
+      # Unconditional — every event type. Every push to main (i.e. every merge) gets the default
+      # 90-day retention. PR runs get a short 3-day one, since the only reason a PR needs this
+      # artifact is so the `maestro` job below (label-gated, not every PR) can install it; nobody
+      # needs a PR-build APK to stick around after that. `workflow_dispatch` runs used to gate this
+      # behind a `save_artifact` input, on the theory that most manual runs are just "does this
+      # still build" checks — but `workflow_dispatch` is now also the only way to trigger the
+      # `maestro` job below, which `needs: build-apk` and downloads this exact artifact by name, so
+      # skipping the upload silently broke that job with "Artifact not found for name:
+      # medguard-release-apk" the first time anyone actually ran it. Always uploading (7-day
+      # retention for this event) is simpler than trying to have `workflow_dispatch` mean two
+      # different things depending on an easy-to-forget checkbox.
       - name: Upload APK
-        if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.save_artifact == true
         uses: actions/upload-artifact@v4
         with:
           name: medguard-release-apk
           path: apps/android/android/app/build/outputs/apk/release/app-release.apk
-          retention-days: ${{ github.event_name == 'pull_request' && 3 || 90 }}
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || (github.event_name == 'workflow_dispatch' && 7 || 90) }}
 
   maestro:
     name: Android E2E (Maestro, emulator)
