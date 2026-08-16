@@ -185,7 +185,7 @@ Written against the real screens, receivers, manifest `exported` flags and `Shar
 schemas, but this sandbox has never had `maestro`, `adb`, or an emulator available to run any of it
 locally — the first real check happens in `android-apk.yml`'s `maestro` job, which is
 `workflow_dispatch`- and label-gated for exactly that reason (see that workflow's own comments).
-That job's first ten real runs each caught a problem this had no way to catch locally:
+That job's first eleven real runs each caught a problem this had no way to catch locally:
 
 1. **"Artifact not found for name: medguard-release-apk"** — the APK upload was conditional on a
    `workflow_dispatch` input nobody had reason to check, since `workflow_dispatch` is the *only*
@@ -271,6 +271,21 @@ That job's first ten real runs each caught a problem this had no way to catch lo
     tr -d '\r' || true` to all three `pidof` reads (and `|| true` on the `kill -9` fallback call
     too), so an absent process is data for the following `if` to interpret, not a script-ending
     error.
+11. **Same first assertion a fourth time — but now with process death positively confirmed** (the
+    script printed "Confirmed dead: no process for il.co.fainsilber.med" before broadcasting), which
+    rules out findings 8 and 9's theories both: there was no live runtime to resurrect, and nothing
+    to auto-relaunch. The broadcast still completed in ~70ms, still with nothing written. This means
+    the earlier "suspiciously fast" reasoning was itself the mistake — a cold process spawn for a
+    broadcast-receiver-only entry point (no UI to inflate, no JS bridge required just to run
+    `onReceive()`) may simply *be* that fast on this runner, and three straight fixes chased process
+    liveness on the strength of a timing assumption that was never actually verified against a
+    known-good baseline. Not yet fixed — this is a diagnostic-only commit. Guessing a fourth
+    process-management theory without evidence isn't a good use of another CI round trip, so
+    `alarm-action.sh` now clears logcat immediately before the broadcast and, only on this specific
+    failure, dumps everything logcat captured matching `medguard`, `AndroidRuntime`, `FATAL
+    EXCEPTION`, `NotificationActionReceiver`, or `PendingActionStore` — enough to see directly
+    whether `onReceive()` ran at all, hit one of its early returns, or threw, rather than continuing
+    to infer it from broadcast timing alone.
 
 Treat any claim below about what a flow itself proves as "should be true given the source" until a
 run gets far enough to actually exercise it — every fix above came from watching a real run get

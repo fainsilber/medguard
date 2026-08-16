@@ -112,6 +112,10 @@ fi
 echo "Confirmed dead: no process for $APP_ID."
 
 echo "== Broadcasting the Taken action directly at NotificationActionReceiver =="
+# Cleared right before sending, not earlier: this is the narrowest possible window for the dump
+# below to still be relevant if the check after it fails — confirming process death above already
+# generates its own (irrelevant) logcat noise.
+adb logcat -c
 adb shell am broadcast -a com.medguard.alarms.action.TAKEN -n "$RECEIVER" \
   --es com.medguard.alarms.extra.OCCURRENCE_KEY "$occurrence_key"
 
@@ -122,6 +126,15 @@ echo "== Checking the tap was captured durably before anything else ran =="
 pending_after_broadcast=$(adb shell "cat $PENDING_PREFS 2>/dev/null" || true)
 if ! echo "$pending_after_broadcast" | grep -q "$occurrence_key"; then
   echo "FAIL: PendingActionStore does not contain the tapped occurrenceKey right after the broadcast." >&2
+  echo "PendingActionStore raw content (empty means the file was never written, i.e. the app never" >&2
+  echo "reached PendingActionStore.add()): ${pending_after_broadcast:-<empty>}" >&2
+  # Every fix so far has been infrastructure/test-script, never the app itself — this failure
+  # keeps recurring even with process death now positively confirmed (see docs/testing.md finding
+  # 9's write-up), so the next thing worth seeing is what actually happened inside the app: did
+  # onReceive() run at all, did it hit an early return, did something throw. Unfiltered because we
+  # don't yet know which of those it is, so a broad tag filter risks hiding the answer.
+  echo "== logcat since the broadcast, filtered to anything package- or exception-related ==" >&2
+  adb logcat -d 2>&1 | grep -iE "medguard|AndroidRuntime|FATAL EXCEPTION|NotificationActionReceiver|PendingActionStore" | tail -n 150 >&2 || true
   exit 1
 fi
 echo "PASS: the tap is durable on disk with the app process dead."
