@@ -15,6 +15,7 @@ import type {
   IntakeLog,
   Medicine,
   Occurrence,
+  Patient,
   Schedule,
   ShabbatConfig,
   ShabbatWindow,
@@ -79,6 +80,12 @@ export interface MaterializeHorizonInput {
   medicines: readonly Medicine[];
   logs: readonly IntakeLog[];
   snoozes: readonly DoseSnooze[];
+  /**
+   * The household's roster (Phase 3). Only its size and names matter here: a single-patient
+   * household's alarms read exactly as they always have, and a multi-patient one gets the
+   * patient's name in the title so a shared medicine's alarm says whose dose it is.
+   */
+  patients?: readonly Patient[];
   /** The household's fixed zone, never the device's — a caregiver travelling must not shift doses. */
   timeZone: string;
   nowMs: EpochMs;
@@ -97,13 +104,17 @@ export interface MaterializeHorizonInput {
 function describeDose(
   medicine: Medicine | undefined,
   occurrence: Occurrence,
+  patientNames: ReadonlyMap<string, string>,
 ): { title: string; body: string } {
   const name = medicine?.name ?? 'Medicine';
   const strength = medicine?.strength ? ` ${medicine.strength}` : '';
   const unit = occurrence.dosageQuantity === 1 ? 'dose' : 'doses';
+  // Only prefixed once there is more than one name to disambiguate between — a single-patient
+  // household's alarms read exactly as they always have.
+  const patientName = patientNames.size > 1 ? patientNames.get(occurrence.patientId) : undefined;
 
   return {
-    title: `${name}${strength} is due`,
+    title: patientName ? `${patientName} · ${name}${strength} is due` : `${name}${strength} is due`,
     // The lock screen may be all a caregiver sees at 3am, so the quantity goes in the notification
     // rather than only in the app they would have to unlock to reach.
     body: `${occurrence.dosageQuantity} ${unit} · ${occurrence.scheduledLocalTime}`,
@@ -128,6 +139,9 @@ export function materializeHorizon(input: MaterializeHorizonInput): PlannedAlarm
   const { schedules, medicines, logs, snoozes, timeZone, nowMs, shabbatConfig } = input;
   const horizonMs = input.horizonMs ?? ALARM_HORIZON_MS;
   const shabbatWindows = input.shabbatWindows ?? [];
+  const patientNames = new Map(
+    (input.patients ?? []).map((patient) => [patient.id, patient.displayName]),
+  );
 
   const medicinesById = new Map(medicines.map((medicine) => [medicine.id, medicine]));
 
@@ -182,7 +196,7 @@ export function materializeHorizon(input: MaterializeHorizonInput): PlannedAlarm
       // want different lengths, and the length is baked into a payload that may fire days later
       // with no JS process alive to correct it.
       chimeDurationSeconds: chimeDurationSecondsFor({ inShabbat, shabbatConfig }),
-      ...describeDose(medicine, occurrence),
+      ...describeDose(medicine, occurrence, patientNames),
     });
   }
 

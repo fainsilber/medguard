@@ -16,11 +16,13 @@ import type {
   BlockReason,
   IntakeLog,
   Medicine,
+  MedicinePatient,
   ReconciliationItem,
   Schedule,
   ShabbatWindow,
 } from '@medguard/shared';
 import type { ReconciliationEntry } from '@medguard/store';
+import { usePatients } from '../../app/PatientProvider.js';
 import {
   useClock,
   useCurrentDeviceId,
@@ -32,6 +34,7 @@ import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { getLocalClockTrust } from '../../clock/localClockGuard.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
 import {
+  Badge,
   Button,
   Card,
   KeyboardAvoidingScreen,
@@ -83,6 +86,7 @@ export function ReconciliationSheet({ onDone }: { onDone?: () => void }): React.
   const userId = useCurrentUserId();
   const deviceId = useCurrentDeviceId();
   const householdSettings = useHouseholdSettings();
+  const { patients } = usePatients();
 
   const timeZone = householdSettings?.timeZone;
   const nowMs = clock.nowMs();
@@ -94,10 +98,21 @@ export function ReconciliationSheet({ onDone }: { onDone?: () => void }): React.
       windows: await repository.allShabbatWindows(),
       schedules: await repository.allSchedules(),
       medicines: await repository.allMedicines(),
-      logs: await repository.logsForPatient(SINGLE_PATIENT_ID),
+      // Every patient's history, not one — reconciliation always spans the whole household's
+      // outstanding Shabbat doses in one sitting, regardless of the header switcher.
+      logs: await repository.allLogs(),
     }),
     ['shabbatWindows', 'schedules', 'medicines', 'intakeLogs'],
   );
+
+  // Reconciliation always spans every patient's outstanding Shabbat doses in one sitting,
+  // regardless of the header switcher — a caregiver working through this sheet needs to see the
+  // whole household's backlog, not just whoever happened to be selected before Havdalah.
+  const patientNames = useMemo(
+    () => new Map(patients.map((patient) => [patient.id, patient.displayName])),
+    [patients],
+  );
+  const showPatientBadges = patients.length > 1;
 
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [saving, setSaving] = useState(false);
@@ -109,11 +124,6 @@ export function ReconciliationSheet({ onDone }: { onDone?: () => void }): React.
         ? collectReconciliationItems({ ...data, timeZone, nowMs })
         : ([] as ReconciliationItem[]),
     [data, timeZone, nowMs],
-  );
-
-  const prnMedicines = useMemo(
-    () => (data?.medicines ?? []).filter((medicine) => medicine.asNeeded && !medicine.archived),
-    [data],
   );
 
   if (!data || !timeZone) {
@@ -226,7 +236,16 @@ export function ReconciliationSheet({ onDone }: { onDone?: () => void }): React.
               const state = rowFor(item);
               return (
                 <View key={item.key} style={{ gap: 6 }}>
-                  <Text style={{ color: colors.text, fontWeight: '600' }}>{item.medicineName}</Text>
+                  <View style={[ui.row, { flexWrap: 'wrap' }]}>
+                    <Text style={{ color: colors.text, fontWeight: '600' }}>
+                      {item.medicineName}
+                    </Text>
+                    {showPatientBadges && (
+                      <Badge tone="neutral">
+                        {patientNames.get(item.occurrence.patientId) ?? 'Unknown patient'}
+                      </Badge>
+                    )}
+                  </View>
                   <Text style={ui.subtitle}>
                     Due {formatLocalDate(timeZone, fromIso(item.occurrence.dueAt))} ·{' '}
                     {item.occurrence.scheduledLocalTime} · {item.occurrence.dosageQuantity}
@@ -281,12 +300,7 @@ export function ReconciliationSheet({ onDone }: { onDone?: () => void }): React.
           </Card>
         ) : null}
 
-        <RetroactivePrn
-          timeZone={timeZone}
-          medicines={prnMedicines}
-          logs={data.logs}
-          nowMs={nowMs}
-        />
+        <RetroactivePrn timeZone={timeZone} nowMs={nowMs} />
       </ScrollView>
     </KeyboardAvoidingScreen>
   );
@@ -301,36 +315,72 @@ export function ReconciliationSheet({ onDone }: { onDone?: () => void }): React.
  */
 function RetroactivePrn({
   timeZone,
-  medicines,
-  logs,
   nowMs,
 }: {
   timeZone: string;
-  medicines: readonly Medicine[];
-  logs: readonly IntakeLog[];
   nowMs: number;
 }): React.JSX.Element | null {
   const repository = useRepository();
   const ids = useIdGenerator();
   const userId = useCurrentUserId();
   const deviceId = useCurrentDeviceId();
+  const { patients } = usePatients();
+
+  const medicines = useLiveQuery(
+    async () => (await repository.activeMedicines()).filter((medicine) => medicine.asNeeded),
+    ['medicines'],
+  );
+  const logs = useLiveQuery(() => repository.allLogs(), ['intakeLogs']);
+  const assignments = useLiveQuery<MedicinePatient[]>(
+    async () => (await repository.allMedicinePatients()).filter((assignment) => assignment.active),
+    ['medicinePatients'],
+  );
 
   const [medicineId, setMedicineId] = useState('');
+  const [patientId, setPatientId] = useState('');
   const [date, setDate] = useState(formatLocalDate(timeZone, nowMs));
   const [time, setTime] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [reason, setReason] = useState('');
   const [blockedBy, setBlockedBy] = useState<BlockReason | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [recorded, setRecorded] = useState<string | null>(null);
 
-  if (medicines.length === 0) {
+  if (!medicines || medicines.length === 0 || !logs || !assignments) {
     return null;
   }
 
+  // Which patients the chosen medicine is assigned to, in roster order — falling back to the
+  // single-patient default for a medicine with no assignment yet, the same fallback
+  // `MedicineForm`'s absence implies everywhere else.
+  const candidatePatientIds = medicineId
+    ? (() => {
+        const assignedIds = new Set(
+          assignments
+            .filter((assignment) => assignment.medicineId === medicineId)
+            .map((assignment) => assignment.patientId),
+        );
+        const ordered = patients.filter((patient) => assignedIds.has(patient.id)).map((p) => p.id);
+        return ordered.length > 0 ? ordered : [SINGLE_PATIENT_ID];
+      })()
+    : [];
+  const resolvedPatientId = candidatePatientIds.length === 1 ? candidatePatientIds[0]! : patientId;
+  const needsPatientChoice = candidatePatientIds.length > 1;
+
+  const reset = () => {
+    setMedicineId('');
+    setPatientId('');
+    setTime('');
+    setQuantity('1');
+    setReason('');
+    setBlockedBy(null);
+  };
+
   const record = async (override?: { reason: string; blockedBy: BlockReason }) => {
     const medicine = medicines.find((candidate) => candidate.id === medicineId);
-    if (!medicine || !time) {
+    if (!medicine || !time || !resolvedPatientId) {
+      setError('Choose a medicine, a patient, and the time it was given.');
       return;
     }
 
@@ -339,7 +389,7 @@ function RetroactivePrn({
     if (!override) {
       const safety = assessDose({
         medicine,
-        patientId: SINGLE_PATIENT_ID,
+        patientId: resolvedPatientId,
         logs,
         clock: clockAt(givenAtMs),
         clockTrust: getLocalClockTrust(),
@@ -352,10 +402,11 @@ function RetroactivePrn({
     }
 
     setSaving(true);
+    setError(null);
     try {
       await repository.recordDose({
         id: ids.next(),
-        patientId: SINGLE_PATIENT_ID,
+        patientId: resolvedPatientId,
         medicineId: medicine.id,
         type: 'prn',
         status: 'taken',
@@ -375,11 +426,9 @@ function RetroactivePrn({
           : {}),
       });
       setRecorded(`${medicine.name} at ${time}`);
-      setMedicineId('');
-      setTime('');
-      setQuantity('1');
-      setReason('');
-      setBlockedBy(null);
+      reset();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSaving(false);
     }
@@ -403,11 +452,34 @@ function RetroactivePrn({
             variant={medicineId === medicine.id ? 'primary' : 'default'}
             onPress={() => {
               setMedicineId(medicine.id);
+              setPatientId('');
               setBlockedBy(null);
             }}
           />
         ))}
       </View>
+
+      {needsPatientChoice && (
+        <View style={{ gap: 6 }}>
+          <Text style={ui.label}>For which patient?</Text>
+          <View style={[ui.row, { flexWrap: 'wrap' }]}>
+            {candidatePatientIds.map((id) => {
+              const name = patients.find((patient) => patient.id === id)?.displayName ?? id;
+              return (
+                <Button
+                  key={id}
+                  label={name}
+                  variant={patientId === id ? 'primary' : 'default'}
+                  onPress={() => {
+                    setPatientId(id);
+                    setBlockedBy(null);
+                  }}
+                />
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       <View>
         <Text style={ui.label}>Date given</Text>
@@ -447,8 +519,8 @@ function RetroactivePrn({
       {blockedBy ? (
         <View style={{ gap: 6 }}>
           <Text style={ui.subtitle}>
-            At that time this dose was inside the safety limit for this medicine. It still
-            happened, so it still gets recorded — say why, and the reason is kept with it.
+            At that time this dose was inside the safety limit for this medicine. It still happened,
+            so it still gets recorded — say why, and the reason is kept with it.
           </Text>
           <TextInput
             style={ui.input}
@@ -466,12 +538,13 @@ function RetroactivePrn({
       ) : (
         <Button
           label={saving ? 'Recording…' : 'Record this dose'}
-          disabled={saving || !medicineId || !time}
+          disabled={saving || !medicineId || !time || !resolvedPatientId}
           onPress={() => void record()}
         />
       )}
 
       {recorded ? <Text style={{ color: colors.safe }}>Recorded: {recorded}</Text> : null}
+      {error ? <Text style={ui.errorText}>{error}</Text> : null}
     </Card>
   );
 }

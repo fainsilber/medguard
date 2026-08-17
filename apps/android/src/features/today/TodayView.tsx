@@ -3,7 +3,6 @@ import { ScrollView, Text, View } from 'react-native';
 import {
   MAX_SNOOZE_COUNT,
   MS_PER_DAY,
-  SINGLE_PATIENT_ID,
   addLocalDays,
   classifyOccurrence,
   deriveSnoozeState,
@@ -18,6 +17,7 @@ import {
 } from '@medguard/shared';
 import type { Occurrence, OccurrenceStatus } from '@medguard/shared';
 import { useAlarmHealth } from '../../alarms/AlarmProvider.js';
+import { usePatients } from '../../app/PatientProvider.js';
 import {
   useClock,
   useCurrentDeviceId,
@@ -28,7 +28,14 @@ import {
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useTick } from '../../app/useTick.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
-import { Button, Card, KeyboardAvoidingScreen, colors, styles as ui } from '../../ui/primitives.js';
+import {
+  Badge,
+  Button,
+  Card,
+  KeyboardAvoidingScreen,
+  colors,
+  styles as ui,
+} from '../../ui/primitives.js';
 import { DoseCorrection } from '../logs/DoseCorrection.js';
 import { TakenTimePrompt } from './TakenTimePrompt.js';
 
@@ -66,15 +73,36 @@ export function TodayView(): React.JSX.Element {
   const userId = useCurrentUserId();
   const deviceId = useCurrentDeviceId();
   const householdSettings = useHouseholdSettings();
+  const { patients, filterPatientId } = usePatients();
   const { snooze, silenceChime } = useAlarmHealth();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [promptingKey, setPromptingKey] = useState<string | null>(null);
 
   useTick(REFRESH_INTERVAL_MS);
 
-  const schedules = useLiveQuery(() => repository.allSchedules(), ['schedules']);
-  const logs = useLiveQuery(() => repository.logsForPatient(SINGLE_PATIENT_ID), ['intakeLogs']);
+  // Always fetched unfiltered: `useLiveQuery` only re-runs on a table write, not when
+  // `filterPatientId` changes, so filtering has to happen below in a plain `useMemo` instead of
+  // inside the query itself — otherwise switching patients in the header would leave the screen
+  // showing the previous selection until the next unrelated write. `logs` stays unfiltered even
+  // there: a dose logged for any patient still has to be matched against its own occurrence via
+  // `findLogForOccurrence`, and `DoseCorrection` needs the full correction chain.
+  const allSchedules = useLiveQuery(() => repository.allSchedules(), ['schedules']);
+  const logs = useLiveQuery(() => repository.allLogs(), ['intakeLogs']);
   const medicines = useLiveQuery(() => repository.allMedicines(), ['medicines']);
+
+  const schedules = useMemo(
+    () =>
+      allSchedules === undefined || filterPatientId === undefined
+        ? allSchedules
+        : allSchedules.filter((schedule) => schedule.patientId === filterPatientId),
+    [allSchedules, filterPatientId],
+  );
+
+  const patientNames = useMemo(
+    () => new Map(patients.map((patient) => [patient.id, patient.displayName])),
+    [patients],
+  );
+  const showPatientBadges = filterPatientId === undefined && patients.length > 1;
 
   const nowMs = clock.nowMs();
   const timeZone = householdSettings?.timeZone;
@@ -246,9 +274,16 @@ export function TodayView(): React.JSX.Element {
                       ]}
                     >
                       <View style={{ flex: 1, gap: 2 }}>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>
-                          {medicineNames.get(occurrence.medicineId) ?? 'Unknown medicine'}
-                        </Text>
+                        <View style={[ui.row, { flexWrap: 'wrap' }]}>
+                          <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>
+                            {medicineNames.get(occurrence.medicineId) ?? 'Unknown medicine'}
+                          </Text>
+                          {showPatientBadges && (
+                            <Badge tone="neutral">
+                              {patientNames.get(occurrence.patientId) ?? 'Unknown patient'}
+                            </Badge>
+                          )}
+                        </View>
                         <Text style={{ fontSize: 13, color: colors.textMuted }}>
                           Due {formatLocalTime(timeZone, fromIso(occurrence.dueAt))} ·{' '}
                           {occurrence.dosageQuantity}

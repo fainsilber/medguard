@@ -1,11 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
-import { SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { Medicine, MedicineForm as MedicineFormValue } from '@medguard/shared';
+import { usePatients } from '../../app/PatientProvider.js';
 import { useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
+import { useLiveQuery } from '../../store/useLiveQuery.js';
 import { Button, KeyboardAvoidingScreen, styles as sharedStyles } from '../../ui/primitives.js';
 
-const MEDICINE_FORMS: readonly MedicineFormValue[] = ['pill', 'liquid', 'injection', 'topical', 'other'];
+const MEDICINE_FORMS: readonly MedicineFormValue[] = [
+  'pill',
+  'liquid',
+  'injection',
+  'topical',
+  'other',
+];
 
 /**
  * Add or edit a medicine — the RN port of `apps/web/src/features/medicines/MedicineForm.tsx`.
@@ -27,6 +34,12 @@ export function MedicineForm({
 }): React.JSX.Element {
   const repository = useRepository();
   const ids = useIdGenerator();
+  const { patients, filterPatientId } = usePatients();
+
+  const existingAssignments = useLiveQuery(
+    () => (medicine ? repository.medicinePatientsFor(medicine.id) : Promise.resolve([])),
+    ['medicinePatients'],
+  );
 
   const [name, setName] = useState(medicine?.name ?? '');
   const [strength, setStrength] = useState(medicine?.strength ?? '');
@@ -37,6 +50,41 @@ export function MedicineForm({
   const [instructions, setInstructions] = useState(medicine?.instructions ?? '');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Who this medicine is assigned to. Seeded once, either from the existing assignment rows (an
+  // edit) or from whichever specific patient was selected in the switcher when "Add medicine" was
+  // pressed (a sensible default, not a requirement — an empty selection just means "nobody yet").
+  const [selectedPatientIds, setSelectedPatientIds] = useState<Set<string>>(new Set());
+  const [selectionInitialized, setSelectionInitialized] = useState(false);
+
+  useEffect(() => {
+    if (selectionInitialized) return;
+    if (medicine) {
+      if (existingAssignments === undefined) return;
+      setSelectedPatientIds(
+        new Set(
+          existingAssignments
+            .filter((assignment) => assignment.active)
+            .map((assignment) => assignment.patientId),
+        ),
+      );
+    } else {
+      setSelectedPatientIds(filterPatientId ? new Set([filterPatientId]) : new Set());
+    }
+    setSelectionInitialized(true);
+  }, [medicine, existingAssignments, filterPatientId, selectionInitialized]);
+
+  const togglePatient = (patientId: string) => {
+    setSelectedPatientIds((current) => {
+      const next = new Set(current);
+      if (next.has(patientId)) {
+        next.delete(patientId);
+      } else {
+        next.add(patientId);
+      }
+      return next;
+    });
+  };
 
   const handleSubmit = async () => {
     setError(null);
@@ -62,10 +110,11 @@ export function MedicineForm({
 
     setSaving(true);
     try {
+      const medicineId = medicine?.id ?? ids.next();
+
       await repository.saveMedicine(
         {
-          id: medicine?.id ?? ids.next(),
-          patientId: medicine?.patientId ?? SINGLE_PATIENT_ID,
+          id: medicineId,
           name: trimmedName,
           strength: trimmedStrength,
           form,
@@ -82,6 +131,19 @@ export function MedicineForm({
         },
         medicine ? 'UPDATE' : 'CREATE',
       );
+
+      const previouslyAssigned = new Set(
+        (existingAssignments ?? [])
+          .filter((assignment) => assignment.active)
+          .map((assignment) => assignment.patientId),
+      );
+      const toAssign = [...selectedPatientIds].filter((id) => !previouslyAssigned.has(id));
+      const toUnassign = [...previouslyAssigned].filter((id) => !selectedPatientIds.has(id));
+      await Promise.all([
+        ...toAssign.map((patientId) => repository.assignMedicine(medicineId, patientId)),
+        ...toUnassign.map((patientId) => repository.unassignMedicine(medicineId, patientId)),
+      ]);
+
       onDone();
     } finally {
       setSaving(false);
@@ -124,10 +186,35 @@ export function MedicineForm({
           <Text style={sharedStyles.label}>Form</Text>
           <View style={[sharedStyles.row, { flexWrap: 'wrap' }]}>
             {MEDICINE_FORMS.map((option) => (
-              <Chip key={option} label={option} selected={form === option} onPress={() => setForm(option)} />
+              <Chip
+                key={option}
+                label={option}
+                selected={form === option}
+                onPress={() => setForm(option)}
+              />
             ))}
           </View>
         </View>
+
+        {patients.length > 0 && (
+          <View style={{ gap: 6 }}>
+            <Text style={sharedStyles.label}>Who takes this?</Text>
+            <Text style={sharedStyles.helpText}>
+              Assign to more than one patient to share it — one bottle, one stock count, tracked
+              once.
+            </Text>
+            <View style={[sharedStyles.row, { flexWrap: 'wrap' }]}>
+              {patients.map((patient) => (
+                <Chip
+                  key={patient.id}
+                  label={patient.displayName}
+                  selected={selectedPatientIds.has(patient.id)}
+                  onPress={() => togglePatient(patient.id)}
+                />
+              ))}
+            </View>
+          </View>
+        )}
 
         <View style={{ gap: 6 }}>
           <Text style={sharedStyles.label}>How is it taken?</Text>
@@ -190,7 +277,12 @@ export function MedicineForm({
         )}
 
         <View style={sharedStyles.row}>
-          <Button label={saving ? 'Saving…' : 'Save'} onPress={() => void handleSubmit()} disabled={saving} variant="primary" />
+          <Button
+            label={saving ? 'Saving…' : 'Save'}
+            onPress={() => void handleSubmit()}
+            disabled={saving}
+            variant="primary"
+          />
           <Button label="Cancel" onPress={onCancel} disabled={saving} />
         </View>
       </ScrollView>
@@ -211,5 +303,11 @@ function Chip({
   selected: boolean;
   onPress: () => void;
 }): React.JSX.Element {
-  return <Button label={selected ? `✓ ${label}` : label} onPress={onPress} variant={selected ? 'primary' : 'default'} />;
+  return (
+    <Button
+      label={selected ? `✓ ${label}` : label}
+      onPress={onPress}
+      variant={selected ? 'primary' : 'default'}
+    />
+  );
 }

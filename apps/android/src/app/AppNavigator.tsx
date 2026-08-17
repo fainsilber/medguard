@@ -54,7 +54,7 @@ import { useHouseholdSettings } from './useHouseholdSettings.js';
 type MedicinesStackParamList = {
   MedicineList: undefined;
   MedicineForm: { medicineId?: string };
-  ScheduleForm: { medicineId: string; scheduleId?: string };
+  ScheduleForm: { medicineId: string; patientId: string; scheduleId?: string };
 };
 
 const MedicinesStack = createNativeStackNavigator<MedicinesStackParamList>();
@@ -65,10 +65,18 @@ function MedicineListRoute({
   return (
     <MedicineList
       onAddMedicine={() => navigation.navigate('MedicineForm', {})}
-      onEditMedicine={(medicine: Medicine) => navigation.navigate('MedicineForm', { medicineId: medicine.id })}
-      onAddSchedule={(medicineId: string) => navigation.navigate('ScheduleForm', { medicineId })}
+      onEditMedicine={(medicine: Medicine) =>
+        navigation.navigate('MedicineForm', { medicineId: medicine.id })
+      }
+      onAddSchedule={(medicineId: string, patientId: string) =>
+        navigation.navigate('ScheduleForm', { medicineId, patientId })
+      }
       onEditSchedule={(schedule: Schedule) =>
-        navigation.navigate('ScheduleForm', { medicineId: schedule.medicineId, scheduleId: schedule.id })
+        navigation.navigate('ScheduleForm', {
+          medicineId: schedule.medicineId,
+          patientId: schedule.patientId,
+          scheduleId: schedule.id,
+        })
       }
     />
   );
@@ -107,11 +115,15 @@ function ScheduleFormRoute({
   const repository = useRepository();
   const clock = useClock();
   const householdSettings = useHouseholdSettings();
-  const { medicineId, scheduleId } = route.params;
+  const { medicineId, patientId, scheduleId } = route.params;
 
   const schedules = useLiveQuery(() => repository.schedulesForMedicine(medicineId), ['schedules']);
-  const today = householdSettings ? formatLocalDate(householdSettings.timeZone, clock.nowMs()) : undefined;
-  const existing = scheduleId ? schedules?.find((schedule) => schedule.id === scheduleId) : undefined;
+  const today = householdSettings
+    ? formatLocalDate(householdSettings.timeZone, clock.nowMs())
+    : undefined;
+  const existing = scheduleId
+    ? schedules?.find((schedule) => schedule.id === scheduleId)
+    : undefined;
 
   if (!today || (scheduleId && !schedules)) {
     return <LoadingScreen />;
@@ -120,6 +132,7 @@ function ScheduleFormRoute({
   return (
     <ScheduleForm
       medicineId={medicineId}
+      patientId={patientId}
       {...(existing ? { existing } : {})}
       today={today}
       onDone={() => navigation.goBack()}
@@ -162,7 +175,11 @@ const RootStack = createNativeStackNavigator<RootStackParamList>();
 // why it's driven by navigationRef instead of useNavigation().
 // ---------------------------------------------------------------------------
 
-const BOTTOM_NAV_ITEMS: ReadonlyArray<{ route: 'Today' | 'AsNeeded'; label: string; icon: string }> = [
+const BOTTOM_NAV_ITEMS: ReadonlyArray<{
+  route: 'Today' | 'AsNeeded';
+  label: string;
+  icon: string;
+}> = [
   { route: 'Today', label: 'Today', icon: '📅' },
   { route: 'AsNeeded', label: 'As needed', icon: '⏱️' },
 ];
@@ -280,7 +297,14 @@ export function AppNavigator({
 
 function LoadingScreen(): React.JSX.Element {
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
+    <View
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.background,
+      }}
+    >
       <ActivityIndicator />
     </View>
   );

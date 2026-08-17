@@ -1,5 +1,6 @@
 import { fireEvent, waitFor } from '@testing-library/react-native';
 import { fixedClock } from '@medguard/shared/testing';
+import { SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { Schedule } from '@medguard/shared';
 import { readSchedules, seedSchedule } from '../../testUtils/readSchedules.js';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
@@ -35,7 +36,13 @@ describe('ScheduleForm — create vs. revise branching', () => {
   it('a brand-new schedule (no `existing`) calls saveSchedule(..., CREATE) — exactly one live schedule', async () => {
     const dbName = 'schedule-form-create.db';
     const { getByText, getByPlaceholderText } = renderWithRepository(
-      <ScheduleForm medicineId="medicine-1" today="2026-06-15" onDone={jest.fn()} onCancel={jest.fn()} />,
+      <ScheduleForm
+        medicineId="medicine-1"
+        patientId={SINGLE_PATIENT_ID}
+        today="2026-06-15"
+        onDone={jest.fn()}
+        onCancel={jest.fn()}
+      />,
       { clock: fixedClock(NOW), dbName },
     );
 
@@ -62,6 +69,7 @@ describe('ScheduleForm — create vs. revise branching', () => {
     const { getByText, getByDisplayValue } = renderWithRepository(
       <ScheduleForm
         medicineId="medicine-1"
+        patientId={SINGLE_PATIENT_ID}
         existing={makeExisting()}
         today="2026-06-15"
         onDone={onDone}
@@ -96,7 +104,13 @@ describe('ScheduleForm — create vs. revise branching', () => {
   it('rejects an invalid time-of-day instead of saving', async () => {
     const dbName = 'schedule-form-invalid-time.db';
     const { getByText, getByPlaceholderText, queryByText } = renderWithRepository(
-      <ScheduleForm medicineId="medicine-1" today="2026-06-15" onDone={jest.fn()} onCancel={jest.fn()} />,
+      <ScheduleForm
+        medicineId="medicine-1"
+        patientId={SINGLE_PATIENT_ID}
+        today="2026-06-15"
+        onDone={jest.fn()}
+        onCancel={jest.fn()}
+      />,
       { clock: fixedClock(NOW), dbName },
     );
 

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import type { Medicine, Schedule } from '@medguard/shared';
+import type { Medicine, MedicinePatient, Schedule } from '@medguard/shared';
+import { usePatients } from '../../app/PatientProvider.js';
 import { useRepository } from '../../app/RepositoryContext.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
 import { Badge, Button, Card, colors, styles as sharedStyles } from '../../ui/primitives.js';
@@ -26,17 +27,36 @@ export function MedicineList({
 }: {
   onAddMedicine: () => void;
   onEditMedicine: (medicine: Medicine) => void;
-  onAddSchedule: (medicineId: string) => void;
+  onAddSchedule: (medicineId: string, patientId: string) => void;
   onEditSchedule: (schedule: Schedule) => void;
 }): React.JSX.Element {
   const repository = useRepository();
+  const { filterPatientId } = usePatients();
   const [showArchived, setShowArchived] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const medicines = useLiveQuery(
+  // Fetched unfiltered for the same reason `TodayView`/`InventoryScreen` are: `useLiveQuery` only
+  // re-runs on a table write, not when `filterPatientId` changes, so the patient filter is applied
+  // below in a plain `useMemo` instead.
+  const allMedicines = useLiveQuery(
     () => (showArchived ? repository.allMedicines() : repository.activeMedicines()),
     ['medicines'],
   );
+  const assignments = useLiveQuery<MedicinePatient[]>(
+    () => repository.allMedicinePatients(),
+    ['medicinePatients'],
+  );
+
+  const medicines = useMemo(() => {
+    if (allMedicines === undefined) return undefined;
+    if (filterPatientId === undefined || assignments === undefined) return allMedicines;
+    const assignedIds = new Set(
+      assignments
+        .filter((assignment) => assignment.active && assignment.patientId === filterPatientId)
+        .map((assignment) => assignment.medicineId),
+    );
+    return allMedicines.filter((medicine) => assignedIds.has(medicine.id));
+  }, [allMedicines, assignments, filterPatientId]);
 
   return (
     <Card>
@@ -62,19 +82,29 @@ export function MedicineList({
         <View style={{ gap: 8 }}>
           {medicines.map((medicine) => (
             <View key={medicine.id} style={rowStyle}>
-              <View style={[sharedStyles.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
+              <View
+                style={[
+                  sharedStyles.row,
+                  { justifyContent: 'space-between', alignItems: 'flex-start' },
+                ]}
+              >
                 <View style={{ flex: 1, gap: 4 }}>
                   <View style={[sharedStyles.row, { flexWrap: 'wrap' }]}>
                     <Text style={{ color: colors.text, fontWeight: '600' }}>
-                      {medicine.name} <Text style={{ color: colors.textMuted }}>{medicine.strength}</Text>
+                      {medicine.name}{' '}
+                      <Text style={{ color: colors.textMuted }}>{medicine.strength}</Text>
                     </Text>
                     {medicine.asNeeded && <Badge tone="neutral">as needed</Badge>}
                     {medicine.archived && <Badge tone="neutral">archived</Badge>}
                   </View>
-                  {(medicine.minHoursBetweenDoses !== undefined || medicine.maxDailyDoses !== undefined) && (
+                  {(medicine.minHoursBetweenDoses !== undefined ||
+                    medicine.maxDailyDoses !== undefined) && (
                     <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                      {medicine.minHoursBetweenDoses !== undefined && `Min ${medicine.minHoursBetweenDoses}h between doses`}
-                      {medicine.minHoursBetweenDoses !== undefined && medicine.maxDailyDoses !== undefined && ' · '}
+                      {medicine.minHoursBetweenDoses !== undefined &&
+                        `Min ${medicine.minHoursBetweenDoses}h between doses`}
+                      {medicine.minHoursBetweenDoses !== undefined &&
+                        medicine.maxDailyDoses !== undefined &&
+                        ' · '}
                       {medicine.maxDailyDoses !== undefined && `Max ${medicine.maxDailyDoses}/day`}
                     </Text>
                   )}
@@ -83,12 +113,17 @@ export function MedicineList({
                   {!medicine.asNeeded && (
                     <Button
                       label={expandedId === medicine.id ? 'Hide schedule' : 'Schedule'}
-                      onPress={() => setExpandedId((current) => (current === medicine.id ? null : medicine.id))}
+                      onPress={() =>
+                        setExpandedId((current) => (current === medicine.id ? null : medicine.id))
+                      }
                     />
                   )}
                   <Button label="Edit" onPress={() => onEditMedicine(medicine)} />
                   {!medicine.archived && (
-                    <Button label="Archive" onPress={() => void repository.archiveMedicine(medicine.id)} />
+                    <Button
+                      label="Archive"
+                      onPress={() => void repository.archiveMedicine(medicine.id)}
+                    />
                   )}
                 </View>
               </View>
@@ -100,7 +135,7 @@ export function MedicineList({
                 <View style={nestedPanelStyle}>
                   <ScheduleList
                     medicineId={medicine.id}
-                    onAddSchedule={() => onAddSchedule(medicine.id)}
+                    onAddSchedule={(patientId) => onAddSchedule(medicine.id, patientId)}
                     onEditSchedule={onEditSchedule}
                   />
                 </View>

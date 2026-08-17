@@ -689,6 +689,20 @@ export function runRepositoryConformanceSuite(
         expect(await repository.patientsForMedicine('medicine-1')).toEqual([]);
       });
 
+      it('allMedicinePatients returns every assignment across every medicine, including inactive ones', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine({ id: 'shared' }), 'CREATE');
+        await repository.saveMedicine(makeMedicine({ id: 'dads-only' }), 'CREATE');
+        await repository.assignMedicine('shared', CONFORMANCE_PATIENT_ID);
+        await repository.assignMedicine('shared', DAD);
+        await repository.assignMedicine('dads-only', DAD);
+        await repository.unassignMedicine('dads-only', DAD);
+
+        const all = await repository.allMedicinePatients();
+        expect(all).toHaveLength(3);
+        expect(all.find((a) => a.medicineId === 'dads-only')?.active).toBe(false);
+      });
+
       it('unassigning a pair that was never assigned is a no-op', async () => {
         const { repository } = await freshRepository();
         await expect(
@@ -761,6 +775,17 @@ export function runRepositoryConformanceSuite(
           '2026-06-10T00:00:00.000Z',
         );
         expect(recent.map((log) => log.id)).toEqual(['recent']);
+      });
+
+      it('allLogs returns every patient’s history, unfiltered', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordDose(
+          makeLog({ id: 'yoni-dose', patientId: CONFORMANCE_PATIENT_ID }),
+        );
+        await repository.recordDose(makeLog({ id: 'dad-dose', patientId: DAD }));
+
+        const all = await repository.allLogs();
+        expect(all.map((log) => log.id).sort()).toEqual(['dad-dose', 'yoni-dose']);
       });
     });
 

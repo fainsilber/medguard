@@ -1,4 +1,4 @@
-import { MS_PER_DAY, SINGLE_PATIENT_ID, toIso } from '@medguard/shared';
+import { MS_PER_DAY, toIso } from '@medguard/shared';
 import type { Clock, DoseSnooze, IdGenerator } from '@medguard/shared';
 import type { MedGuardRepository } from '@medguard/store';
 import { PendingActionApplier, getLastSyncedAt } from '@medguard/store';
@@ -141,18 +141,24 @@ export class AlarmEngine {
     // the engine correct against any `Store` implementation, queued or not.
     const schedules = await repository.allSchedules();
     const medicines = await repository.allMedicines();
-    const logs = await repository.logsForPatient(SINGLE_PATIENT_ID);
+    // Every patient's logs, not one — a household of several patients needs `findLogForOccurrence`
+    // to see every occurrence's own log, regardless of who it belongs to.
+    const logs = await repository.allLogs();
     const snoozes = await repository.recentSnoozes(toIso(nowMs - SNOOZE_LOOKBACK_MS));
     // Sprint A5. Both read locally, like everything else here: a phone with no signal on Friday
     // afternoon must still arm Shabbat's doses on the Shabbat channel.
     const shabbatConfig = await repository.getShabbatConfig();
     const shabbatWindows = await repository.allShabbatWindows();
+    // Multi-patient (Phase 3): so a locally-armed alarm can name who a shared medicine's dose is
+    // for, the same way the server-side push payload will (Phase 4).
+    const patients = await repository.allPatients();
 
     const planned = materializeHorizon({
       schedules,
       medicines,
       logs,
       snoozes,
+      patients,
       timeZone: settings.timeZone,
       nowMs,
       horizonMs: ALARM_HORIZON_MS,

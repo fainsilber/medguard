@@ -41,11 +41,41 @@ function jsonResponse(body: unknown, status = 200): Response {
   return { ok: status < 400, status, json: async () => body } as Response;
 }
 
+/**
+ * Answers `/sync/push` by echoing back an `applied` result for every change actually in the
+ * request body, rather than a fixed shape — `PatientProvider`'s first-run bootstrap now queues a
+ * real `patients` CREATE the moment the tree mounts (see `PatientProvider.tsx`), so every test
+ * using `renderWithRepository` pushes at least that one record even when the test itself never
+ * touches a medicine. A handler that only knows about one hardcoded table/id would leave that
+ * write permanently unacknowledged, which is exactly what caused "Sync error"/stuck "Pending"
+ * here before this existed — the same fix `apps/web/src/sync/SyncProvider.test.tsx` needed for the
+ * same reason.
+ */
+function defaultFetchHandler(url: string, init?: RequestInit): Response {
+  if (url.includes('/sync/push') && typeof init?.body === 'string') {
+    const body = JSON.parse(init.body) as {
+      changes: Array<{ table: string; record: { id: string } }>;
+    };
+    return jsonResponse({
+      cursor: 1,
+      results: body.changes.map((change) => ({
+        table: change.table,
+        id: change.record.id,
+        outcome: 'applied',
+      })),
+      blocked: [],
+      rejected: [],
+    });
+  }
+  return jsonResponse({ cursor: 0, records: [], hasMore: false });
+}
+
 function stubFetch(
-  handler: (url: string) => Response | Promise<Response> = () =>
-    jsonResponse({ cursor: 0, records: [], hasMore: false }),
+  handler: (url: string, init?: RequestInit) => Response | Promise<Response> = defaultFetchHandler,
 ): void {
-  global.fetch = jest.fn(async (url: string) => handler(url)) as unknown as typeof fetch;
+  global.fetch = jest.fn(async (url: string, init?: RequestInit) =>
+    handler(url, init),
+  ) as unknown as typeof fetch;
 }
 
 /** Hands the rendered tree's own repository instance back to the test — needed wherever a test
@@ -130,7 +160,12 @@ describe('SyncProvider', () => {
 
   it('shows Synced once the live channel is open and nothing is pending', async () => {
     const dbName = 'sync-provider-synced.db';
-    await setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+    await setHouseholdSession({
+      deviceToken: 'tok-1',
+      householdId: 'h1',
+      userId: 'u1',
+      deviceId: 'd1',
+    });
     stubFetch();
 
     const { findByText } = renderWithRepository(
@@ -148,20 +183,19 @@ describe('SyncProvider', () => {
 
   it('drains the outbox as soon as a new local mutation is queued, not only on a WebSocket event', async () => {
     const dbName = 'sync-provider-outbox-trigger.db';
-    await setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+    await setHouseholdSession({
+      deviceToken: 'tok-1',
+      householdId: 'h1',
+      userId: 'u1',
+      deviceId: 'd1',
+    });
 
     const pushCalls: unknown[] = [];
-    stubFetch((url) => {
+    stubFetch((url, init) => {
       if (url.includes('/sync/push')) {
         pushCalls.push(url);
-        return jsonResponse({
-          cursor: 1,
-          results: [{ table: 'medicines', id: 'm1', outcome: 'applied' }],
-          blocked: [],
-          rejected: [],
-        });
       }
-      return jsonResponse({ cursor: 0, records: [], hasMore: false });
+      return defaultFetchHandler(url, init);
     });
 
     let repository: MedGuardRepository | undefined;
@@ -180,7 +214,10 @@ describe('SyncProvider', () => {
     await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
     FakeWebSocket.latest().open();
     await findByText('Synced');
-    expect(pushCalls).toHaveLength(0);
+    // `PatientProvider`'s first-run bootstrap has already pushed its own `patients` CREATE by this
+    // point — that's a real push, just not the one this test is about — so the count is reset here
+    // rather than asserted as zero, and the mutation below is what's actually under test.
+    pushCalls.length = 0;
 
     // A local mutation through the repository the running provider itself watches — standing in
     // for what a caregiver adding a medicine or logging a dose through the UI does.
@@ -209,7 +246,12 @@ describe('SyncProvider', () => {
   it('shows a live safety.warning broadcast with the medicine’s name, dismissible', async () => {
     const dbName = 'sync-provider-safety-warning.db';
     const medicineId = '11111111-1111-4111-8111-111111111111';
-    await setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+    await setHouseholdSession({
+      deviceToken: 'tok-1',
+      householdId: 'h1',
+      userId: 'u1',
+      deviceId: 'd1',
+    });
     stubFetch();
     await seedMedicineDirect(dbName, {
       id: medicineId,
@@ -245,7 +287,12 @@ describe('SyncProvider', () => {
   it('describes an override differently from an outright block', async () => {
     const dbName = 'sync-provider-safety-override.db';
     const medicineId = '22222222-2222-4222-8222-222222222222';
-    await setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+    await setHouseholdSession({
+      deviceToken: 'tok-1',
+      householdId: 'h1',
+      userId: 'u1',
+      deviceId: 'd1',
+    });
     stubFetch();
     await seedMedicineDirect(dbName, {
       id: medicineId,
@@ -277,7 +324,12 @@ describe('SyncProvider', () => {
 
   it('shows Removed and the revoked banner once the server rejects this device as unauthorized', async () => {
     const dbName = 'sync-provider-revoked.db';
-    await setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+    await setHouseholdSession({
+      deviceToken: 'tok-1',
+      householdId: 'h1',
+      userId: 'u1',
+      deviceId: 'd1',
+    });
     stubFetch(() => jsonResponse({ error: 'unauthorized' }, 401));
 
     const { findByText, getByText } = renderWithRepository(
@@ -294,7 +346,12 @@ describe('SyncProvider', () => {
 
   it('clears local data and the session once the caregiver confirms on the revoked banner', async () => {
     const dbName = 'sync-provider-revoked-clear.db';
-    await setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+    await setHouseholdSession({
+      deviceToken: 'tok-1',
+      householdId: 'h1',
+      userId: 'u1',
+      deviceId: 'd1',
+    });
     stubFetch(() => jsonResponse({ error: 'unauthorized' }, 401));
 
     const { findByRole, getByRole, queryByText } = renderWithRepository(
@@ -312,7 +369,9 @@ describe('SyncProvider', () => {
     // onHouseholdSessionChange listener's `getHouseholdSession()` re-read and the resulting
     // re-render — not just one, so RTL's default 1000ms timeout is tighter than this legitimately
     // needs under a loaded CI runner.
-    await waitFor(() => expect(queryByText(/removed from the household/)).toBeFalsy(), { timeout: 5_000 });
+    await waitFor(() => expect(queryByText(/removed from the household/)).toBeFalsy(), {
+      timeout: 5_000,
+    });
     expect(await getHouseholdSession()).toBeNull();
   });
 });

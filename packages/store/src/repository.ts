@@ -291,6 +291,18 @@ export class MedGuardRepository {
     return patients.filter((p): p is Patient => p !== undefined);
   }
 
+  /**
+   * Every medicine↔patient assignment in the household, active or not. For a screen that needs
+   * every medicine's assignments at once (Android's `PrnScreen`, which has no direct table
+   * access the way web's Dexie-backed screens do) — one call rather than one `medicinePatientsFor`
+   * per medicine.
+   */
+  allMedicinePatients(): Promise<MedicinePatient[]> {
+    return this.store.transaction(['medicinePatients'], (tx) =>
+      tx.getAll<MedicinePatient>('medicinePatients'),
+    );
+  }
+
   // -------------------------------------------------------------------------
   // Shabbat (Sprint A5)
   // -------------------------------------------------------------------------
@@ -700,6 +712,17 @@ export class MedGuardRepository {
         }
       },
     );
+  }
+
+  /**
+   * Every intake log in the household, unfiltered by patient. Android has no equivalent of web's
+   * direct `db.intakeLogs.toArray()` table scan — every read goes through the repository — so this
+   * exists for the call sites that genuinely need every patient's history at once:
+   * `findLogForOccurrence`-driven screens (Today, the Shabbat reconciliation sheet, the alarm
+   * horizon), where a log's *own* `patientId` is what matters, not the currently-selected one.
+   */
+  allLogs(): Promise<IntakeLog[]> {
+    return this.store.transaction(['intakeLogs'], (tx) => tx.getAll<IntakeLog>('intakeLogs'));
   }
 
   /**

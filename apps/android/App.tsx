@@ -7,6 +7,8 @@ import { AlarmHealthBanner } from './src/alarms/AlarmHealthBanner';
 import { AlarmProvider } from './src/alarms/AlarmProvider';
 import { AppNavigator } from './src/app/AppNavigator';
 import type { RootStackParamList } from './src/app/AppNavigator';
+import { PatientProvider } from './src/app/PatientProvider';
+import { PatientSwitcher } from './src/app/PatientSwitcher';
 import { CaregiverGate } from './src/identity/CaregiverGate';
 import { RevokedDeviceBanner } from './src/sync/RevokedDeviceBanner';
 import { SafetyWarningBanner } from './src/sync/SafetyWarningBanner';
@@ -33,13 +35,14 @@ import { colors } from './src/ui/primitives';
  * is created here (so the header's Medicines shortcut and hamburger menu can drive it too) and passed
  * down as a prop for that bottom bar to navigate with.
  */
-const MENU_ITEMS: ReadonlyArray<{ route: keyof RootStackParamList; label: string; icon: string }> = [
-  { route: 'Diagnostics', label: 'Diagnostics', icon: '🛠️' },
-  { route: 'Shabbat', label: 'Shabbat', icon: '🕯️' },
-  { route: 'Log', label: 'Log', icon: '📤' },
-  { route: 'Inventory', label: 'Inventory', icon: '📦' },
-  { route: 'Household', label: 'Household', icon: '🏠' },
-];
+const MENU_ITEMS: ReadonlyArray<{ route: keyof RootStackParamList; label: string; icon: string }> =
+  [
+    { route: 'Diagnostics', label: 'Diagnostics', icon: '🛠️' },
+    { route: 'Shabbat', label: 'Shabbat', icon: '🕯️' },
+    { route: 'Log', label: 'Log', icon: '📤' },
+    { route: 'Inventory', label: 'Inventory', icon: '📦' },
+    { route: 'Household', label: 'Household', icon: '🏠' },
+  ];
 
 export default function App(): React.JSX.Element {
   const navigationRef = useNavigationContainerRef<RootStackParamList>();
@@ -58,57 +61,65 @@ export default function App(): React.JSX.Element {
         <StatusBar style="light" />
         <CaregiverGate>
           <SyncProvider>
-            <AlarmProvider>
-              <View style={styles.header}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Medicines list"
-                  onPress={() => navigate('Medicines')}
-                  style={styles.iconButton}
-                >
-                  <Text style={styles.iconGlyph}>💊</Text>
-                </Pressable>
-                <View style={styles.headerCenter}>
-                  <Text style={styles.title}>MedGuard</Text>
-                  <SyncStatusBadge />
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="More screens"
-                  onPress={() => setMenuOpen(true)}
-                  style={styles.iconButton}
-                >
-                  <Text style={styles.iconGlyph}>☰</Text>
-                </Pressable>
-              </View>
-              <RevokedDeviceBanner />
-              <SafetyWarningBanner />
-              <AlarmHealthBanner />
-              <NavigationContainer ref={navigationRef}>
-                <AppNavigator navigationRef={navigationRef} />
-              </NavigationContainer>
-              <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
-                <Pressable
-                  style={styles.menuBackdrop}
-                  accessibilityRole="button"
-                  onPress={() => setMenuOpen(false)}
-                >
-                  <View style={styles.menu}>
-                    {MENU_ITEMS.map((item) => (
-                      <Pressable
-                        key={item.route}
-                        accessibilityRole="button"
-                        style={styles.menuItem}
-                        onPress={() => navigate(item.route)}
-                      >
-                        <Text style={styles.menuItemIcon}>{item.icon}</Text>
-                        <Text style={styles.menuItemLabel}>{item.label}</Text>
-                      </Pressable>
-                    ))}
+            <PatientProvider>
+              <AlarmProvider>
+                <View style={styles.header}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Medicines list"
+                    onPress={() => navigate('Medicines')}
+                    style={styles.iconButton}
+                  >
+                    <Text style={styles.iconGlyph}>💊</Text>
+                  </Pressable>
+                  <View style={styles.headerCenter}>
+                    <Text style={styles.title}>MedGuard</Text>
+                    <SyncStatusBadge />
+                    <PatientSwitcher />
                   </View>
-                </Pressable>
-              </Modal>
-            </AlarmProvider>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="More screens"
+                    onPress={() => setMenuOpen(true)}
+                    style={styles.iconButton}
+                  >
+                    <Text style={styles.iconGlyph}>☰</Text>
+                  </Pressable>
+                </View>
+                <RevokedDeviceBanner />
+                <SafetyWarningBanner />
+                <AlarmHealthBanner />
+                <NavigationContainer ref={navigationRef}>
+                  <AppNavigator navigationRef={navigationRef} />
+                </NavigationContainer>
+                <Modal
+                  visible={menuOpen}
+                  transparent
+                  animationType="fade"
+                  onRequestClose={() => setMenuOpen(false)}
+                >
+                  <Pressable
+                    style={styles.menuBackdrop}
+                    accessibilityRole="button"
+                    onPress={() => setMenuOpen(false)}
+                  >
+                    <View style={styles.menu}>
+                      {MENU_ITEMS.map((item) => (
+                        <Pressable
+                          key={item.route}
+                          accessibilityRole="button"
+                          style={styles.menuItem}
+                          onPress={() => navigate(item.route)}
+                        >
+                          <Text style={styles.menuItemIcon}>{item.icon}</Text>
+                          <Text style={styles.menuItemLabel}>{item.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </Pressable>
+                </Modal>
+              </AlarmProvider>
+            </PatientProvider>
           </SyncProvider>
         </CaregiverGate>
       </SafeAreaView>
