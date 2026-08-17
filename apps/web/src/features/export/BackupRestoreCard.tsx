@@ -60,17 +60,34 @@ export function BackupRestoreCard() {
   const [clearedAt, setClearedAt] = useState<number | null>(null);
 
   const handleExport = async () => {
-    const [medicines, schedules, intakeLogs, inventoryItems, inventoryAdjustments] =
-      await Promise.all([
-        db.medicines.toArray(),
-        db.schedules.toArray(),
-        db.intakeLogs.toArray(),
-        db.inventoryItems.toArray(),
-        db.inventoryAdjustments.toArray(),
-      ]);
+    const [
+      patients,
+      medicinePatients,
+      medicines,
+      schedules,
+      intakeLogs,
+      inventoryItems,
+      inventoryAdjustments,
+    ] = await Promise.all([
+      db.patients.toArray(),
+      db.medicinePatients.toArray(),
+      db.medicines.toArray(),
+      db.schedules.toArray(),
+      db.intakeLogs.toArray(),
+      db.inventoryItems.toArray(),
+      db.inventoryAdjustments.toArray(),
+    ]);
 
     const bundle = buildBackupBundle(
-      { medicines, schedules, intakeLogs, inventoryItems, inventoryAdjustments },
+      {
+        patients,
+        medicinePatients,
+        medicines,
+        schedules,
+        intakeLogs,
+        inventoryItems,
+        inventoryAdjustments,
+      },
       clock,
     );
 
@@ -173,6 +190,7 @@ export function BackupRestoreCard() {
         <div className="flex flex-col gap-2 rounded-md border border-slate-700 p-3 text-sm">
           <p>This file contains:</p>
           <ul className="list-disc pl-5 text-slate-300">
+            <li>{importPhase.summary.patients} patient(s)</li>
             <li>{importPhase.summary.medicines} medicine(s)</li>
             <li>{importPhase.summary.schedules} schedule(s)</li>
             <li>{importPhase.summary.intakeLogs} log entries</li>

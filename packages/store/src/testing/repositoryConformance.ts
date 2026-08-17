@@ -7,6 +7,7 @@ import type { Store } from '../types.js';
 import {
   CONFORMANCE_NOW as NOW,
   CONFORMANCE_OCCURRENCE as OCCURRENCE,
+  CONFORMANCE_PATIENT_ID,
   CONFORMANCE_TIMEZONE as JERUSALEM,
   makeBundle,
   makeDoseSnooze,
@@ -14,6 +15,7 @@ import {
   makeInventoryItem,
   makeLog,
   makeMedicine,
+  makePatient,
   makeSchedule,
   makeShabbatConfig,
   makeShabbatWindow,
@@ -31,7 +33,10 @@ import {
  * specific backend to force the failure, so it lives next to each backend instead
  * (`dexie/dexieStore.transactionIntegrity.test.ts`) rather than here.
  */
-export function runRepositoryConformanceSuite(backendName: string, makeStore: () => Store | Promise<Store>): void {
+export function runRepositoryConformanceSuite(
+  backendName: string,
+  makeStore: () => Store | Promise<Store>,
+): void {
   async function freshRepository(clock: Clock = fixedClock(NOW)) {
     const store = await makeStore();
     const repository = new MedGuardRepository(store, {
@@ -52,7 +57,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         expect(await repository.getMedicine('medicine-1')).toBeDefined();
         const outbox = await repository.pendingSync();
         expect(outbox).toHaveLength(1);
-        expect(outbox[0]).toMatchObject({ table: 'medicines', entityId: 'medicine-1', action: 'CREATE' });
+        expect(outbox[0]).toMatchObject({
+          table: 'medicines',
+          entityId: 'medicine-1',
+          action: 'CREATE',
+        });
       });
 
       it('stamps a locally-saved record as pending, attributed to this device', async () => {
@@ -60,7 +69,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         await repository.saveMedicine(makeMedicine());
 
         const saved = await repository.getMedicine('medicine-1');
-        expect(saved).toMatchObject({ syncStatus: 'pending', updatedByDeviceId: 'device-1', updatedAt: NOW });
+        expect(saved).toMatchObject({
+          syncStatus: 'pending',
+          updatedByDeviceId: 'device-1',
+          updatedAt: NOW,
+        });
       });
 
       it('queues a schedule save', async () => {
@@ -83,7 +96,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         const { repository } = await freshRepository();
         await repository.saveMedicine(makeMedicine(), 'CREATE');
         await repository.saveSchedule(makeSchedule(), 'CREATE');
-        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 30, reason: 'initial' });
+        await repository.adjustInventory({
+          medicineId: 'medicine-1',
+          delta: 30,
+          reason: 'initial',
+        });
 
         const { adjustment } = await repository.recordDose(makeLog({ quantityTaken: 2 }));
 
@@ -101,7 +118,9 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
 
       it('moves no stock for a skipped dose', async () => {
         const { repository } = await freshRepository();
-        const { adjustment } = await repository.recordDose(makeLog({ status: 'skipped', quantityTaken: 0 }));
+        const { adjustment } = await repository.recordDose(
+          makeLog({ status: 'skipped', quantityTaken: 0 }),
+        );
 
         expect(adjustment).toBeUndefined();
         expect(await repository.adjustmentsForMedicine('medicine-1')).toHaveLength(0);
@@ -116,7 +135,13 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
       it('preserves an override on the stored log', async () => {
         const { repository } = await freshRepository();
         await repository.recordDose(
-          makeLog({ override: { confirmedByUserId: 'dad', reason: 'Vomited the first dose', blockedBy: 'cooldown' } }),
+          makeLog({
+            override: {
+              confirmedByUserId: 'dad',
+              reason: 'Vomited the first dose',
+              blockedBy: 'cooldown',
+            },
+          }),
         );
 
         const logs = await repository.logsForMedicine('medicine-1');
@@ -138,7 +163,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
 
       it('reverses the original stock movement and applies the corrected one', async () => {
         const { repository } = await freshRepository();
-        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+        await repository.adjustInventory({
+          medicineId: 'medicine-1',
+          delta: 10,
+          reason: 'initial',
+        });
         await repository.recordDose(makeLog({ id: 'original', quantityTaken: 2 }));
 
         expect(computeQuantity(await repository.adjustmentsForMedicine('medicine-1'))).toBe(8);
@@ -151,17 +180,26 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
 
       it('reverses stock when a dose is corrected to skipped', async () => {
         const { repository } = await freshRepository();
-        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+        await repository.adjustInventory({
+          medicineId: 'medicine-1',
+          delta: 10,
+          reason: 'initial',
+        });
         await repository.recordDose(makeLog({ id: 'original', quantityTaken: 2 }));
 
-        await repository.correctDose('original', makeLog({ id: 'corrected', status: 'skipped', quantityTaken: 0 }));
+        await repository.correctDose(
+          'original',
+          makeLog({ id: 'corrected', status: 'skipped', quantityTaken: 0 }),
+        );
 
         expect(computeQuantity(await repository.adjustmentsForMedicine('medicine-1'))).toBe(10);
       });
 
       it('still records the correction when the original moved no stock', async () => {
         const { repository } = await freshRepository();
-        await repository.recordDose(makeLog({ id: 'original', status: 'skipped', quantityTaken: 0 }));
+        await repository.recordDose(
+          makeLog({ id: 'original', status: 'skipped', quantityTaken: 0 }),
+        );
 
         await repository.correctDose('original', makeLog({ id: 'corrected', quantityTaken: 1 }));
 
@@ -171,7 +209,9 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
 
       it('refuses to correct a log that does not exist', async () => {
         const { repository } = await freshRepository();
-        await expect(repository.correctDose('missing', makeLog())).rejects.toThrow(/No such intake log/);
+        await expect(repository.correctDose('missing', makeLog())).rejects.toThrow(
+          /No such intake log/,
+        );
       });
     });
 
@@ -180,7 +220,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         const { repository } = await freshRepository();
         await repository.saveSchedule(makeSchedule(), 'CREATE');
 
-        const revision = await repository.reviseSchedule('schedule-1', { dosageQuantity: 2 }, '2026-06-15');
+        const revision = await repository.reviseSchedule(
+          'schedule-1',
+          { dosageQuantity: 2 },
+          '2026-06-15',
+        );
 
         expect(await repository.allSchedules()).toHaveLength(2);
         expect(revision.closed.endDate).toBe('2026-06-14');
@@ -195,7 +239,10 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         const schedules = await repository.allSchedules();
         const occurrences = expandSchedules(
           schedules,
-          { fromMs: Date.parse('2026-06-13T00:00:00.000Z'), toMs: Date.parse('2026-06-17T00:00:00.000Z') },
+          {
+            fromMs: Date.parse('2026-06-13T00:00:00.000Z'),
+            toMs: Date.parse('2026-06-17T00:00:00.000Z'),
+          },
           JERUSALEM,
         );
 
@@ -218,8 +265,12 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
 
       it('refuses to revise or close a schedule that does not exist', async () => {
         const { repository } = await freshRepository();
-        await expect(repository.reviseSchedule('missing', {}, '2026-06-15')).rejects.toThrow(/No such schedule/);
-        await expect(repository.closeSchedule('missing', '2026-06-15')).rejects.toThrow(/No such schedule/);
+        await expect(repository.reviseSchedule('missing', {}, '2026-06-15')).rejects.toThrow(
+          /No such schedule/,
+        );
+        await expect(repository.closeSchedule('missing', '2026-06-15')).rejects.toThrow(
+          /No such schedule/,
+        );
       });
 
       it('finds schedules by medicine', async () => {
@@ -228,6 +279,22 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         await repository.saveSchedule(makeSchedule({ id: 'b', medicineId: 'other' }), 'CREATE');
 
         expect(await repository.schedulesForMedicine('medicine-1')).toHaveLength(1);
+      });
+
+      it('allSchedules, given a patientId, returns only that patient’s schedules', async () => {
+        const DAD = '88888888-8888-4888-8888-888888888888';
+        const { repository } = await freshRepository();
+        await repository.saveSchedule(
+          makeSchedule({ id: 'yonis', patientId: CONFORMANCE_PATIENT_ID }),
+          'CREATE',
+        );
+        await repository.saveSchedule(makeSchedule({ id: 'dads', patientId: DAD }), 'CREATE');
+
+        expect((await repository.allSchedules(CONFORMANCE_PATIENT_ID)).map((s) => s.id)).toEqual([
+          'yonis',
+        ]);
+        expect((await repository.allSchedules(DAD)).map((s) => s.id)).toEqual(['dads']);
+        expect(await repository.allSchedules()).toHaveLength(2);
       });
     });
 
@@ -249,7 +316,9 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
           syncStatus: 'synced',
         });
 
-        expect(await repository.getHouseholdSettings()).toMatchObject({ timeZone: 'Asia/Jerusalem' });
+        expect(await repository.getHouseholdSettings()).toMatchObject({
+          timeZone: 'Asia/Jerusalem',
+        });
       });
     });
 
@@ -315,6 +384,45 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         // Nothing was queued for upload: this table only ever travels one way.
         expect(await repository.pendingSync()).toEqual([]);
       });
+
+      it('getShabbatConfig and allShabbatWindows, given a patientId, return only that patient’s rows', async () => {
+        const DAD = '88888888-8888-4888-8888-888888888888';
+        const { store, repository } = await freshRepository();
+        await repository.saveShabbatConfig(
+          makeShabbatConfig({ id: 'yonis-config', patientId: CONFORMANCE_PATIENT_ID }),
+          'CREATE',
+        );
+        await repository.saveShabbatConfig(
+          makeShabbatConfig({ id: 'dads-config', patientId: DAD }),
+          'CREATE',
+        );
+        await store.transaction(['shabbatWindows'], async (tx) => {
+          await tx.put('shabbatWindows', makeShabbatWindow({ patientId: CONFORMANCE_PATIENT_ID }));
+          await tx.put(
+            'shabbatWindows',
+            makeShabbatWindow({
+              id: 'shabbat:2026-06-26T16:22:00.000Z',
+              startsAt: '2026-06-26T16:22:00.000Z',
+              patientId: DAD,
+            }),
+          );
+        });
+
+        expect((await repository.getShabbatConfig(CONFORMANCE_PATIENT_ID))?.id).toBe(
+          'yonis-config',
+        );
+        expect((await repository.getShabbatConfig(DAD))?.id).toBe('dads-config');
+
+        const yoniWindows = await repository.allShabbatWindows(CONFORMANCE_PATIENT_ID);
+        expect(yoniWindows.every((w) => w.patientId === CONFORMANCE_PATIENT_ID)).toBe(true);
+        expect(yoniWindows).toHaveLength(1);
+
+        const dadWindows = await repository.allShabbatWindows(DAD);
+        expect(dadWindows).toHaveLength(1);
+        expect(dadWindows[0]!.patientId).toBe(DAD);
+
+        expect(await repository.allShabbatWindows()).toHaveLength(2);
+      });
     });
 
     describe('Motzei Shabbat reconciliation (Sprint A5 phase 2)', () => {
@@ -334,7 +442,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
 
       it('settles a sheet of doses, superseding the server placeholders and moving stock once', async () => {
         const { repository } = await freshRepository();
-        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+        await repository.adjustInventory({
+          medicineId: 'medicine-1',
+          delta: 10,
+          reason: 'initial',
+        });
         await repository.recordDose(pendingShabbatLog());
         await repository.recordDose(
           pendingShabbatLog({ id: 'pending-2', scheduledTime: '2026-06-15T18:00:00.000Z' }),
@@ -416,7 +528,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
     describe('discardLocalLog — cleaning up a write the server refused', () => {
       it('removes the log, its stock movement and their queued uploads', async () => {
         const { repository } = await freshRepository();
-        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+        await repository.adjustInventory({
+          medicineId: 'medicine-1',
+          delta: 10,
+          reason: 'initial',
+        });
         await repository.recordDose(makeLog({ id: 'refused', quantityTaken: 2 }));
 
         expect(computeQuantity(await repository.adjustmentsForMedicine('medicine-1'))).toBe(8);
@@ -437,7 +553,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
 
       it('leaves every other dose and the manual ledger alone', async () => {
         const { repository } = await freshRepository();
-        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 10, reason: 'initial' });
+        await repository.adjustInventory({
+          medicineId: 'medicine-1',
+          delta: 10,
+          reason: 'initial',
+        });
         await repository.recordDose(makeLog({ id: 'kept', quantityTaken: 1 }));
         await repository.recordDose(makeLog({ id: 'refused', quantityTaken: 2 }));
 
@@ -478,6 +598,194 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
           unitName: 'pills',
         });
         expect(await repository.allInventoryItems()).toHaveLength(1);
+      });
+    });
+
+    describe('patients', () => {
+      it('archives rather than deletes, so history keeps its reference', async () => {
+        const { repository } = await freshRepository();
+        await repository.savePatient(makePatient(), 'CREATE');
+
+        await repository.archivePatient(CONFORMANCE_PATIENT_ID);
+
+        expect((await repository.getPatient(CONFORMANCE_PATIENT_ID))?.archived).toBe(true);
+        expect(await repository.activePatients()).toHaveLength(0);
+      });
+
+      it('refuses to archive a patient that does not exist', async () => {
+        const { repository } = await freshRepository();
+        await expect(repository.archivePatient('missing')).rejects.toThrow(/No such patient/);
+      });
+
+      it('allPatients includes archived ones that activePatients excludes', async () => {
+        const { repository } = await freshRepository();
+        await repository.savePatient(makePatient(), 'CREATE');
+        await repository.archivePatient(CONFORMANCE_PATIENT_ID);
+
+        expect(await repository.activePatients()).toHaveLength(0);
+        expect(await repository.allPatients()).toHaveLength(1);
+      });
+
+      it('queues an outbox entry when saved', async () => {
+        const { repository } = await freshRepository();
+        await repository.savePatient(makePatient(), 'CREATE');
+
+        const outbox = await repository.pendingSync();
+        expect(outbox).toHaveLength(1);
+        expect(outbox[0]).toMatchObject({
+          table: 'patients',
+          entityId: CONFORMANCE_PATIENT_ID,
+          action: 'CREATE',
+        });
+      });
+    });
+
+    describe('medicine ↔ patient assignments', () => {
+      const DAD = '88888888-8888-4888-8888-888888888888';
+
+      it('assigns a medicine to a patient', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine(), 'CREATE');
+        await repository.savePatient(makePatient(), 'CREATE');
+
+        await repository.assignMedicine('medicine-1', CONFORMANCE_PATIENT_ID);
+
+        expect(await repository.medicinePatientsFor('medicine-1')).toHaveLength(1);
+        const patients = await repository.patientsForMedicine('medicine-1');
+        expect(patients.map((p) => p.id)).toEqual([CONFORMANCE_PATIENT_ID]);
+      });
+
+      it('is idempotent — assigning the same pair twice does not duplicate the row', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine(), 'CREATE');
+
+        await repository.assignMedicine('medicine-1', CONFORMANCE_PATIENT_ID);
+        await repository.assignMedicine('medicine-1', CONFORMANCE_PATIENT_ID);
+
+        expect(await repository.medicinePatientsFor('medicine-1')).toHaveLength(1);
+      });
+
+      it('shares a medicine across more than one patient', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine(), 'CREATE');
+
+        await repository.assignMedicine('medicine-1', CONFORMANCE_PATIENT_ID);
+        await repository.assignMedicine('medicine-1', DAD);
+
+        const assignments = await repository.medicinePatientsFor('medicine-1');
+        expect(assignments.map((a) => a.patientId).sort()).toEqual(
+          [CONFORMANCE_PATIENT_ID, DAD].sort(),
+        );
+      });
+
+      it('unassigning is a soft delete — the row survives with active: false', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine(), 'CREATE');
+        await repository.assignMedicine('medicine-1', CONFORMANCE_PATIENT_ID);
+
+        await repository.unassignMedicine('medicine-1', CONFORMANCE_PATIENT_ID);
+
+        expect(await repository.medicinePatientsFor('medicine-1')).toEqual([]);
+        expect(await repository.patientsForMedicine('medicine-1')).toEqual([]);
+      });
+
+      it('allMedicinePatients returns every assignment across every medicine, including inactive ones', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine({ id: 'shared' }), 'CREATE');
+        await repository.saveMedicine(makeMedicine({ id: 'dads-only' }), 'CREATE');
+        await repository.assignMedicine('shared', CONFORMANCE_PATIENT_ID);
+        await repository.assignMedicine('shared', DAD);
+        await repository.assignMedicine('dads-only', DAD);
+        await repository.unassignMedicine('dads-only', DAD);
+
+        const all = await repository.allMedicinePatients();
+        expect(all).toHaveLength(3);
+        expect(all.find((a) => a.medicineId === 'dads-only')?.active).toBe(false);
+      });
+
+      it('unassigning a pair that was never assigned is a no-op', async () => {
+        const { repository } = await freshRepository();
+        await expect(
+          repository.unassignMedicine('medicine-1', CONFORMANCE_PATIENT_ID),
+        ).resolves.toBeUndefined();
+      });
+
+      it('allMedicines/activeMedicines, given a patientId, return only that patient’s assigned medicines', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine({ id: 'shared' }), 'CREATE');
+        await repository.saveMedicine(makeMedicine({ id: 'dads-only' }), 'CREATE');
+        await repository.assignMedicine('shared', CONFORMANCE_PATIENT_ID);
+        await repository.assignMedicine('shared', DAD);
+        await repository.assignMedicine('dads-only', DAD);
+
+        const forYoni = await repository.allMedicines(CONFORMANCE_PATIENT_ID);
+        expect(forYoni.map((m) => m.id)).toEqual(['shared']);
+
+        const forDad = await repository.allMedicines(DAD);
+        expect(forDad.map((m) => m.id).sort()).toEqual(['dads-only', 'shared']);
+      });
+
+      it('activeMedicines excludes an archived medicine even when assigned', async () => {
+        const { repository } = await freshRepository();
+        await repository.saveMedicine(makeMedicine(), 'CREATE');
+        await repository.assignMedicine('medicine-1', CONFORMANCE_PATIENT_ID);
+        await repository.archiveMedicine('medicine-1');
+
+        expect(await repository.activeMedicines(CONFORMANCE_PATIENT_ID)).toEqual([]);
+        expect(await repository.allMedicines(CONFORMANCE_PATIENT_ID)).toHaveLength(1);
+      });
+
+      it('logsForPatientAndMedicine scopes a shared medicine’s history by patient, not just medicine', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordDose(
+          makeLog({ id: 'yoni-dose', patientId: CONFORMANCE_PATIENT_ID }),
+        );
+        await repository.recordDose(makeLog({ id: 'dad-dose', patientId: DAD }));
+
+        const yoniLogs = await repository.logsForPatientAndMedicine(
+          CONFORMANCE_PATIENT_ID,
+          'medicine-1',
+        );
+        expect(yoniLogs.map((log) => log.id)).toEqual(['yoni-dose']);
+
+        const dadLogs = await repository.logsForPatientAndMedicine(DAD, 'medicine-1');
+        expect(dadLogs.map((log) => log.id)).toEqual(['dad-dose']);
+      });
+
+      it('logsForPatientAndMedicine respects a sinceIso cutoff', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordDose(
+          makeLog({
+            id: 'old',
+            patientId: CONFORMANCE_PATIENT_ID,
+            actualTime: '2026-06-01T08:00:00.000Z',
+          }),
+        );
+        await repository.recordDose(
+          makeLog({
+            id: 'recent',
+            patientId: CONFORMANCE_PATIENT_ID,
+            actualTime: '2026-06-15T08:00:00.000Z',
+          }),
+        );
+
+        const recent = await repository.logsForPatientAndMedicine(
+          CONFORMANCE_PATIENT_ID,
+          'medicine-1',
+          '2026-06-10T00:00:00.000Z',
+        );
+        expect(recent.map((log) => log.id)).toEqual(['recent']);
+      });
+
+      it('allLogs returns every patient’s history, unfiltered', async () => {
+        const { repository } = await freshRepository();
+        await repository.recordDose(
+          makeLog({ id: 'yoni-dose', patientId: CONFORMANCE_PATIENT_ID }),
+        );
+        await repository.recordDose(makeLog({ id: 'dad-dose', patientId: DAD }));
+
+        const all = await repository.allLogs();
+        expect(all.map((log) => log.id).sort()).toEqual(['dad-dose', 'yoni-dose']);
       });
     });
 
@@ -531,7 +839,10 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         const schedules = await repository.allSchedules();
         const occurrences = expandSchedules(
           schedules,
-          { fromMs: Date.parse('2026-06-15T00:00:00.000Z'), toMs: Date.parse('2026-06-20T00:00:00.000Z') },
+          {
+            fromMs: Date.parse('2026-06-15T00:00:00.000Z'),
+            toMs: Date.parse('2026-06-20T00:00:00.000Z'),
+          },
           JERUSALEM,
         );
         expect(occurrences).toHaveLength(0);
@@ -553,7 +864,9 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
       it('finds a medicine history since an instant, via the compound index', async () => {
         const { repository } = await freshRepository();
         await repository.recordDose(makeLog({ id: 'old', actualTime: '2026-06-01T08:00:00.000Z' }));
-        await repository.recordDose(makeLog({ id: 'recent', actualTime: '2026-06-15T08:00:00.000Z' }));
+        await repository.recordDose(
+          makeLog({ id: 'recent', actualTime: '2026-06-15T08:00:00.000Z' }),
+        );
 
         const recent = await repository.logsForMedicine('medicine-1', '2026-06-10T00:00:00.000Z');
         expect(recent.map((log) => log.id)).toEqual(['recent']);
@@ -569,23 +882,29 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
 
       it('finds a patient history within a window, for the Today view', async () => {
         const { repository } = await freshRepository();
-        await repository.recordDose(makeLog({ id: 'yesterday', actualTime: '2026-06-14T08:00:00.000Z' }));
-        await repository.recordDose(makeLog({ id: 'today', actualTime: '2026-06-15T08:00:00.000Z' }));
+        await repository.recordDose(
+          makeLog({ id: 'yesterday', actualTime: '2026-06-14T08:00:00.000Z' }),
+        );
+        await repository.recordDose(
+          makeLog({ id: 'today', actualTime: '2026-06-15T08:00:00.000Z' }),
+        );
 
         const today = await repository.logsForPatientBetween(
-          'patient-1',
+          CONFORMANCE_PATIENT_ID,
           '2026-06-15T00:00:00.000Z',
           '2026-06-16T00:00:00.000Z',
         );
         expect(today.map((log) => log.id)).toEqual(['today']);
       });
 
-      it('finds a patient\'s full log history regardless of actualTime, for occurrence matching', async () => {
+      it("finds a patient's full log history regardless of actualTime, for occurrence matching", async () => {
         const { repository } = await freshRepository();
         await repository.recordDose(makeLog({ id: 'old', actualTime: '2026-01-01T08:00:00.000Z' }));
-        await repository.recordDose(makeLog({ id: 'recent', actualTime: '2026-12-31T08:00:00.000Z' }));
+        await repository.recordDose(
+          makeLog({ id: 'recent', actualTime: '2026-12-31T08:00:00.000Z' }),
+        );
 
-        const all = await repository.logsForPatient('patient-1');
+        const all = await repository.logsForPatient(CONFORMANCE_PATIENT_ID);
         expect(all.map((log) => log.id).sort()).toEqual(['old', 'recent']);
       });
 
@@ -630,7 +949,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         await repository.markSyncFailed(entry!.id!, 'network unreachable');
 
         const [retried] = await repository.pendingSync();
-        expect(retried).toMatchObject({ attempts: 2, lastError: 'network unreachable', lastAttemptAt: NOW });
+        expect(retried).toMatchObject({
+          attempts: 2,
+          lastError: 'network unreachable',
+          lastAttemptAt: NOW,
+        });
       });
 
       it('ignores a failure report for an entry already synced away', async () => {
@@ -644,6 +967,8 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         const { repository } = await freshRepository();
         await repository.restoreBackup(makeBundle());
 
+        expect(await repository.getPatient(CONFORMANCE_PATIENT_ID)).toBeDefined();
+        expect(await repository.medicinePatientsFor('medicine-1')).toHaveLength(1);
         expect(await repository.getMedicine('medicine-1')).toBeDefined();
         expect(await repository.allSchedules()).toHaveLength(1);
         expect(await repository.logsForMedicine('medicine-1')).toHaveLength(1);
@@ -676,14 +1001,16 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         const { repository } = await freshRepository();
         await repository.restoreBackup(makeBundle());
 
-        expect(await repository.pendingSyncCount()).toBe(5);
+        expect(await repository.pendingSyncCount()).toBe(7);
       });
 
       it('upserts over an existing record with the same id rather than duplicating it', async () => {
         const { repository } = await freshRepository();
         await repository.saveMedicine(makeMedicine({ name: 'Old name' }), 'CREATE');
 
-        await repository.restoreBackup(makeBundle({ medicines: [makeMedicine({ name: 'Restored name' })] }));
+        await repository.restoreBackup(
+          makeBundle({ medicines: [makeMedicine({ name: 'Restored name' })] }),
+        );
 
         expect((await repository.getMedicine('medicine-1'))?.name).toBe('Restored name');
         expect(await repository.activeMedicines()).toHaveLength(1);
@@ -692,7 +1019,15 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
       it('restores an empty bundle without error', async () => {
         const { repository } = await freshRepository();
         await expect(
-          repository.restoreBackup({ medicines: [], schedules: [], intakeLogs: [], inventoryItems: [], inventoryAdjustments: [] }),
+          repository.restoreBackup({
+            patients: [],
+            medicinePatients: [],
+            medicines: [],
+            schedules: [],
+            intakeLogs: [],
+            inventoryItems: [],
+            inventoryAdjustments: [],
+          }),
         ).resolves.toBeUndefined();
       });
     });
@@ -705,7 +1040,11 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         expect(await repository.snoozesForOccurrence(OCCURRENCE)).toHaveLength(1);
         const outbox = await repository.pendingSync();
         expect(outbox).toHaveLength(1);
-        expect(outbox[0]).toMatchObject({ table: 'doseSnoozes', entityId: 'snooze-1', action: 'CREATE' });
+        expect(outbox[0]).toMatchObject({
+          table: 'doseSnoozes',
+          entityId: 'snooze-1',
+          action: 'CREATE',
+        });
       });
 
       it('accumulates rather than overwriting, so a bound is a row count', async () => {
@@ -723,8 +1062,12 @@ export function runRepositoryConformanceSuite(backendName: string, makeStore: ()
         // The whole reason this is a ledger and not a `snoozedUntil` field: LWW here would drop
         // one caregiver's decision silently.
         const { repository } = await freshRepository();
-        await repository.recordSnooze(makeDoseSnooze({ id: 'from-mom', createdByDeviceId: 'device-1' }));
-        await repository.recordSnooze(makeDoseSnooze({ id: 'from-dad', createdByDeviceId: 'device-2' }));
+        await repository.recordSnooze(
+          makeDoseSnooze({ id: 'from-mom', createdByDeviceId: 'device-1' }),
+        );
+        await repository.recordSnooze(
+          makeDoseSnooze({ id: 'from-dad', createdByDeviceId: 'device-2' }),
+        );
 
         expect(await repository.snoozesForOccurrence(OCCURRENCE)).toHaveLength(2);
       });

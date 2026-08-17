@@ -5,6 +5,7 @@ import type {
   HouseholdSettings,
   IsoInstant,
   Medicine,
+  Patient,
   Schedule,
   ShabbatConfig,
   ShabbatWindow,
@@ -40,7 +41,10 @@ export async function seedLastSyncedAt(dbName: string, iso: IsoInstant): Promise
   await setLastSyncedAt(store, iso);
 }
 
-export async function seedHouseholdSettings(dbName: string, overrides: Partial<HouseholdSettings> = {}): Promise<void> {
+export async function seedHouseholdSettings(
+  dbName: string,
+  overrides: Partial<HouseholdSettings> = {},
+): Promise<void> {
   const repository = await repositoryFor(dbName);
   await repository.saveHouseholdSettings(
     {
@@ -60,6 +64,11 @@ export async function seedHouseholdSettings(dbName: string, overrides: Partial<H
 export async function seedMedicine(dbName: string, medicine: Medicine): Promise<void> {
   const repository = await repositoryFor(dbName);
   await repository.saveMedicine(medicine, 'CREATE');
+}
+
+export async function seedPatient(dbName: string, patient: Patient): Promise<void> {
+  const repository = await repositoryFor(dbName);
+  await repository.savePatient(patient, 'CREATE');
 }
 
 export async function seedScheduleFor(dbName: string, schedule: Schedule): Promise<void> {

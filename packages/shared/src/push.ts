@@ -20,8 +20,13 @@ import type { IsoInstant } from './clock.js';
  * from weeks ago, and there is no way to force it forward before the next dose alert. A client
  * that doesn't recognise the version ignores the message rather than rendering a half-understood
  * notification — a missing alert is at least visibly missing, where a wrong one is trusted.
+ *
+ * 1 → 2 (multi-patient households): `patientName` added to `OccurrencePushBase` and
+ * `LowStockPushPayload`. Purely additive — an old client ignoring the whole message on a version
+ * bump it doesn't recognise is the intended, conservative failure mode, not a special case to work
+ * around.
  */
-export const PUSH_PAYLOAD_VERSION = 1;
+export const PUSH_PAYLOAD_VERSION = 2;
 
 interface PushPayloadBase {
   v: typeof PUSH_PAYLOAD_VERSION;
@@ -45,6 +50,13 @@ interface OccurrencePushBase extends PushPayloadBase {
   dueAtIso: IsoInstant;
   /** `Schedule.dosageQuantity`; rendered with the medicine's strength, never used in arithmetic. */
   dosageQuantity: number;
+  /**
+   * Set only when the household has more than one patient — the same rule
+   * `apps/android/src/alarms/horizon.ts`'s local alarms follow. A single-patient household's
+   * notifications read exactly as they always have; omitting the field there, rather than sending
+   * a name nobody needs disambiguated, is the sender's job, not the renderer's.
+   */
+  patientName?: string;
 }
 
 /** The ordinary scheduled-dose alert, sent at the occurrence's due time. */
@@ -78,7 +90,14 @@ export interface ShabbatPushPayload extends OccurrencePushBase {
   burstTotal: number;
 }
 
-/** PRD §2.4 — stock crossed the refill threshold, on every caregiver's device. */
+/**
+ * PRD §2.4 — stock crossed the refill threshold, on every caregiver's device.
+ *
+ * `patientName` is deliberately *not* added here the way it is on `OccurrencePushBase`: stock is
+ * never split by patient (one bottle, one ledger — see the multi-patient plan's data model), so a
+ * shared medicine's low-stock alert has no single patient to name even in a multi-patient
+ * household.
+ */
 export interface LowStockPushPayload extends PushPayloadBase {
   kind: 'low_stock';
   medicineId: string;
@@ -91,10 +110,7 @@ export interface LowStockPushPayload extends PushPayloadBase {
 }
 
 export type PushPayload =
-  | DosePushPayload
-  | EscalationPushPayload
-  | ShabbatPushPayload
-  | LowStockPushPayload;
+  DosePushPayload | EscalationPushPayload | ShabbatPushPayload | LowStockPushPayload;
 
 export type PushKind = PushPayload['kind'];
 
@@ -135,17 +151,20 @@ export function describePush(payload: PushPayload): { title: string; body: strin
   switch (payload.kind) {
     case 'dose':
       return {
-        title: `${payload.medicineName} — dose due`,
+        title: titleWithPatient(payload.patientName, `${payload.medicineName} — dose due`),
         body: `${payload.dosageQuantity} due now`,
       };
     case 'escalation':
       return {
-        title: `${payload.medicineName} — dose not confirmed`,
+        title: titleWithPatient(
+          payload.patientName,
+          `${payload.medicineName} — dose not confirmed`,
+        ),
         body: `Due ${payload.minutesUnacknowledged} minutes ago and still unconfirmed. Can you check?`,
       };
     case 'shabbat':
       return {
-        title: `${payload.medicineName} — dose due`,
+        title: titleWithPatient(payload.patientName, `${payload.medicineName} — dose due`),
         body: `${payload.dosageQuantity} due now. No action needed on the phone.`,
       };
     case 'low_stock':
@@ -154,6 +173,15 @@ export function describePush(payload: PushPayload): { title: string; body: strin
         body: `${payload.remaining} ${payload.unitName} left (refill at ${payload.threshold}).`,
       };
   }
+}
+
+/**
+ * `"Yoni · Paracetamol — dose due"` when the sender knows which patient this is and it's worth
+ * saying (a multi-patient household); the plain title otherwise. Matches the prefix
+ * `apps/android/src/alarms/horizon.ts`'s local alarms use for the same reason.
+ */
+function titleWithPatient(patientName: string | undefined, title: string): string {
+  return patientName ? `${patientName} · ${title}` : title;
 }
 
 /**

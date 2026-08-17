@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
-import { computeQuantity } from '@medguard/shared';
+import { SINGLE_PATIENT_ID, computeQuantity } from '@medguard/shared';
 import { fixedClock } from '@medguard/shared/testing';
 import type { Medicine, Schedule, ShabbatWindow } from '@medguard/shared';
 import type { MedGuardRepository, Store } from '@medguard/store';
@@ -28,7 +28,7 @@ afterEach(() => {
 function makeWindow(): ShabbatWindow {
   return {
     id: `shabbat:${WINDOW_START}`,
-    patientId: 'patient-1',
+    patientId: SINGLE_PATIENT_ID,
     kind: 'shabbat',
     label: 'Shabbat',
     startsAt: WINDOW_START,
@@ -43,7 +43,7 @@ function makeWindow(): ShabbatWindow {
 function makeMedicine(overrides: Partial<Medicine> = {}): Medicine {
   return {
     id: 'medicine-1',
-    patientId: 'patient-1',
+    patientId: SINGLE_PATIENT_ID,
     name: 'Ondansetron',
     strength: '4mg',
     form: 'pill',
@@ -61,7 +61,7 @@ function makeSchedule(): Schedule {
   return {
     id: 'schedule-1',
     medicineId: 'medicine-1',
-    patientId: 'patient-1',
+    patientId: SINGLE_PATIENT_ID,
     frequencyType: 'daily',
     timesOfDay: ['09:00', '21:00'],
     dosageQuantity: 2,
@@ -136,7 +136,7 @@ describe('ReconciliationSheet', () => {
         await seedHousehold(seedRepository, store);
         await seedRepository.recordDose({
           id: 'pending-1',
-          patientId: 'patient-1',
+          patientId: SINGLE_PATIENT_ID,
           medicineId: 'medicine-1',
           scheduleId: 'schedule-1',
           type: 'scheduled',
@@ -216,7 +216,9 @@ describe('ReconciliationSheet', () => {
       },
     });
 
-    expect(await screen.findByText(/Every dose from Shabbat has been accounted for/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Every dose from Shabbat has been accounted for/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -271,7 +273,7 @@ describe('retroactive PRN entry', () => {
         await putWindow(store);
         await seedRepository.recordDose({
           id: 'earlier',
-          patientId: 'patient-1',
+          patientId: SINGLE_PATIENT_ID,
           medicineId: 'medicine-prn',
           type: 'prn',
           status: 'taken',
@@ -307,5 +309,122 @@ describe('retroactive PRN entry', () => {
       blockedBy: 'cooldown',
       reason: 'Vomited the first dose',
     });
+  });
+});
+
+describe('multi-patient', () => {
+  function makePatient(id: string, displayName: string, sortOrder: number) {
+    return {
+      id,
+      displayName,
+      archived: false,
+      sortOrder,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      updatedByDeviceId: 'seed',
+      syncStatus: 'synced' as const,
+    };
+  }
+
+  it('badges each scheduled-dose item with the patient it belongs to', async () => {
+    await renderWithRepository(<ReconciliationSheet />, {
+      clock: fixedClock(NOW),
+      timeZone: JERUSALEM,
+      seed: async (repository, store) => {
+        await repository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await repository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+        await repository.saveMedicine(makeMedicine({ id: 'medicine-yoni' }), 'CREATE');
+        await repository.saveSchedule(
+          { ...makeSchedule(), id: 'schedule-yoni', medicineId: 'medicine-yoni', patientId: 'yoni' },
+          'CREATE',
+        );
+        await putWindow(store);
+      },
+    });
+
+    await screen.findByText(/scheduled doses from Shabbat/);
+    expect(screen.getAllByText('Yoni').length).toBeGreaterThan(0);
+  });
+
+  it('asks which patient a retroactive PRN dose is for, when the medicine is shared', async () => {
+    const user = userEvent.setup();
+    let repository: MedGuardRepository | undefined;
+    const sharedPrn = makeMedicine({
+      id: 'medicine-shared-prn',
+      name: 'Paracetamol PRN',
+      asNeeded: true,
+      minHoursBetweenDoses: 6,
+    });
+
+    await renderWithRepository(<ReconciliationSheet />, {
+      clock: fixedClock(NOW),
+      timeZone: JERUSALEM,
+      seed: async (seedRepository, store) => {
+        repository = seedRepository;
+        await seedRepository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await seedRepository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+        await seedRepository.saveMedicine(sharedPrn, 'CREATE');
+        await seedRepository.assignMedicine('medicine-shared-prn', 'yoni');
+        await seedRepository.assignMedicine('medicine-shared-prn', 'dad');
+        await putWindow(store);
+      },
+    });
+
+    await user.selectOptions(
+      await screen.findByLabelText('Medicine given as needed'),
+      'medicine-shared-prn',
+    );
+    const patientPicker = screen.getByLabelText('Patient given as needed');
+    expect(Array.from(patientPicker.querySelectorAll('option')).map((o) => o.textContent)).toEqual([
+      'Choose…',
+      'Yoni',
+      'Dad',
+    ]);
+
+    await user.selectOptions(patientPicker, 'dad');
+    await user.clear(screen.getByLabelText('Date given'));
+    await user.type(screen.getByLabelText('Date given'), '2026-08-15');
+    await user.type(screen.getByLabelText('Time given as needed'), '14:00');
+    await user.click(screen.getByRole('button', { name: 'Record this dose' }));
+
+    const logs = await repository!.logsForMedicine('medicine-shared-prn');
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ patientId: 'dad', status: 'taken' });
+  });
+
+  it('does not ask, and uses the sole assigned patient, for a private PRN medicine', async () => {
+    const user = userEvent.setup();
+    let repository: MedGuardRepository | undefined;
+    const privatePrn = makeMedicine({
+      id: 'medicine-private-prn',
+      name: 'Ibuprofen PRN',
+      asNeeded: true,
+    });
+
+    await renderWithRepository(<ReconciliationSheet />, {
+      clock: fixedClock(NOW),
+      timeZone: JERUSALEM,
+      seed: async (seedRepository, store) => {
+        repository = seedRepository;
+        await seedRepository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await seedRepository.saveMedicine(privatePrn, 'CREATE');
+        await seedRepository.assignMedicine('medicine-private-prn', 'yoni');
+        await putWindow(store);
+      },
+    });
+
+    await user.selectOptions(
+      await screen.findByLabelText('Medicine given as needed'),
+      'medicine-private-prn',
+    );
+    expect(screen.queryByLabelText('Patient given as needed')).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText('Date given'));
+    await user.type(screen.getByLabelText('Date given'), '2026-08-15');
+    await user.type(screen.getByLabelText('Time given as needed'), '14:00');
+    await user.click(screen.getByRole('button', { name: 'Record this dose' }));
+
+    const logs = await repository!.logsForMedicine('medicine-private-prn');
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ patientId: 'yoni', status: 'taken' });
   });
 });

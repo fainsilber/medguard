@@ -24,6 +24,9 @@ export interface LiveSyncMessage {
 export interface LiveSafetyWarningMessage {
   type: 'safety.warning';
   medicineId: string;
+  /** Which patient the blocked/overridden dose was for — a shared medicine's cooldown is scoped
+   * per patient, so the banner needs to say whose cooldown this was, not just which medicine. */
+  patientId: string;
   blockedBy: BlockReason;
   attemptedByUserId: UserId;
   outcome: 'blocked' | 'overridden';

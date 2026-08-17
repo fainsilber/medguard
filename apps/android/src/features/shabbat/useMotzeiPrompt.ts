@@ -1,17 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  SINGLE_PATIENT_ID,
-  collectReconciliationItems,
-  hasUnreconciledDoses,
-  shabbatPhaseAt,
-} from '@medguard/shared';
-import type {
-  IntakeLog,
-  Medicine,
-  Schedule,
-  ShabbatConfig,
-  ShabbatWindow,
-} from '@medguard/shared';
+import { collectReconciliationItems, hasUnreconciledDoses, shabbatPhaseAt } from '@medguard/shared';
+import type { IntakeLog, Medicine, Schedule, ShabbatConfig, ShabbatWindow } from '@medguard/shared';
 import { getDismissedReconciliation, setDismissedReconciliation } from '@medguard/store';
 import { useClock, useRepository, useStore } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
@@ -73,7 +62,7 @@ export function useMotzeiPrompt(): { show: boolean; dismiss: () => void } {
       config: await repository.getShabbatConfig(),
       schedules: await repository.allSchedules(),
       medicines: await repository.allMedicines(),
-      logs: await repository.logsForPatient(SINGLE_PATIENT_ID),
+      logs: await repository.allLogs(),
     }),
     ['shabbatWindows', 'shabbatConfig', 'schedules', 'medicines', 'intakeLogs'],
   );
@@ -114,9 +103,7 @@ export function useMotzeiPrompt(): { show: boolean; dismiss: () => void } {
   }, [endedWindow, store]);
 
   const show =
-    phase === 'motzei_pending' &&
-    endedWindow !== undefined &&
-    dismissedWindowId !== endedWindow.id;
+    phase === 'motzei_pending' && endedWindow !== undefined && dismissedWindowId !== endedWindow.id;
 
   return { show, dismiss };
 }

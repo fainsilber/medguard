@@ -22,7 +22,7 @@ import {
 } from '../../app/RepositoryContext.js';
 import { getLocalClockTrust } from '../../clock/localClockGuard.js';
 import { DoseCorrection } from '../logs/DoseCorrection.js';
-import { Card, buttonClass, dangerButtonClass, inputClass, primaryButtonClass } from '../../ui/primitives.js';
+import { Badge, Card, buttonClass, dangerButtonClass, inputClass, primaryButtonClass } from '../../ui/primitives.js';
 
 const STATE_BORDER_CLASS: Record<DoseSafety['state'], string> = {
   safe: 'border-safe',
@@ -48,11 +48,19 @@ type OverridePhase = 'closed' | 'reason' | 'confirm';
 
 export function PrnCard({
   medicine,
+  patientId,
+  patientName,
   logs,
   timeZone,
   clockTrust,
 }: {
   medicine: Medicine;
+  /** Which patient this card's safety check and "give dose" action apply to — a medicine shared
+   * by several patients renders one card per patient, each independently scoped. */
+  patientId: string;
+  /** Shown as a badge next to the medicine name when the household has more than one patient —
+   * otherwise two identically-named cards for a shared medicine would be indistinguishable. */
+  patientName?: string;
   logs: readonly IntakeLog[];
   timeZone: string;
   /** Overrides the real local clock-trust check — exists for deterministic tests only. */
@@ -72,6 +80,7 @@ export function PrnCard({
 
   const safety = assessDose({
     medicine,
+    patientId,
     logs,
     clock,
     clockTrust: clockTrust ?? getLocalClockTrust(),
@@ -87,7 +96,7 @@ export function PrnCard({
     try {
       await repository.recordDose({
         id: ids.next(),
-        patientId: medicine.patientId,
+        patientId,
         medicineId: medicine.id,
         type: 'prn',
         status: 'taken',
@@ -140,13 +149,14 @@ export function PrnCard({
   };
 
   const permitted = isDosePermitted(safety);
-  const lastLog = lastAdministeredDose(logs, medicine.id);
+  const lastLog = lastAdministeredDose(logs, medicine.id, patientId);
 
   return (
     <Card className={`border-l-4 ${STATE_BORDER_CLASS[safety.state]}`}>
       <div className="flex items-center justify-between">
         <h3 className="font-medium">
           {medicine.name} <span className="text-slate-400">{medicine.strength}</span>
+          {patientName && <Badge tone="neutral">{patientName}</Badge>}
         </h3>
         <span className="text-sm">{STATE_LABEL[safety.state]}</span>
       </div>

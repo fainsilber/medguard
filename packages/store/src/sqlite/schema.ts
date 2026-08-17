@@ -22,6 +22,8 @@ export interface SqliteTableSchema {
 
 export const SQLITE_TABLE_SCHEMAS: readonly SqliteTableSchema[] = [
   { name: 'householdSettings', pk: 'id', indexedFields: [] },
+  { name: 'patients', pk: 'id', indexedFields: [] },
+  { name: 'medicinePatients', pk: 'id', indexedFields: ['medicineId', 'patientId'] },
   { name: 'medicines', pk: 'id', indexedFields: [] },
   { name: 'schedules', pk: 'id', indexedFields: ['medicineId'] },
   { name: 'intakeLogs', pk: 'id', indexedFields: ['medicineId', 'patientId', 'actualTime'] },

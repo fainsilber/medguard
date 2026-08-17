@@ -21,27 +21,33 @@ function log(id: string, overrides: Partial<IntakeLog> = {}): IntakeLog {
 }
 
 const MEDICINE_NAMES = new Map([['medicine-1', 'Ondansetron 4mg']]);
+const PATIENT_NAMES = new Map([['patient-1', 'Yoni']]);
 
 describe('buildIntakeLogCsv', () => {
   it('emits just the header when there are no logs', () => {
-    expect(buildIntakeLogCsv([], MEDICINE_NAMES, TIME_ZONE)).toBe(
-      'Date,Scheduled time,Time given,Medicine,Type,Status,Quantity,Given by,Override reason,Notes\r\n',
+    expect(buildIntakeLogCsv([], MEDICINE_NAMES, PATIENT_NAMES, TIME_ZONE)).toBe(
+      'Date,Scheduled time,Time given,Medicine,Patient,Type,Status,Quantity,Given by,Override reason,Notes\r\n',
     );
   });
 
   it('emits one row per log, oldest first, with human-readable columns', () => {
     const logs = [
-      log('later', { actualTime: '2026-06-15T20:00:00.000Z', type: 'scheduled', status: 'skipped', quantityTaken: 0 }),
+      log('later', {
+        actualTime: '2026-06-15T20:00:00.000Z',
+        type: 'scheduled',
+        status: 'skipped',
+        quantityTaken: 0,
+      }),
       log('earlier', { actualTime: '2026-06-15T08:00:00.000Z' }),
     ];
 
-    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, TIME_ZONE);
+    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, PATIENT_NAMES, TIME_ZONE);
     const lines = csv.trim().split('\r\n');
 
     expect(lines).toEqual([
-      'Date,Scheduled time,Time given,Medicine,Type,Status,Quantity,Given by,Override reason,Notes',
-      '2026-06-15,,08:00,Ondansetron 4mg,As needed,Taken,1,Mom,,',
-      '2026-06-15,,20:00,Ondansetron 4mg,Scheduled,Skipped,0,Mom,,',
+      'Date,Scheduled time,Time given,Medicine,Patient,Type,Status,Quantity,Given by,Override reason,Notes',
+      '2026-06-15,,08:00,Ondansetron 4mg,Yoni,As needed,Taken,1,Mom,,',
+      '2026-06-15,,20:00,Ondansetron 4mg,Yoni,Scheduled,Skipped,0,Mom,,',
     ]);
   });
 
@@ -54,12 +60,17 @@ describe('buildIntakeLogCsv', () => {
       }),
     ];
 
-    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, TIME_ZONE);
-    expect(csv).toContain('2026-06-15,08:00,09:15,Ondansetron 4mg,Scheduled,Taken,1,Mom,,');
+    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, PATIENT_NAMES, TIME_ZONE);
+    expect(csv).toContain('2026-06-15,08:00,09:15,Ondansetron 4mg,Yoni,Scheduled,Taken,1,Mom,,');
   });
 
   it('leaves the scheduled-time column blank for an as-needed dose, which has no due time', () => {
-    const csv = buildIntakeLogCsv([log('prn', { type: 'prn' })], MEDICINE_NAMES, TIME_ZONE);
+    const csv = buildIntakeLogCsv(
+      [log('prn', { type: 'prn' })],
+      MEDICINE_NAMES,
+      PATIENT_NAMES,
+      TIME_ZONE,
+    );
     expect(csv).toContain('2026-06-15,,12:00,');
   });
 
@@ -69,7 +80,7 @@ describe('buildIntakeLogCsv', () => {
       log('fix', { supersedesId: 'mistake', quantityTaken: 1, notes: 'Actually only half' }),
     ];
 
-    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, TIME_ZONE);
+    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, PATIENT_NAMES, TIME_ZONE);
 
     expect(csv).not.toContain(',2,');
     expect(csv).toContain(',1,Mom,,Actually only half');
@@ -78,21 +89,47 @@ describe('buildIntakeLogCsv', () => {
   it('shows the override reason when a dose was recorded despite a safety block', () => {
     const logs = [
       log('override', {
-        override: { confirmedByUserId: 'Dad', reason: 'Past due for relief', blockedBy: 'cooldown' },
+        override: {
+          confirmedByUserId: 'Dad',
+          reason: 'Past due for relief',
+          blockedBy: 'cooldown',
+        },
       }),
     ];
 
-    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, TIME_ZONE);
+    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, PATIENT_NAMES, TIME_ZONE);
     expect(csv).toContain(',Mom,Past due for relief,');
   });
 
   it('falls back to a placeholder name for a medicine id it does not recognise', () => {
-    const csv = buildIntakeLogCsv([log('a')], new Map(), TIME_ZONE);
+    const csv = buildIntakeLogCsv([log('a')], new Map(), PATIENT_NAMES, TIME_ZONE);
     expect(csv).toContain('Unknown medicine');
   });
 
+  it('falls back to a placeholder name for a patient id it does not recognise', () => {
+    const csv = buildIntakeLogCsv([log('a')], MEDICINE_NAMES, new Map(), TIME_ZONE);
+    expect(csv).toContain('Unknown patient');
+  });
+
+  it('names each log’s own patient, not just one — a shared medicine’s doses stay attributable per row', () => {
+    const logs = [log('yoni', { patientId: 'patient-1' }), log('dad', { patientId: 'patient-2' })];
+    const patientNames = new Map([
+      ['patient-1', 'Yoni'],
+      ['patient-2', 'Dad'],
+    ]);
+
+    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, patientNames, TIME_ZONE);
+    expect(csv).toContain(',Yoni,');
+    expect(csv).toContain(',Dad,');
+  });
+
   it('quotes a field that contains a comma, quote, or newline, per RFC 4180', () => {
-    const csv = buildIntakeLogCsv([log('a', { notes: 'Gave with food, "just in case"' })], MEDICINE_NAMES, TIME_ZONE);
+    const csv = buildIntakeLogCsv(
+      [log('a', { notes: 'Gave with food, "just in case"' })],
+      MEDICINE_NAMES,
+      PATIENT_NAMES,
+      TIME_ZONE,
+    );
     expect(csv).toContain('"Gave with food, ""just in case"""');
   });
 
@@ -104,7 +141,7 @@ describe('buildIntakeLogCsv', () => {
       log('shabbat', { status: 'pending_shabbat' }),
     ];
 
-    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, TIME_ZONE);
+    const csv = buildIntakeLogCsv(logs, MEDICINE_NAMES, PATIENT_NAMES, TIME_ZONE);
     expect(csv).toContain(',Taken,');
     expect(csv).toContain(',Skipped,');
     expect(csv).toContain(',Missed,');

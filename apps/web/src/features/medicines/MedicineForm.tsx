@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { SINGLE_PATIENT_ID } from '@medguard/shared';
+import { useLiveQuery } from 'dexie-react-hooks';
 import type { Medicine } from '@medguard/shared';
-import { useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
+import { usePatients } from '../../app/PatientProvider.js';
+import { useIdGenerator, useMedGuardDb, useRepository } from '../../app/RepositoryContext.js';
 import { buttonClass, inputClass, labelClass, primaryButtonClass } from '../../ui/primitives.js';
 
 const MEDICINE_FORMS = ['pill', 'liquid', 'injection', 'topical', 'other'] as const;
@@ -21,8 +22,15 @@ export function MedicineForm({
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const db = useMedGuardDb();
   const repository = useRepository();
   const ids = useIdGenerator();
+  const { patients, filterPatientId } = usePatients();
+
+  const existingAssignments = useLiveQuery(
+    () => (medicine ? db.medicinePatients.where('medicineId').equals(medicine.id).toArray() : []),
+    [db, medicine?.id],
+  );
 
   const [name, setName] = useState(medicine?.name ?? '');
   const [strength, setStrength] = useState(medicine?.strength ?? '');
@@ -33,6 +41,37 @@ export function MedicineForm({
   const [instructions, setInstructions] = useState(medicine?.instructions ?? '');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Who this medicine is assigned to. Seeded once, either from the existing assignment rows (an
+  // edit) or from whichever specific patient was selected in the switcher when "Add medicine" was
+  // pressed (a sensible default, not a requirement — an empty selection just means "nobody yet").
+  const [selectedPatientIds, setSelectedPatientIds] = useState<Set<string>>(new Set());
+  const [selectionInitialized, setSelectionInitialized] = useState(false);
+
+  useEffect(() => {
+    if (selectionInitialized) return;
+    if (medicine) {
+      if (existingAssignments === undefined) return;
+      setSelectedPatientIds(
+        new Set(existingAssignments.filter((a) => a.active).map((a) => a.patientId)),
+      );
+    } else {
+      setSelectedPatientIds(filterPatientId ? new Set([filterPatientId]) : new Set());
+    }
+    setSelectionInitialized(true);
+  }, [medicine, existingAssignments, filterPatientId, selectionInitialized]);
+
+  const togglePatient = (patientId: string) => {
+    setSelectedPatientIds((current) => {
+      const next = new Set(current);
+      if (next.has(patientId)) {
+        next.delete(patientId);
+      } else {
+        next.add(patientId);
+      }
+      return next;
+    });
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -59,10 +98,11 @@ export function MedicineForm({
 
     setSaving(true);
     try {
+      const medicineId = medicine?.id ?? ids.next();
+
       await repository.saveMedicine(
         {
-          id: medicine?.id ?? ids.next(),
-          patientId: medicine?.patientId ?? SINGLE_PATIENT_ID,
+          id: medicineId,
           name: trimmedName,
           strength: trimmedStrength,
           form,
@@ -79,6 +119,17 @@ export function MedicineForm({
         },
         medicine ? 'UPDATE' : 'CREATE',
       );
+
+      const previouslyAssigned = new Set(
+        (existingAssignments ?? []).filter((a) => a.active).map((a) => a.patientId),
+      );
+      const toAssign = [...selectedPatientIds].filter((id) => !previouslyAssigned.has(id));
+      const toUnassign = [...previouslyAssigned].filter((id) => !selectedPatientIds.has(id));
+      await Promise.all([
+        ...toAssign.map((patientId) => repository.assignMedicine(medicineId, patientId)),
+        ...toUnassign.map((patientId) => repository.unassignMedicine(medicineId, patientId)),
+      ]);
+
       onDone();
     } finally {
       setSaving(false);
@@ -118,6 +169,26 @@ export function MedicineForm({
           ))}
         </select>
       </label>
+
+      {patients.length > 0 && (
+        <fieldset className="flex flex-col gap-1">
+          <legend className="text-sm">Who takes this?</legend>
+          <p className="text-xs text-slate-400">
+            Assign to more than one patient to share it — one bottle, one stock count, tracked
+            once.
+          </p>
+          {patients.map((patient) => (
+            <label key={patient.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={selectedPatientIds.has(patient.id)}
+                onChange={() => togglePatient(patient.id)}
+              />
+              {patient.displayName}
+            </label>
+          ))}
+        </fieldset>
+      )}
 
       <fieldset className="flex flex-col gap-1">
         <legend className="text-sm">How is it taken?</legend>

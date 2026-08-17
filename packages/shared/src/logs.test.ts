@@ -72,18 +72,25 @@ describe('administeredDoses', () => {
       log('missed', { status: 'missed' }),
       log('pending', { status: 'pending_shabbat' }),
     ];
-    expect(administeredDoses(logs, 'medicine-1').map((l) => l.id)).toEqual(['taken']);
+    expect(administeredDoses(logs, 'medicine-1', 'patient-1').map((l) => l.id)).toEqual(['taken']);
   });
 
   it('filters by medicine', () => {
     const logs = [log('mine'), log('theirs', { medicineId: 'other' })];
-    expect(administeredDoses(logs, 'medicine-1').map((l) => l.id)).toEqual(['mine']);
+    expect(administeredDoses(logs, 'medicine-1', 'patient-1').map((l) => l.id)).toEqual(['mine']);
   });
 
   it('excludes superseded doses', () => {
     const logs = [log('mistake'), log('fix', { supersedesId: 'mistake', status: 'skipped' })];
     // The correction says it was skipped after all, so nothing was administered.
-    expect(administeredDoses(logs, 'medicine-1')).toEqual([]);
+    expect(administeredDoses(logs, 'medicine-1', 'patient-1')).toEqual([]);
+  });
+
+  it('filters by patient, for a medicine shared by more than one', () => {
+    // Same medicine, two patients — Dad's dose must never count as Mom's.
+    const logs = [log('mom-dose', { patientId: 'mom' }), log('dad-dose', { patientId: 'dad' })];
+    expect(administeredDoses(logs, 'medicine-1', 'mom').map((l) => l.id)).toEqual(['mom-dose']);
+    expect(administeredDoses(logs, 'medicine-1', 'dad').map((l) => l.id)).toEqual(['dad-dose']);
   });
 });
 
@@ -113,7 +120,7 @@ describe('lastAdministeredDose', () => {
       log('old', { actualTime: '2026-06-15T09:00:00.000Z' }),
       log('new', { actualTime: '2026-06-15T13:00:00.000Z', loggedByUserId: 'dad' }),
     ];
-    expect(lastAdministeredDose(logs, 'medicine-1')?.loggedByUserId).toBe('dad');
+    expect(lastAdministeredDose(logs, 'medicine-1', 'patient-1')?.loggedByUserId).toBe('dad');
   });
 
   it('goes by when the dose was given, not when it was recorded', () => {
@@ -123,7 +130,7 @@ describe('lastAdministeredDose', () => {
       log('logged-later-given-earlier', { actualTime: '2026-06-15T09:00:00.000Z' }),
       log('logged-first-given-later', { actualTime: '2026-06-15T13:00:00.000Z' }),
     ];
-    expect(lastAdministeredDose(logs, 'medicine-1')?.id).toBe('logged-first-given-later');
+    expect(lastAdministeredDose(logs, 'medicine-1', 'patient-1')?.id).toBe('logged-first-given-later');
   });
 
   it('ignores skipped doses', () => {
@@ -131,11 +138,13 @@ describe('lastAdministeredDose', () => {
       log('taken', { actualTime: '2026-06-15T09:00:00.000Z' }),
       log('skipped', { actualTime: '2026-06-15T13:00:00.000Z', status: 'skipped' }),
     ];
-    expect(lastAdministeredDose(logs, 'medicine-1')?.id).toBe('taken');
+    expect(lastAdministeredDose(logs, 'medicine-1', 'patient-1')?.id).toBe('taken');
   });
 
   it('is undefined when nothing has been administered', () => {
-    expect(lastAdministeredDose([], 'medicine-1')).toBeUndefined();
-    expect(lastAdministeredDose([log('s', { status: 'skipped' })], 'medicine-1')).toBeUndefined();
+    expect(lastAdministeredDose([], 'medicine-1', 'patient-1')).toBeUndefined();
+    expect(
+      lastAdministeredDose([log('s', { status: 'skipped' })], 'medicine-1', 'patient-1'),
+    ).toBeUndefined();
   });
 });

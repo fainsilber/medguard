@@ -24,6 +24,10 @@ export function ExportScreen() {
 
   const medicines = useLiveQuery(() => db.medicines.toArray(), [db]);
   const logs = useLiveQuery(() => db.intakeLogs.toArray(), [db]);
+  // Unfiltered by archived, unlike `usePatients()`: a historical log can reference a patient this
+  // household later archived, and the export must still be able to name them (the multi-patient
+  // plan's own risk list calls out "deleting a patient must be impossible" for exactly this).
+  const patients = useLiveQuery(() => db.patients.toArray(), [db]);
 
   const medicineNames = useMemo(
     () =>
@@ -31,6 +35,10 @@ export function ExportScreen() {
         (medicines ?? []).map((medicine) => [medicine.id, `${medicine.name} ${medicine.strength}`]),
       ),
     [medicines],
+  );
+  const patientNames = useMemo(
+    () => new Map((patients ?? []).map((patient) => [patient.id, patient.displayName])),
+    [patients],
   );
 
   const rows = useMemo(() => {
@@ -40,7 +48,7 @@ export function ExportScreen() {
     return [...effectiveLogs(logs)].sort((a, b) => fromIso(b.actualTime) - fromIso(a.actualTime));
   }, [logs]);
 
-  if (!medicines || !logs || !householdSettings || !rows) {
+  if (!medicines || !logs || !patients || !householdSettings || !rows) {
     return (
       <Card>
         <p className="text-sm text-slate-400">Loading…</p>
@@ -54,7 +62,7 @@ export function ExportScreen() {
 
   const handleDownloadCsv = () => {
     downloadTextFile(
-      buildIntakeLogCsv(logs, medicineNames, timeZone),
+      buildIntakeLogCsv(logs, medicineNames, patientNames, timeZone),
       `medguard-log-${generatedOn}.csv`,
       'text/csv;charset=utf-8',
     );
@@ -103,6 +111,7 @@ export function ExportScreen() {
                 <th className="py-1 pr-2">Due</th>
                 <th className="py-1 pr-2">Given</th>
                 <th className="py-1 pr-2">Medicine</th>
+                <th className="py-1 pr-2">Patient</th>
                 <th className="py-1 pr-2">Status</th>
                 <th className="py-1 pr-2">Qty</th>
                 <th className="py-1 pr-2">By</th>
@@ -125,6 +134,9 @@ export function ExportScreen() {
                   </td>
                   <td className="py-1 pr-2">
                     {medicineNames.get(log.medicineId) ?? 'Unknown medicine'}
+                  </td>
+                  <td className="py-1 pr-2">
+                    {patientNames.get(log.patientId) ?? 'Unknown patient'}
                   </td>
                   <td className="py-1 pr-2">{log.status === 'taken' ? 'Taken' : 'Skipped'}</td>
                   <td className="py-1 pr-2">{log.quantityTaken}</td>

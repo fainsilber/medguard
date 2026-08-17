@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { BlockReason, Medicine } from '@medguard/shared';
+import type { BlockReason, Medicine, Patient } from '@medguard/shared';
 import { useRepository } from '../app/RepositoryContext.js';
 import { colors } from '../ui/primitives.js';
 import { useSyncStatus } from './SyncProvider.js';
@@ -32,6 +32,9 @@ export function SafetyWarningBanner(): React.JSX.Element | null {
   const repository = useRepository();
   const { lastSafetyWarning, dismissSafetyWarning } = useSyncStatus();
   const [medicine, setMedicine] = useState<Medicine | undefined>(undefined);
+  // Every patient, not just the active ones — a warning about an archived patient's dose should
+  // still be able to say whose it was, the same reason the export never drops a name either.
+  const [patients, setPatients] = useState<Patient[]>([]);
 
   useEffect(() => {
     if (!lastSafetyWarning) {
@@ -39,9 +42,13 @@ export function SafetyWarningBanner(): React.JSX.Element | null {
       return;
     }
     let cancelled = false;
-    void repository.getMedicine(lastSafetyWarning.medicineId).then((result) => {
+    void Promise.all([
+      repository.getMedicine(lastSafetyWarning.medicineId),
+      repository.allPatients(),
+    ]).then(([medicineResult, patientsResult]) => {
       if (!cancelled) {
-        setMedicine(result);
+        setMedicine(medicineResult);
+        setPatients(patientsResult);
       }
     });
     return () => {
@@ -55,11 +62,18 @@ export function SafetyWarningBanner(): React.JSX.Element | null {
 
   const medicineName = medicine?.name ?? 'A medicine';
   const reason = REASON_LABEL[lastSafetyWarning.blockedBy];
+  // Only said once there is more than one patient to tell apart — the same rule every other
+  // patient-name surface in the app follows (badges, local alarm titles, push notifications).
+  const patientName =
+    patients.length > 1
+      ? patients.find((patient) => patient.id === lastSafetyWarning.patientId)?.displayName
+      : undefined;
+  const subject = patientName ? `${patientName} · ${medicineName}` : medicineName;
 
   return (
     <View style={styles.banner} accessibilityRole="alert">
       <Text style={styles.text}>
-        {medicineName}:{' '}
+        {subject}:{' '}
         {lastSafetyWarning.outcome === 'blocked'
           ? `a dose was blocked by ${reason} — someone may have just tried to give it again too soon.`
           : `a dose was given despite ${reason}, recorded as an override.`}

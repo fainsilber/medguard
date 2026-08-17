@@ -8,7 +8,7 @@ describe('GET /api/v1/health', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       status: 'ok',
-      d1: { migrated: true, schemaVersion: '4' },
+      d1: { migrated: true, schemaVersion: '5' },
       durableObject: { reachable: true, storage: 'sqlite' },
     });
   });

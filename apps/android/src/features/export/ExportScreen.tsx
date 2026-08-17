@@ -1,11 +1,23 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { buildIntakeLogCsv, effectiveLogs, formatLocalDate, formatLocalTime, fromIso } from '@medguard/shared';
-import type { IntakeLog, Medicine } from '@medguard/shared';
+import {
+  buildIntakeLogCsv,
+  effectiveLogs,
+  formatLocalDate,
+  formatLocalTime,
+  fromIso,
+} from '@medguard/shared';
+import type { IntakeLog, Medicine, Patient } from '@medguard/shared';
 import { useClock, useStore } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
-import { Button, Card, KeyboardAvoidingScreen, colors, styles as sharedStyles } from '../../ui/primitives.js';
+import {
+  Button,
+  Card,
+  KeyboardAvoidingScreen,
+  colors,
+  styles as sharedStyles,
+} from '../../ui/primitives.js';
 import { BackupRestoreCard } from './BackupRestoreCard.js';
 import { shareTextFile } from './shareTextFile.js';
 
@@ -32,6 +44,10 @@ export function ExportScreen(): React.JSX.Element {
     () => store.transaction(['intakeLogs'], (tx) => tx.getAll<IntakeLog>('intakeLogs')),
     ['intakeLogs'],
   );
+  const patients = useLiveQuery(
+    () => store.transaction(['patients'], (tx) => tx.getAll<Patient>('patients')),
+    ['patients'],
+  );
 
   const medicineNames = useMemo(
     () =>
@@ -39,6 +55,10 @@ export function ExportScreen(): React.JSX.Element {
         (medicines ?? []).map((medicine) => [medicine.id, `${medicine.name} ${medicine.strength}`]),
       ),
     [medicines],
+  );
+  const patientNames = useMemo(
+    () => new Map((patients ?? []).map((patient) => [patient.id, patient.displayName])),
+    [patients],
   );
 
   const rows = useMemo(() => {
@@ -51,7 +71,7 @@ export function ExportScreen(): React.JSX.Element {
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
 
-  if (!medicines || !logs || !householdSettings || !rows) {
+  if (!medicines || !logs || !patients || !householdSettings || !rows) {
     return (
       <View style={sharedStyles.screen}>
         <View style={sharedStyles.content}>
@@ -72,7 +92,7 @@ export function ExportScreen(): React.JSX.Element {
     setSharing(true);
     try {
       await shareTextFile(
-        buildIntakeLogCsv(logs, medicineNames, timeZone),
+        buildIntakeLogCsv(logs, medicineNames, patientNames, timeZone),
         `medguard-log-${generatedOn}.csv`,
         'text/csv',
       );
@@ -128,17 +148,26 @@ export function ExportScreen(): React.JSX.Element {
                 </View>
                 {rows.map((log) => (
                   <View key={log.id} style={tableStyles.row}>
-                    <Text style={tableStyles.cell}>{formatLocalDate(timeZone, fromIso(log.actualTime))}</Text>
+                    <Text style={tableStyles.cell}>
+                      {formatLocalDate(timeZone, fromIso(log.actualTime))}
+                    </Text>
                     <Text style={[tableStyles.cell, tableStyles.muted]}>
                       {log.scheduledTime === undefined
                         ? '—'
                         : formatLocalTime(timeZone, fromIso(log.scheduledTime))}
                     </Text>
-                    <Text style={tableStyles.cell}>{formatLocalTime(timeZone, fromIso(log.actualTime))}</Text>
+                    <Text style={tableStyles.cell}>
+                      {formatLocalTime(timeZone, fromIso(log.actualTime))}
+                    </Text>
                     <Text style={[tableStyles.cell, tableStyles.wide]}>
                       {medicineNames.get(log.medicineId) ?? 'Unknown medicine'}
                     </Text>
-                    <Text style={tableStyles.cell}>{log.status === 'taken' ? 'Taken' : 'Skipped'}</Text>
+                    <Text style={tableStyles.cell}>
+                      {patientNames.get(log.patientId) ?? 'Unknown patient'}
+                    </Text>
+                    <Text style={tableStyles.cell}>
+                      {log.status === 'taken' ? 'Taken' : 'Skipped'}
+                    </Text>
                     <Text style={tableStyles.cell}>{log.quantityTaken}</Text>
                     <Text style={tableStyles.cell}>{log.loggedByUserId}</Text>
                     <Text style={[tableStyles.cell, tableStyles.wide, tableStyles.muted]}>
@@ -159,7 +188,17 @@ export function ExportScreen(): React.JSX.Element {
   );
 }
 
-const TABLE_COLUMNS = ['Date', 'Due', 'Given', 'Medicine', 'Status', 'Qty', 'By', 'Notes'] as const;
+const TABLE_COLUMNS = [
+  'Date',
+  'Due',
+  'Given',
+  'Medicine',
+  'Patient',
+  'Status',
+  'Qty',
+  'By',
+  'Notes',
+] as const;
 
 const tableStyles = StyleSheet.create({
   headerRow: {

@@ -76,11 +76,28 @@ export const householdSettingsSchema = z.object({
   ...syncableFields,
 });
 
+export const patientSchema = z.object({
+  id: z.uuid(),
+  displayName: z.string().min(1).max(200),
+  archived: z.boolean(),
+  sortOrder: z.number().int(),
+  ...syncableFields,
+});
+
+/** `id` is `${medicineId}:${patientId}`, not a UUID — see `medicinePatientId()` in types.ts. */
+export const medicinePatientSchema = z.object({
+  id: z.string().min(1),
+  medicineId: z.uuid(),
+  patientId: z.uuid(),
+  active: z.boolean(),
+  ...syncableFields,
+});
+
 export const medicineFormSchema = z.enum(['pill', 'liquid', 'injection', 'topical', 'other']);
 
 export const medicineSchema = z.object({
   id: z.uuid(),
-  patientId: z.uuid(),
+  patientId: z.uuid().optional(),
   name: z.string().min(1).max(200),
   strength: z.string().min(1).max(100),
   form: medicineFormSchema,
@@ -319,6 +336,8 @@ export const shabbatWindowSchema = z.object({
 });
 
 export const syncableTableSchema = z.enum([
+  'patients',
+  'medicinePatients',
   'medicines',
   'schedules',
   'intakeLogs',

@@ -5,6 +5,7 @@ import type { Clock } from '@medguard/shared';
 import { MedGuardRepository } from '@medguard/store';
 import type { Store } from '@medguard/store';
 import { DexieStore } from '@medguard/store/dexie';
+import { PatientProvider } from '../app/PatientProvider.js';
 import { RepositoryProvider } from '../app/RepositoryContext.js';
 import { MedGuardDB } from '../db/schema.js';
 
@@ -72,7 +73,7 @@ export async function renderWithRepository(
 
   return render(
     <RepositoryProvider userId={userId} dbName={dbName} {...(clock ? { clock } : {})}>
-      {ui}
+      <PatientProvider>{ui}</PatientProvider>
     </RepositoryProvider>,
   );
 }

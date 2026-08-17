@@ -75,19 +75,23 @@ function summarise(log: IntakeLog): LastDoseSummary {
 }
 
 /**
- * Doses of this medicine administered within the trailing rolling window, oldest first.
+ * Doses of this medicine administered by this patient within the trailing rolling window, oldest
+ * first.
  *
  * Counts *every* administered dose, scheduled as well as PRN: a cap of "4 in 24 hours" is a
- * limit on how much of the drug the patient receives, not on how it was recorded.
+ * limit on how much of the drug the patient receives, not on how it was recorded. Scoped to one
+ * patient so a medicine shared by several people enforces the limit per person, not pooled across
+ * everyone who takes it.
  */
 export function dosesInRollingWindow(
   logs: readonly IntakeLog[],
   medicineId: string,
+  patientId: string,
   nowMs: EpochMs,
   windowMs: number = ROLLING_WINDOW_MS,
 ): IntakeLog[] {
   const windowStart = nowMs - windowMs;
-  return administeredDoses(logs, medicineId)
+  return administeredDoses(logs, medicineId, patientId)
     .filter((log) => {
       const at = fromIso(log.actualTime);
       // Future-dated doses count too. A dose logged slightly ahead of `now` (clock skew between
@@ -113,7 +117,15 @@ function capAvailableAtMs(dosesAscending: readonly IntakeLog[], maxDailyDoses: n
 
 export interface AssessDoseInput {
   medicine: Medicine;
-  /** The full local history for this medicine. Superseded corrections are filtered internally. */
+  /**
+   * Which patient this assessment is for. Required, not inferred from `logs`, because a shared
+   * medicine's cooldown/cap is one limit that each patient's doses count against independently —
+   * counting every log regardless of patient would let one person's dose block or "use up" another
+   * person's allowance.
+   */
+  patientId: string;
+  /** The full local history for this medicine, across every patient it's assigned to. Filtered to
+   * `patientId` internally; superseded corrections are filtered internally too. */
   logs: readonly IntakeLog[];
   clock: Clock;
   /**
@@ -125,9 +137,9 @@ export interface AssessDoseInput {
   clockTrust: ClockTrust;
 }
 
-export function assessDose({ medicine, logs, clock, clockTrust }: AssessDoseInput): DoseSafety {
+export function assessDose({ medicine, patientId, logs, clock, clockTrust }: AssessDoseInput): DoseSafety {
   const nowMs = clock.nowMs();
-  const window = dosesInRollingWindow(logs, medicine.id, nowMs);
+  const window = dosesInRollingWindow(logs, medicine.id, patientId, nowMs);
   const mostRecent = window.at(-1);
   const lastDose = mostRecent ? summarise(mostRecent) : undefined;
 

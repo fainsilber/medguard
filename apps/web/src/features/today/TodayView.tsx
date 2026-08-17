@@ -12,6 +12,7 @@ import {
   resolveLocal,
 } from '@medguard/shared';
 import type { Occurrence, OccurrenceStatus } from '@medguard/shared';
+import { usePatients } from '../../app/PatientProvider.js';
 import {
   useClock,
   useCurrentDeviceId,
@@ -23,7 +24,7 @@ import {
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useTick } from '../../app/useTick.js';
 import { DoseCorrection } from '../logs/DoseCorrection.js';
-import { Card, buttonClass, primaryButtonClass } from '../../ui/primitives.js';
+import { Badge, Card, buttonClass, primaryButtonClass } from '../../ui/primitives.js';
 import { TakenTimePrompt } from './TakenTimePrompt.js';
 
 const SNOOZE_MINUTES = 15;
@@ -59,14 +60,32 @@ export function TodayView() {
   const userId = useCurrentUserId();
   const deviceId = useCurrentDeviceId();
   const householdSettings = useHouseholdSettings();
+  const { patients, filterPatientId } = usePatients();
   const [snoozedUntil, setSnoozedUntil] = useState<Map<string, number>>(new Map());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [promptingKey, setPromptingKey] = useState<string | null>(null);
 
   useTick(REFRESH_INTERVAL_MS);
 
-  const schedules = useLiveQuery(() => db.schedules.toArray(), [db]);
+  const allSchedules = useLiveQuery(() => db.schedules.toArray(), [db]);
   const logs = useLiveQuery(() => db.intakeLogs.toArray(), [db]);
+
+  // "All patients" mode shows every schedule with a name badge per row (below); a specific
+  // selection narrows to that patient's own schedules — `Schedule.patientId` is not vestigial the
+  // way `Medicine.patientId` is, so this needs no join through medicinePatients.
+  const schedules = useMemo(
+    () =>
+      allSchedules === undefined || filterPatientId === undefined
+        ? allSchedules
+        : allSchedules.filter((schedule) => schedule.patientId === filterPatientId),
+    [allSchedules, filterPatientId],
+  );
+
+  const patientNames = useMemo(
+    () => new Map(patients.map((patient) => [patient.id, patient.displayName])),
+    [patients],
+  );
+  const showPatientBadges = filterPatientId === undefined && patients.length > 1;
 
   const nowMs = clock.nowMs();
   const timeZone = householdSettings?.timeZone;
@@ -210,6 +229,11 @@ export function TodayView() {
                     <div>
                       <p className="font-medium">
                         {medicineNames.get(occurrence.medicineId) ?? 'Unknown medicine'}
+                        {showPatientBadges && (
+                          <Badge tone="neutral">
+                            {patientNames.get(occurrence.patientId) ?? 'Unknown patient'}
+                          </Badge>
+                        )}
                       </p>
                       <p className="text-slate-400">
                         Due {formatLocalTime(timeZone!, fromIso(occurrence.dueAt))} ·{' '}

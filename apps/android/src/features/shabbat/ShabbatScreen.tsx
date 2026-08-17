@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import {
   DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
@@ -11,6 +11,7 @@ import {
   upcomingWindows,
 } from '@medguard/shared';
 import type { ShabbatConfig, ShabbatWindow } from '@medguard/shared';
+import { usePatients } from '../../app/PatientProvider.js';
 import { useClock, useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
@@ -37,13 +38,20 @@ export function ShabbatScreen(): React.JSX.Element {
   const clock = useClock();
   const ids = useIdGenerator();
   const householdSettings = useHouseholdSettings();
+  const { patients, filterPatientId } = usePatients();
+
+  // "All patients" has no single Shabbat config to show — coordinates and customs are set per
+  // patient — so it falls back to the first patient in the roster rather than gating the whole
+  // screen behind "pick someone first". Selecting a specific patient always wins.
+  const effectivePatientId = filterPatientId ?? patients[0]?.id;
 
   const data = useLiveQuery<ShabbatData>(
     async () => ({
-      config: await repository.getShabbatConfig(),
-      windows: await repository.allShabbatWindows(),
+      config: await repository.getShabbatConfig(effectivePatientId),
+      windows: await repository.allShabbatWindows(effectivePatientId),
     }),
     ['shabbatConfig', 'shabbatWindows'],
+    [effectivePatientId],
   );
 
   const [draft, setDraft] = useState<ShabbatConfig | null>(null);
@@ -55,6 +63,26 @@ export function ShabbatScreen(): React.JSX.Element {
       setDraft(data.config);
     }
   }, [data?.config, draft]);
+
+  // Switching patients mid-edit must not save one patient's half-typed change under another's
+  // config — discard the draft and let the effect above repopulate it from the new patient's own.
+  // Guarded to fire only on an actual switch between two known patients, not on the ordinary
+  // `undefined → first real id` transition every mount goes through while the roster loads (and,
+  // for a brand-new device, while `PatientProvider` is still bootstrapping the default patient) —
+  // that transition must never discard a draft the caregiver started before the roster settled.
+  const previousPatientIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (effectivePatientId === undefined) {
+      return;
+    }
+    if (
+      previousPatientIdRef.current !== undefined &&
+      previousPatientIdRef.current !== effectivePatientId
+    ) {
+      setDraft(null);
+    }
+    previousPatientIdRef.current = effectivePatientId;
+  }, [effectivePatientId]);
 
   const nowMs = clock.nowMs();
   const timeZone = householdSettings?.timeZone ?? 'UTC';
@@ -83,7 +111,7 @@ export function ShabbatScreen(): React.JSX.Element {
     setDraft(
       data.config ?? {
         id: ids.next(),
-        patientId: SINGLE_PATIENT_ID,
+        patientId: effectivePatientId ?? SINGLE_PATIENT_ID,
         // Off until the times below have been checked: automation that quietly changed how alarms
         // behave before anyone had verified it would be exactly backwards.
         autoShabbatEnabled: false,

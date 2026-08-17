@@ -156,3 +156,74 @@ describe('InventoryScreen', () => {
     expect(await screen.findByText('Stock count is negative — recount needed')).toBeInTheDocument();
   });
 });
+
+describe('InventoryScreen — multi-patient', () => {
+  it('filters the medicine list by the selected patient, and shows a shared medicine for either one', async () => {
+    localStorage.setItem('medguard.selectedPatientId', 'yoni');
+
+    await renderWithRepository(<InventoryScreen />, {
+      clock: fixedClock('2026-06-15T12:00:00.000Z'),
+      timeZone: TIME_ZONE,
+      seed: async (repository) => {
+        await repository.savePatient(
+          {
+            id: 'yoni',
+            displayName: 'Yoni',
+            archived: false,
+            sortOrder: 0,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByDeviceId: 'seed',
+            syncStatus: 'synced',
+          },
+          'CREATE',
+        );
+        await repository.savePatient(
+          {
+            id: 'dad',
+            displayName: 'Dad',
+            archived: false,
+            sortOrder: 1,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByDeviceId: 'seed',
+            syncStatus: 'synced',
+          },
+          'CREATE',
+        );
+        await repository.saveMedicine(
+          {
+            id: 'dads-only',
+            name: 'Statin',
+            strength: '10mg',
+            form: 'pill',
+            asNeeded: false,
+            archived: false,
+            updatedAt: '2026-06-01T00:00:00.000Z',
+            updatedByDeviceId: 'seed',
+            syncStatus: 'synced',
+          },
+          'CREATE',
+        );
+        await repository.saveMedicine(
+          {
+            id: 'shared',
+            name: 'Paracetamol',
+            strength: '500mg',
+            form: 'pill',
+            asNeeded: true,
+            archived: false,
+            updatedAt: '2026-06-01T00:00:00.000Z',
+            updatedByDeviceId: 'seed',
+            syncStatus: 'synced',
+          },
+          'CREATE',
+        );
+        await repository.assignMedicine('dads-only', 'dad');
+        await repository.assignMedicine('shared', 'yoni');
+        await repository.assignMedicine('shared', 'dad');
+      },
+    });
+
+    expect(await screen.findByText('Paracetamol')).toBeInTheDocument();
+    expect(screen.queryByText('Statin')).not.toBeInTheDocument();
+  });
+});

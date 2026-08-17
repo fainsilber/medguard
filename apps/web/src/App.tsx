@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { ComponentType } from 'react';
+import { PatientProvider } from './app/PatientProvider.js';
+import { PatientSwitcher } from './app/PatientSwitcher.js';
 import { ExportScreen } from './features/export/ExportScreen.js';
 import { HouseholdScreen } from './features/household/HouseholdScreen.js';
 import { InventoryScreen } from './features/inventory/InventoryScreen.js';
@@ -53,7 +55,10 @@ function AppShell() {
   return (
     <div className="mx-auto flex min-h-full max-w-2xl flex-col gap-4 p-4">
       <header className="flex items-center justify-between gap-3 print:hidden">
-        <h1 className="text-2xl font-semibold tracking-tight">MedGuard</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">MedGuard</h1>
+          <PatientSwitcher />
+        </div>
         <SyncStatusBadge />
       </header>
 
@@ -85,11 +90,13 @@ function AppShell() {
 export function App() {
   return (
     <CaregiverGate>
-      <SyncProvider>
-        <PushProvider>
-          <AppShell />
-        </PushProvider>
-      </SyncProvider>
+      <PatientProvider>
+        <SyncProvider>
+          <PushProvider>
+            <AppShell />
+          </PushProvider>
+        </SyncProvider>
+      </PatientProvider>
     </CaregiverGate>
   );
 }

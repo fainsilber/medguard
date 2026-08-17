@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_CANDLE_LIGHTING_OFFSET_MINS,
   DEFAULT_HAVDALAH,
@@ -13,6 +13,7 @@ import {
   upcomingWindows,
 } from '@medguard/shared';
 import type { ShabbatConfig } from '@medguard/shared';
+import { usePatients } from '../../app/PatientProvider.js';
 import {
   useClock,
   useIdGenerator,
@@ -52,13 +53,27 @@ export function ShabbatScreen() {
   const clock = useClock();
   const ids = useIdGenerator();
   const householdSettings = useHouseholdSettings();
+  const { patients, filterPatientId } = usePatients();
+
+  // "All patients" has no single Shabbat config to show — coordinates and customs are set per
+  // patient — so it falls back to the first patient in the roster rather than gating the whole
+  // screen behind "pick someone first". Selecting a specific patient always wins.
+  const effectivePatientId = filterPatientId ?? patients[0]?.id;
 
   // `?? null` matters: `useLiveQuery` returns `undefined` until the query first resolves, and the
   // query itself would return `undefined` for "no row" — making "not read yet" and "no config"
   // indistinguishable at every call site below. Collapsing the empty case to `null` keeps
   // `undefined` meaning exactly one thing: still loading.
-  const config = useLiveQuery(async () => (await db.shabbatConfig.toArray())[0] ?? null, [db]);
-  const windows = useLiveQuery(() => db.shabbatWindows.toArray(), [db]);
+  const config = useLiveQuery(async () => {
+    if (effectivePatientId === undefined) return null;
+    const all = await db.shabbatConfig.toArray();
+    return all.find((candidate) => candidate.patientId === effectivePatientId) ?? null;
+  }, [db, effectivePatientId]);
+  const windows = useLiveQuery(async () => {
+    if (effectivePatientId === undefined) return [];
+    const all = await db.shabbatWindows.toArray();
+    return all.filter((window) => window.patientId === effectivePatientId);
+  }, [db, effectivePatientId]);
 
   const [draft, setDraft] = useState<ShabbatConfig | null>(null);
   const [saving, setSaving] = useState(false);
@@ -71,6 +86,26 @@ export function ShabbatScreen() {
       setDraft(config);
     }
   }, [config, draft]);
+
+  // Switching patients mid-edit must not save one patient's half-typed change under another's
+  // config — discard the draft and let the effect above repopulate it from the new patient's own.
+  // Guarded to fire only on an actual switch between two known patients, not on the ordinary
+  // `undefined → first real id` transition every mount goes through while the roster loads (and,
+  // for a brand-new device, while `PatientProvider` is still bootstrapping the default patient) —
+  // that transition must never discard a draft the caregiver started before the roster settled.
+  const previousPatientIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (effectivePatientId === undefined) {
+      return;
+    }
+    if (
+      previousPatientIdRef.current !== undefined &&
+      previousPatientIdRef.current !== effectivePatientId
+    ) {
+      setDraft(null);
+    }
+    previousPatientIdRef.current = effectivePatientId;
+  }, [effectivePatientId]);
 
   const nowMs = clock.nowMs();
   const timeZone = householdSettings?.timeZone;
@@ -89,7 +124,7 @@ export function ShabbatScreen() {
     setDraft(
       config ?? {
         id: ids.next(),
-        patientId: SINGLE_PATIENT_ID,
+        patientId: effectivePatientId ?? SINGLE_PATIENT_ID,
         // Off by default: automation that started silently changing how alarms behave, before
         // anyone had checked the times against a luach, would be exactly backwards.
         autoShabbatEnabled: false,

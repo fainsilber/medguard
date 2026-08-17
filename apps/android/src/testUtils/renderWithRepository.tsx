@@ -3,6 +3,7 @@ import type { RenderResult } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 import { fixedClock, sequentialIds } from '@medguard/shared/testing';
 import type { Clock } from '@medguard/shared';
+import { PatientProvider } from '../app/PatientProvider.js';
 import { RepositoryProvider } from '../app/RepositoryContext.js';
 
 /**
@@ -31,7 +32,7 @@ export function renderWithRepository(
 
   return render(
     <RepositoryProvider userId="test-user" dbName={dbName} clock={clock}>
-      {ui}
+      <PatientProvider>{ui}</PatientProvider>
     </RepositoryProvider>,
   );
 }

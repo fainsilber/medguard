@@ -21,6 +21,7 @@ import {
   styles as sharedStyles,
 } from '../../ui/primitives.js';
 import { HouseholdOnboarding } from './HouseholdOnboarding.js';
+import { PatientRosterCard } from './PatientRosterCard.js';
 
 const DELETE_CONFIRMATION_PHRASE = 'DELETE';
 
@@ -207,6 +208,8 @@ export function HouseholdScreen(): React.JSX.Element {
               }}
             />
           </Card>
+
+          <PatientRosterCard />
         </ScrollView>
       </KeyboardAvoidingScreen>
     );
@@ -252,6 +255,8 @@ export function HouseholdScreen(): React.JSX.Element {
             </Text>
           )}
         </Card>
+
+        <PatientRosterCard />
 
         <Card>
           <Text style={sharedStyles.title}>Devices</Text>

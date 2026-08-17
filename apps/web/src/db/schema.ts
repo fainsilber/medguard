@@ -7,6 +7,8 @@ import type {
   InventoryAdjustment,
   InventoryItem,
   Medicine,
+  MedicinePatient,
+  Patient,
   Schedule,
   ShabbatConfig,
   ShabbatWindow,
@@ -27,6 +29,8 @@ import type {
  */
 export class MedGuardDB extends Dexie {
   householdSettings!: Table<HouseholdSettings, string>;
+  patients!: Table<Patient, string>;
+  medicinePatients!: Table<MedicinePatient, string>;
   medicines!: Table<Medicine, string>;
   schedules!: Table<Schedule, string>;
   intakeLogs!: Table<IntakeLog, string>;
@@ -102,6 +106,33 @@ export class MedGuardDB extends Dexie {
       schedules: 'id, medicineId, patientId, active, regimenGroupId, syncStatus, updatedAt',
       intakeLogs:
         'id, patientId, medicineId, scheduleId, status, type, actualTime, syncStatus, supersedesId, [medicineId+actualTime], [patientId+actualTime]',
+      inventoryItems: 'id, medicineId, syncStatus, updatedAt',
+      inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
+      doseSnoozes: 'id, occurrenceId, createdAt, syncStatus',
+      shabbatConfig: 'id, patientId',
+      shabbatWindows: 'id, patientId, startsAt',
+      syncOutbox: '++id, table, entityId, action, createdAt',
+      syncMeta: 'key',
+    });
+
+    // Multi-patient support: a household can hold more than one patient, and a medicine can be
+    // assigned to one, several, or none. Two new tables, additive like `version(3)`/`version(4)`
+    // — no `upgrade()` needed, and Dexie carries every earlier table forward untouched.
+    //
+    // `[medicineId+patientId+actualTime]` is new on `intakeLogs`: the PRN cooldown/cap query
+    // (`logsForPatientAndMedicine` in `@medguard/store`) now has to scope by patient as well as
+    // medicine — a medicine shared by several patients has one cooldown/cap *limit*, but each
+    // patient's doses must count against it independently. Without this index that query would be
+    // a full scan of the intake history, the same reason `[medicineId+actualTime]` and
+    // `[patientId+actualTime]` exist above.
+    this.version(5).stores({
+      householdSettings: 'id',
+      patients: 'id, archived, sortOrder',
+      medicinePatients: 'id, medicineId, patientId, active',
+      medicines: 'id, patientId, name, archived, syncStatus, updatedAt',
+      schedules: 'id, medicineId, patientId, active, regimenGroupId, syncStatus, updatedAt',
+      intakeLogs:
+        'id, patientId, medicineId, scheduleId, status, type, actualTime, syncStatus, supersedesId, [medicineId+actualTime], [patientId+actualTime], [medicineId+patientId+actualTime]',
       inventoryItems: 'id, medicineId, syncStatus, updatedAt',
       inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
       doseSnoozes: 'id, occurrenceId, createdAt, syncStatus',

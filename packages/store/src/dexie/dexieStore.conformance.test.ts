@@ -16,10 +16,12 @@ class ConformanceTestDB extends Dexie {
     super(name);
     this.version(1).stores({
       householdSettings: 'id',
+      patients: 'id, archived, sortOrder',
+      medicinePatients: 'id, medicineId, patientId, active',
       medicines: 'id, patientId, name, archived, syncStatus, updatedAt',
       schedules: 'id, medicineId, patientId, active, regimenGroupId, syncStatus, updatedAt',
       intakeLogs:
-        'id, patientId, medicineId, scheduleId, status, type, actualTime, syncStatus, supersedesId, [medicineId+actualTime], [patientId+actualTime]',
+        'id, patientId, medicineId, scheduleId, status, type, actualTime, syncStatus, supersedesId, [medicineId+actualTime], [patientId+actualTime], [medicineId+patientId+actualTime]',
       inventoryItems: 'id, medicineId, syncStatus, updatedAt',
       inventoryAdjustments: 'id, medicineId, relatedLogId, createdAt, syncStatus',
       doseSnoozes: 'id, occurrenceId, createdAt, syncStatus',

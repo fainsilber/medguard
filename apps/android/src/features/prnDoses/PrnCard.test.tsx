@@ -61,7 +61,13 @@ function makeLog(overrides: Partial<IntakeLog> = {}): IntakeLog {
 describe('PrnCard — two-step override flow', () => {
   it('in a safe state, "Give dose" records a dose with no override', async () => {
     const { getByText, queryByText } = renderWithRepository(
-      <PrnCard medicine={noGuard(makeMedicine())} logs={[]} timeZone="UTC" clockTrust={TRUSTED} />,
+      <PrnCard
+        medicine={noGuard(makeMedicine())}
+        patientId="patient-1"
+        logs={[]}
+        timeZone="UTC"
+        clockTrust={TRUSTED}
+      />,
       { clock: fixedClock(NOW), dbName: 'prn-safe.db' },
     );
 
@@ -73,7 +79,13 @@ describe('PrnCard — two-step override flow', () => {
 
   it('in a safe state, "Different time…" records a dose at the entered time, not now', async () => {
     const { getByText, getByLabelText, queryByText } = renderWithRepository(
-      <PrnCard medicine={noGuard(makeMedicine())} logs={[]} timeZone="UTC" clockTrust={TRUSTED} />,
+      <PrnCard
+        medicine={noGuard(makeMedicine())}
+        patientId="patient-1"
+        logs={[]}
+        timeZone="UTC"
+        clockTrust={TRUSTED}
+      />,
       { clock: fixedClock(NOW), dbName: 'prn-custom-time.db' },
     );
 
@@ -94,7 +106,13 @@ describe('PrnCard — two-step override flow', () => {
 
   it('blocked by cooldown: tapping "Give anyway" alone does not record a dose', async () => {
     const { getByText, queryByText } = renderWithRepository(
-      <PrnCard medicine={makeMedicine()} logs={[makeLog()]} timeZone="UTC" clockTrust={TRUSTED} />,
+      <PrnCard
+        medicine={makeMedicine()}
+        patientId="patient-1"
+        logs={[makeLog()]}
+        timeZone="UTC"
+        clockTrust={TRUSTED}
+      />,
       { clock: fixedClock(NOW), dbName: 'prn-override-step1.db' },
     );
 
@@ -103,13 +121,21 @@ describe('PrnCard — two-step override flow', () => {
 
     // Reason panel opens; the confirm step must not have happened yet.
     await waitFor(() => expect(queryByText('Why are you overriding this?')).toBeTruthy());
-    expect(queryByText('Are you sure? This will be permanently recorded as an override.')).toBeFalsy();
+    expect(
+      queryByText('Are you sure? This will be permanently recorded as an override.'),
+    ).toBeFalsy();
     expect(await readLogsFromDb('prn-override-step1.db', 'medicine-1')).toHaveLength(0);
   });
 
   it('an empty reason blocks proceeding to the confirm step', async () => {
     const { getByText, queryByText } = renderWithRepository(
-      <PrnCard medicine={makeMedicine()} logs={[makeLog()]} timeZone="UTC" clockTrust={TRUSTED} />,
+      <PrnCard
+        medicine={makeMedicine()}
+        patientId="patient-1"
+        logs={[makeLog()]}
+        timeZone="UTC"
+        clockTrust={TRUSTED}
+      />,
       { clock: fixedClock(NOW), dbName: 'prn-empty-reason.db' },
     );
 
@@ -120,13 +146,21 @@ describe('PrnCard — two-step override flow', () => {
     fireEvent.press(getByText('Continue'));
 
     // Still on the reason step — an empty reason must not advance to confirm.
-    expect(queryByText('Are you sure? This will be permanently recorded as an override.')).toBeFalsy();
+    expect(
+      queryByText('Are you sure? This will be permanently recorded as an override.'),
+    ).toBeFalsy();
     expect(await readLogsFromDb('prn-empty-reason.db', 'medicine-1')).toHaveLength(0);
   });
 
   it('entering a reason and hitting Continue alone (no second confirm) does not record a dose', async () => {
     const { getByText, getByLabelText, queryByText, queryByLabelText } = renderWithRepository(
-      <PrnCard medicine={makeMedicine()} logs={[makeLog()]} timeZone="UTC" clockTrust={TRUSTED} />,
+      <PrnCard
+        medicine={makeMedicine()}
+        patientId="patient-1"
+        logs={[makeLog()]}
+        timeZone="UTC"
+        clockTrust={TRUSTED}
+      />,
       { clock: fixedClock(NOW), dbName: 'prn-override-step2.db' },
     );
 
@@ -134,12 +168,17 @@ describe('PrnCard — two-step override flow', () => {
     fireEvent.press(getByText('Give anyway (override)'));
 
     await waitFor(() => expect(queryByLabelText('Why are you overriding this?')).toBeTruthy());
-    fireEvent.changeText(getByLabelText('Why are you overriding this?'), 'Fever spiked, checked with doctor');
+    fireEvent.changeText(
+      getByLabelText('Why are you overriding this?'),
+      'Fever spiked, checked with doctor',
+    );
     fireEvent.press(getByText('Continue'));
 
     // Now on the confirm step — the dose must not be recorded until "Yes, give the dose" is tapped.
     await waitFor(() =>
-      expect(queryByText('Are you sure? This will be permanently recorded as an override.')).toBeTruthy(),
+      expect(
+        queryByText('Are you sure? This will be permanently recorded as an override.'),
+      ).toBeTruthy(),
     );
     expect(queryByText('Yes, give the dose')).toBeTruthy();
     expect(await readLogsFromDb('prn-override-step2.db', 'medicine-1')).toHaveLength(0);
@@ -147,7 +186,13 @@ describe('PrnCard — two-step override flow', () => {
 
   it('completing both steps records a dose with the typed reason and the correct blockedBy', async () => {
     const { getByText, getByLabelText, queryByText, queryByLabelText } = renderWithRepository(
-      <PrnCard medicine={makeMedicine()} logs={[makeLog()]} timeZone="UTC" clockTrust={TRUSTED} />,
+      <PrnCard
+        medicine={makeMedicine()}
+        patientId="patient-1"
+        logs={[makeLog()]}
+        timeZone="UTC"
+        clockTrust={TRUSTED}
+      />,
       { clock: fixedClock(NOW), dbName: 'prn-override-complete.db' },
     );
 
@@ -155,7 +200,10 @@ describe('PrnCard — two-step override flow', () => {
     fireEvent.press(getByText('Give anyway (override)'));
 
     await waitFor(() => expect(queryByLabelText('Why are you overriding this?')).toBeTruthy());
-    fireEvent.changeText(getByLabelText('Why are you overriding this?'), 'Fever spiked, checked with doctor');
+    fireEvent.changeText(
+      getByLabelText('Why are you overriding this?'),
+      'Fever spiked, checked with doctor',
+    );
     fireEvent.press(getByText('Continue'));
 
     await waitFor(() => expect(queryByText('Yes, give the dose')).toBeTruthy());
@@ -163,7 +211,10 @@ describe('PrnCard — two-step override flow', () => {
 
     // The override panel closes — proves completion at the UI level.
     await waitFor(
-      () => expect(queryByText('Are you sure? This will be permanently recorded as an override.')).toBeFalsy(),
+      () =>
+        expect(
+          queryByText('Are you sure? This will be permanently recorded as an override.'),
+        ).toBeFalsy(),
       { timeout: 5000 },
     );
     expect(queryByText('Why are you overriding this?')).toBeFalsy();
@@ -189,18 +240,33 @@ describe('PrnCard — two-step override flow', () => {
     const logs = [makeLog({ actualTime: '2026-06-15T08:00:00.000Z' })]; // 1 dose already in the rolling 24h window
 
     const { getByText, getByLabelText, queryByText, queryByLabelText } = renderWithRepository(
-      <PrnCard medicine={cappedMedicine} logs={logs} timeZone="UTC" clockTrust={TRUSTED} />,
+      <PrnCard
+        medicine={cappedMedicine}
+        patientId="patient-1"
+        logs={logs}
+        timeZone="UTC"
+        clockTrust={TRUSTED}
+      />,
       { clock: fixedClock(NOW), dbName: 'prn-daily-cap.db' },
     );
 
     await waitFor(() => expect(queryByText('Daily limit reached')).toBeTruthy());
     fireEvent.press(getByText('Give anyway (override)'));
     await waitFor(() => expect(queryByLabelText('Why are you overriding this?')).toBeTruthy());
-    fireEvent.changeText(getByLabelText('Why are you overriding this?'), 'Pain unmanageable, called nurse line');
+    fireEvent.changeText(
+      getByLabelText('Why are you overriding this?'),
+      'Pain unmanageable, called nurse line',
+    );
     fireEvent.press(getByText('Continue'));
     await waitFor(() => expect(queryByText('Yes, give the dose')).toBeTruthy());
     fireEvent.press(getByText('Yes, give the dose'));
 
-    await waitFor(() => expect(queryByText('Are you sure? This will be permanently recorded as an override.')).toBeFalsy(), { timeout: 5000 });
+    await waitFor(
+      () =>
+        expect(
+          queryByText('Are you sure? This will be permanently recorded as an override.'),
+        ).toBeFalsy(),
+      { timeout: 5000 },
+    );
   });
 });

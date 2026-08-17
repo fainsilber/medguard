@@ -135,7 +135,7 @@ describe('BackupRestoreCard', () => {
     const bundle = await shareBackup(getByText);
 
     expect(bundle).toMatchObject({
-      version: 1,
+      version: 2,
       exportedAt: '2026-08-03T12:00:00.000Z',
       medicines: [expect.objectContaining({ id: 'medicine-1' })],
       schedules: [expect.objectContaining({ id: 'schedule-1' })],
@@ -166,6 +166,8 @@ describe('BackupRestoreCard', () => {
 
     const bundle = buildBackupBundle(
       {
+        patients: [],
+        medicinePatients: [],
         medicines: [
           {
             id: '11111111-1111-4111-8111-111111111111',
@@ -206,6 +208,8 @@ describe('BackupRestoreCard', () => {
 
     const bundle = buildBackupBundle(
       {
+        patients: [],
+        medicinePatients: [],
         medicines: [
           {
             id: '11111111-1111-4111-8111-111111111111',
@@ -244,7 +248,15 @@ describe('BackupRestoreCard', () => {
     await waitFor(() => expect(getByText('Import backup…')).toBeTruthy());
 
     const bundle = buildBackupBundle(
-      { medicines: [], schedules: [], intakeLogs: [], inventoryItems: [], inventoryAdjustments: [] },
+      {
+        patients: [],
+        medicinePatients: [],
+        medicines: [],
+        schedules: [],
+        intakeLogs: [],
+        inventoryItems: [],
+        inventoryAdjustments: [],
+      },
       fixedClock('2026-08-01T00:00:00.000Z'),
     );
     pickedFile('picked://backup.json', JSON.stringify(bundle));

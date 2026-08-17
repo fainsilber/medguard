@@ -10,6 +10,8 @@ import type {
   InventoryAdjustment,
   InventoryItem,
   Medicine,
+  MedicinePatient,
+  Patient,
   Schedule,
 } from '@medguard/shared';
 import { useClock, useRepository, useStore } from '../../app/RepositoryContext.js';
@@ -65,16 +67,38 @@ export function BackupRestoreCard(): React.JSX.Element {
     setExportError(null);
     setExporting(true);
     try {
-      const [medicines, schedules, intakeLogs, inventoryItems, inventoryAdjustments] = await Promise.all([
+      const [
+        patients,
+        medicinePatients,
+        medicines,
+        schedules,
+        intakeLogs,
+        inventoryItems,
+        inventoryAdjustments,
+      ] = await Promise.all([
+        store.transaction(['patients'], (tx) => tx.getAll<Patient>('patients')),
+        store.transaction(['medicinePatients'], (tx) =>
+          tx.getAll<MedicinePatient>('medicinePatients'),
+        ),
         store.transaction(['medicines'], (tx) => tx.getAll<Medicine>('medicines')),
         store.transaction(['schedules'], (tx) => tx.getAll<Schedule>('schedules')),
         store.transaction(['intakeLogs'], (tx) => tx.getAll<IntakeLog>('intakeLogs')),
         store.transaction(['inventoryItems'], (tx) => tx.getAll<InventoryItem>('inventoryItems')),
-        store.transaction(['inventoryAdjustments'], (tx) => tx.getAll<InventoryAdjustment>('inventoryAdjustments')),
+        store.transaction(['inventoryAdjustments'], (tx) =>
+          tx.getAll<InventoryAdjustment>('inventoryAdjustments'),
+        ),
       ]);
 
       const bundle = buildBackupBundle(
-        { medicines, schedules, intakeLogs, inventoryItems, inventoryAdjustments },
+        {
+          patients,
+          medicinePatients,
+          medicines,
+          schedules,
+          intakeLogs,
+          inventoryItems,
+          inventoryAdjustments,
+        },
         clock,
       );
 
@@ -181,7 +205,9 @@ export function BackupRestoreCard(): React.JSX.Element {
         </Text>
       )}
 
-      {importedAt !== null && <Text style={{ color: colors.safe, fontSize: 13 }}>Backup imported.</Text>}
+      {importedAt !== null && (
+        <Text style={{ color: colors.safe, fontSize: 13 }}>Backup imported.</Text>
+      )}
 
       {importPhase.step === 'error' && (
         <Text style={sharedStyles.errorText} accessibilityRole="alert">
@@ -193,6 +219,7 @@ export function BackupRestoreCard(): React.JSX.Element {
         <View style={previewStyles.box}>
           <Text style={{ color: colors.text, fontSize: 13 }}>This file contains:</Text>
           <View style={{ gap: 2 }}>
+            <Text style={sharedStyles.subtitle}>{importPhase.summary.patients} patient(s)</Text>
             <Text style={sharedStyles.subtitle}>{importPhase.summary.medicines} medicine(s)</Text>
             <Text style={sharedStyles.subtitle}>{importPhase.summary.schedules} schedule(s)</Text>
             <Text style={sharedStyles.subtitle}>{importPhase.summary.intakeLogs} log entries</Text>

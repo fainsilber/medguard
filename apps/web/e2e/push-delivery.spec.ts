@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { CDPSession, Page } from '@playwright/test';
+import { PUSH_PAYLOAD_VERSION } from '@medguard/shared';
 
 /**
  * Closes the doc-vs-reality gap at docs/medguard-sprint-plan.md: a "Push | Playwright + CDP
@@ -77,7 +78,7 @@ test('a dose push renders a notification with Taken/Snooze actions, through the 
 
   const client = await page.context().newCDPSession(page);
   await deliverPush(client, baseURL!, {
-    v: 1,
+    v: PUSH_PAYLOAD_VERSION,
     kind: 'dose',
     sentAtIso: '2026-06-15T08:00:00.000Z',
     occurrenceId: 'sched-1:2026-06-15T08:00:00.000Z',
@@ -110,7 +111,7 @@ test('a Shabbat push renders with no action buttons — a tap must never write a
 
   const client = await page.context().newCDPSession(page);
   await deliverPush(client, baseURL!, {
-    v: 1,
+    v: PUSH_PAYLOAD_VERSION,
     kind: 'shabbat',
     sentAtIso: '2026-06-19T18:00:00.000Z',
     occurrenceId: 'sched-2:2026-06-19T18:00:00.000Z',

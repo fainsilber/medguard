@@ -13,8 +13,21 @@ import { useStore } from '../app/RepositoryContext.js';
  * `watchTables` should be a literal, stable-length array at each call site (`['medicines']`,
  * `['schedules', 'syncOutbox']`) — its *values* are compared, not its identity, so a literal is
  * fine even though it's a new array each render.
+ *
+ * `queryFn` closing over a value that isn't a table (the multi-patient switcher's
+ * `filterPatientId`, say) will *not* re-run on its own: nothing about a screen re-rendering makes
+ * `run()` fire again, only a subscribed table write or `watchTables` itself changing does. For a
+ * query whose *result* should also change when such a value does, pass it in the optional third
+ * `deps` array — compared like a normal `useEffect` dependency list — rather than relying on the
+ * closure alone. (Most call sites instead fetch unfiltered and filter the result in a separate
+ * `useMemo`, which sidesteps this entirely; `deps` is for the few where refetching is the natural
+ * shape, such as `ShabbatScreen`'s per-patient config.)
  */
-export function useLiveQuery<T>(queryFn: () => Promise<T>, watchTables: readonly string[]): T | undefined {
+export function useLiveQuery<T>(
+  queryFn: () => Promise<T>,
+  watchTables: readonly string[],
+  deps: readonly unknown[] = [],
+): T | undefined {
   const store = useStore();
   const [value, setValue] = useState<T | undefined>(undefined);
   const queryFnRef = useRef(queryFn);
@@ -41,8 +54,9 @@ export function useLiveQuery<T>(queryFn: () => Promise<T>, watchTables: readonly
       unsubscribe();
     };
     // tablesKey is the real dependency; queryFn is read through the ref above rather than listed
-    // here, so a screen passing a fresh closure each render doesn't re-subscribe every render.
-  }, [store, tablesKey]);
+    // here, so a screen passing a fresh closure each render doesn't re-subscribe every render —
+    // except for whatever the caller explicitly opted into via `deps`.
+  }, [store, tablesKey, ...deps]);
 
   return value;
 }

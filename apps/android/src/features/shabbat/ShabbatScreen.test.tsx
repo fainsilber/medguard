@@ -1,5 +1,6 @@
 import { waitFor } from '@testing-library/react-native';
 import { fixedClock } from '@medguard/shared/testing';
+import { SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { ShabbatConfig, ShabbatWindow } from '@medguard/shared';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import {
@@ -21,7 +22,7 @@ function makeWindow(overrides: Partial<ShabbatWindow> = {}): ShabbatWindow {
   const startsAt = overrides.startsAt ?? '2026-08-14T16:03:00.000Z';
   return {
     id: `shabbat:${startsAt}`,
-    patientId: 'patient-1',
+    patientId: SINGLE_PATIENT_ID,
     kind: 'shabbat',
     label: 'Shabbat',
     startsAt,
@@ -37,7 +38,7 @@ function makeWindow(overrides: Partial<ShabbatWindow> = {}): ShabbatWindow {
 function makeConfig(overrides: Partial<ShabbatConfig> = {}): ShabbatConfig {
   return {
     id: '44444444-4444-4444-8444-444444444444',
-    patientId: 'patient-1',
+    patientId: SINGLE_PATIENT_ID,
     autoShabbatEnabled: true,
     latitude: 31.7683,
     longitude: 35.2137,

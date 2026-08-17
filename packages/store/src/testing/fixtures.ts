@@ -4,6 +4,8 @@ import type {
   InventoryAdjustment,
   InventoryItem,
   Medicine,
+  MedicinePatient,
+  Patient,
   Schedule,
   ShabbatConfig,
   ShabbatWindow,
@@ -15,10 +17,41 @@ import type {
 export const CONFORMANCE_NOW = '2026-06-15T12:00:00.000Z';
 export const CONFORMANCE_TIMEZONE = 'Asia/Jerusalem';
 
+/** A real UUID, not a human-readable placeholder like `"patient-1"` — every `patientId` field is
+ * validated as a UUID at the sync boundary, and a non-UUID fixture would fail that validation the
+ * moment one of these records ever crossed it. */
+export const CONFORMANCE_PATIENT_ID = '99999999-9999-4999-8999-999999999999';
+
+export function makePatient(overrides: Partial<Patient> = {}): Patient {
+  return {
+    id: CONFORMANCE_PATIENT_ID,
+    displayName: 'Yoni',
+    archived: false,
+    sortOrder: 0,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    updatedByDeviceId: 'other-device',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
+export function makeMedicinePatient(overrides: Partial<MedicinePatient> = {}): MedicinePatient {
+  return {
+    id: `medicine-1:${CONFORMANCE_PATIENT_ID}`,
+    medicineId: 'medicine-1',
+    patientId: CONFORMANCE_PATIENT_ID,
+    active: true,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    updatedByDeviceId: 'other-device',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
 export function makeMedicine(overrides: Partial<Medicine> = {}): Medicine {
   return {
     id: 'medicine-1',
-    patientId: 'patient-1',
+    patientId: CONFORMANCE_PATIENT_ID,
     name: 'Ondansetron',
     strength: '4mg',
     form: 'pill',
@@ -35,7 +68,7 @@ export function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
   return {
     id: 'schedule-1',
     medicineId: 'medicine-1',
-    patientId: 'patient-1',
+    patientId: CONFORMANCE_PATIENT_ID,
     frequencyType: 'daily',
     timesOfDay: ['08:00'],
     dosageQuantity: 1,
@@ -51,7 +84,7 @@ export function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
 export function makeLog(overrides: Partial<IntakeLog> = {}): IntakeLog {
   return {
     id: 'log-1',
-    patientId: 'patient-1',
+    patientId: CONFORMANCE_PATIENT_ID,
     medicineId: 'medicine-1',
     type: 'prn',
     status: 'taken',
@@ -113,7 +146,7 @@ export function makeDoseSnooze(overrides: Partial<DoseSnooze> = {}): DoseSnooze 
 export function makeShabbatConfig(overrides: Partial<ShabbatConfig> = {}): ShabbatConfig {
   return {
     id: 'shabbat-config-1',
-    patientId: 'patient-1',
+    patientId: CONFORMANCE_PATIENT_ID,
     autoShabbatEnabled: true,
     latitude: 31.7683,
     longitude: 35.2137,
@@ -134,7 +167,7 @@ export function makeShabbatWindow(overrides: Partial<ShabbatWindow> = {}): Shabb
   const startsAt = overrides.startsAt ?? '2026-06-19T16:20:00.000Z';
   return {
     id: `shabbat:${startsAt}`,
-    patientId: 'patient-1',
+    patientId: CONFORMANCE_PATIENT_ID,
     kind: 'shabbat',
     label: 'Shabbat',
     startsAt,
@@ -149,6 +182,8 @@ export function makeShabbatWindow(overrides: Partial<ShabbatWindow> = {}): Shabb
 
 export function makeBundle(
   overrides: {
+    patients?: Patient[];
+    medicinePatients?: MedicinePatient[];
     medicines?: Medicine[];
     schedules?: Schedule[];
     intakeLogs?: IntakeLog[];
@@ -157,6 +192,8 @@ export function makeBundle(
   } = {},
 ) {
   return {
+    patients: overrides.patients ?? [makePatient()],
+    medicinePatients: overrides.medicinePatients ?? [makeMedicinePatient()],
     medicines: overrides.medicines ?? [makeMedicine()],
     schedules: overrides.schedules ?? [makeSchedule()],
     intakeLogs: overrides.intakeLogs ?? [makeLog()],

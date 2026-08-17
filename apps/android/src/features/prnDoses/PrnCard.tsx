@@ -12,7 +12,14 @@ import {
   resolveLocal,
   toIso,
 } from '@medguard/shared';
-import type { BlockReason, ClockTrust, DoseSafety, IntakeLog, IsoInstant, Medicine } from '@medguard/shared';
+import type {
+  BlockReason,
+  ClockTrust,
+  DoseSafety,
+  IntakeLog,
+  IsoInstant,
+  Medicine,
+} from '@medguard/shared';
 import {
   useClock,
   useCurrentDeviceId,
@@ -64,11 +71,19 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export function PrnCard({
   medicine,
+  patientId,
+  patientName,
   logs,
   timeZone,
   clockTrust,
 }: {
   medicine: Medicine;
+  /** Which patient this card's safety check and "give dose" action apply to — a medicine shared
+   * by several patients renders one card per patient, each independently scoped. */
+  patientId: string;
+  /** Shown as a badge next to the medicine name when set — "All patients" mode on a shared
+   * medicine, where more than one card needs telling apart. */
+  patientName?: string;
   logs: readonly IntakeLog[];
   timeZone: string;
   /** Overrides the real local clock-trust check — exists for deterministic tests only. */
@@ -89,6 +104,7 @@ export function PrnCard({
 
   const safety = assessDose({
     medicine,
+    patientId,
     logs,
     clock,
     clockTrust: clockTrust ?? getLocalClockTrust(),
@@ -99,12 +115,15 @@ export function PrnCard({
     setReason('');
   };
 
-  const give = async (actualTimeIso: IsoInstant, override?: { reason: string; blockedBy: BlockReason }) => {
+  const give = async (
+    actualTimeIso: IsoInstant,
+    override?: { reason: string; blockedBy: BlockReason },
+  ) => {
     setSaving(true);
     try {
       await repository.recordDose({
         id: ids.next(),
-        patientId: medicine.patientId,
+        patientId,
         medicineId: medicine.id,
         type: 'prn',
         status: 'taken',
@@ -159,40 +178,45 @@ export function PrnCard({
   };
 
   const permitted = isDosePermitted(safety);
-  const lastLog = lastAdministeredDose(logs, medicine.id);
+  const lastLog = lastAdministeredDose(logs, medicine.id, patientId);
 
   return (
     <Card style={{ borderLeftWidth: 4, borderLeftColor: STATE_BORDER_COLOR[safety.state] }}>
       <View style={cardStyles.headerRow}>
-        <Text style={cardStyles.title}>
-          {medicine.name} <Text style={cardStyles.strength}>{medicine.strength}</Text>
-        </Text>
+        <View style={[sharedStyles.row, { flexShrink: 1, flexWrap: 'wrap' }]}>
+          <Text style={cardStyles.title}>
+            {medicine.name} <Text style={cardStyles.strength}>{medicine.strength}</Text>
+          </Text>
+          {patientName && <Badge tone="neutral">{patientName}</Badge>}
+        </View>
         <Badge tone={STATE_BADGE_TONE[safety.state]}>{STATE_LABEL[safety.state]}</Badge>
       </View>
 
       {lastLog && (
         <>
           <Text style={cardStyles.muted}>
-            Last given by {lastLog.loggedByUserId} at {formatLocalTime(timeZone, fromIso(lastLog.actualTime))} (
-            {lastLog.quantityTaken})
+            Last given by {lastLog.loggedByUserId} at{' '}
+            {formatLocalTime(timeZone, fromIso(lastLog.actualTime))} ({lastLog.quantityTaken})
           </Text>
           <DoseCorrection allLogs={logs} tipLog={lastLog} timeZone={timeZone} />
         </>
       )}
 
       {safety.state === 'cooldown' && (
-        <Text style={cardStyles.lockedText}>Locked: {formatCountdown(safety.msRemaining)} remaining</Text>
+        <Text style={cardStyles.lockedText}>
+          Locked: {formatCountdown(safety.msRemaining)} remaining
+        </Text>
       )}
       {safety.state === 'capped' && (
         <Text style={cardStyles.muted}>
-          Daily limit reached ({safety.dosesInWindow}/{safety.maxDailyDoses} doses in 24h). Resets in{' '}
-          {formatCountdown(safety.msRemaining)}.
+          Daily limit reached ({safety.dosesInWindow}/{safety.maxDailyDoses} doses in 24h). Resets
+          in {formatCountdown(safety.msRemaining)}.
         </Text>
       )}
       {safety.state === 'untrusted_clock' && (
         <Text style={cardStyles.lockedText}>
-          This device's clock could not be verified, so the cooldown can't be confirmed safely. Try again in a
-          moment.
+          This device's clock could not be verified, so the cooldown can't be confirmed safely. Try
+          again in a moment.
         </Text>
       )}
 
@@ -258,7 +282,12 @@ export function PrnCard({
             autoFocus
           />
           <View style={sharedStyles.row}>
-            <Button label="Continue" variant="danger" disabled={!reason.trim()} onPress={handleReasonContinue} />
+            <Button
+              label="Continue"
+              variant="danger"
+              disabled={!reason.trim()}
+              onPress={handleReasonContinue}
+            />
             <Button label="Cancel" onPress={resetOverride} />
           </View>
         </View>
@@ -285,7 +314,12 @@ export function PrnCard({
 }
 
 const cardStyles = StyleSheet.create({
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
   title: { fontSize: 16, fontWeight: '600', color: colors.text },
   strength: { fontWeight: '400', color: colors.textMuted },
   muted: { fontSize: 12, color: colors.textMuted },

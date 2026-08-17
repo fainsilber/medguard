@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
-import { DAY_LABELS, SINGLE_PATIENT_ID } from '@medguard/shared';
-import type { FrequencyType, LocalDate, Schedule } from '@medguard/shared';
+import { DAY_LABELS } from '@medguard/shared';
+import type { FrequencyType, LocalDate, Schedule, Uuid } from '@medguard/shared';
 import { useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
 import { Button, KeyboardAvoidingScreen, styles as sharedStyles } from '../../ui/primitives.js';
 
@@ -42,12 +42,16 @@ function isValidDate(value: string): boolean {
  */
 export function ScheduleForm({
   medicineId,
+  patientId,
   existing,
   today,
   onDone,
   onCancel,
 }: {
   medicineId: string;
+  /** Which patient a brand-new schedule is created for — ignored when revising `existing`, since
+   * a revision keeps the schedule's own patient. */
+  patientId: Uuid;
   existing?: Schedule;
   /** The household-local date, for defaulting a revision's effective date to "today". */
   today: LocalDate;
@@ -57,7 +61,9 @@ export function ScheduleForm({
   const repository = useRepository();
   const ids = useIdGenerator();
 
-  const [frequencyType, setFrequencyType] = useState<FrequencyType>(existing?.frequencyType ?? 'daily');
+  const [frequencyType, setFrequencyType] = useState<FrequencyType>(
+    existing?.frequencyType ?? 'daily',
+  );
   const [intervalDays, setIntervalDays] = useState(existing?.intervalDays?.toString() ?? '2');
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(existing?.daysOfWeek ?? []);
   const [timesOfDay, setTimesOfDay] = useState<string[]>(
@@ -71,7 +77,9 @@ export function ScheduleForm({
   const [saving, setSaving] = useState(false);
 
   const toggleDay = (day: number) => {
-    setDaysOfWeek((current) => (current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort()));
+    setDaysOfWeek((current) =>
+      current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort(),
+    );
   };
 
   const updateTime = (index: number, value: string) => {
@@ -145,7 +153,7 @@ export function ScheduleForm({
           {
             id: ids.next(),
             medicineId,
-            patientId: SINGLE_PATIENT_ID,
+            patientId,
             startDate,
             active: true,
             ...shared,
@@ -185,7 +193,12 @@ export function ScheduleForm({
         {frequencyType === 'interval_days' && (
           <View>
             <Text style={sharedStyles.label}>Every how many days</Text>
-            <TextInput style={sharedStyles.input} keyboardType="numeric" value={intervalDays} onChangeText={setIntervalDays} />
+            <TextInput
+              style={sharedStyles.input}
+              keyboardType="numeric"
+              value={intervalDays}
+              onChangeText={setIntervalDays}
+            />
           </View>
         )}
 
@@ -194,7 +207,12 @@ export function ScheduleForm({
             <Text style={sharedStyles.label}>Days of the week</Text>
             <View style={[sharedStyles.row, { flexWrap: 'wrap' }]}>
               {DAY_LABELS.map((label, day) => (
-                <Chip key={day} label={label} selected={daysOfWeek.includes(day)} onPress={() => toggleDay(day)} />
+                <Chip
+                  key={day}
+                  label={label}
+                  selected={daysOfWeek.includes(day)}
+                  onPress={() => toggleDay(day)}
+                />
               ))}
             </View>
           </View>
@@ -216,18 +234,32 @@ export function ScheduleForm({
                     accessibilityLabel={`Time ${index + 1}`}
                     autoCapitalize="none"
                   />
-                  {timesOfDay.length > 1 && <Button label="Remove" onPress={() => removeTime(index)} />}
+                  {timesOfDay.length > 1 && (
+                    <Button label="Remove" onPress={() => removeTime(index)} />
+                  )}
                 </View>
-                {invalid && <Text style={sharedStyles.errorText}>Enter a valid time as HH:MM (e.g. 08:00).</Text>}
+                {invalid && (
+                  <Text style={sharedStyles.errorText}>
+                    Enter a valid time as HH:MM (e.g. 08:00).
+                  </Text>
+                )}
               </View>
             );
           })}
-          <Button label="+ Add a time" onPress={() => setTimesOfDay((current) => [...current, ''])} />
+          <Button
+            label="+ Add a time"
+            onPress={() => setTimesOfDay((current) => [...current, ''])}
+          />
         </View>
 
         <View>
           <Text style={sharedStyles.label}>Dose quantity</Text>
-          <TextInput style={sharedStyles.input} keyboardType="numeric" value={dosageQuantity} onChangeText={setDosageQuantity} />
+          <TextInput
+            style={sharedStyles.input}
+            keyboardType="numeric"
+            value={dosageQuantity}
+            onChangeText={setDosageQuantity}
+          />
         </View>
 
         {existing ? (
@@ -241,7 +273,9 @@ export function ScheduleForm({
               placeholderTextColor="#64748b"
               autoCapitalize="none"
             />
-            {!isValidDate(effectiveFrom) && <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>}
+            {!isValidDate(effectiveFrom) && (
+              <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>
+            )}
           </View>
         ) : (
           <View>
@@ -254,12 +288,16 @@ export function ScheduleForm({
               placeholderTextColor="#64748b"
               autoCapitalize="none"
             />
-            {!isValidDate(startDate) && <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>}
+            {!isValidDate(startDate) && (
+              <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>
+            )}
           </View>
         )}
 
         <View>
-          <Text style={sharedStyles.label}>End date (optional — for a fixed course like a taper)</Text>
+          <Text style={sharedStyles.label}>
+            End date (optional — for a fixed course like a taper)
+          </Text>
           <TextInput
             style={sharedStyles.input}
             value={endDate}
@@ -268,7 +306,9 @@ export function ScheduleForm({
             placeholderTextColor="#64748b"
             autoCapitalize="none"
           />
-          {endDate !== '' && !isValidDate(endDate) && <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>}
+          {endDate !== '' && !isValidDate(endDate) && (
+            <Text style={sharedStyles.errorText}>Use YYYY-MM-DD format.</Text>
+          )}
         </View>
 
         {error && (
@@ -278,7 +318,12 @@ export function ScheduleForm({
         )}
 
         <View style={sharedStyles.row}>
-          <Button label={saving ? 'Saving…' : 'Save'} onPress={() => void handleSubmit()} disabled={saving} variant="primary" />
+          <Button
+            label={saving ? 'Saving…' : 'Save'}
+            onPress={() => void handleSubmit()}
+            disabled={saving}
+            variant="primary"
+          />
           <Button label="Cancel" onPress={onCancel} disabled={saving} />
         </View>
       </ScrollView>
@@ -290,6 +335,20 @@ export function ScheduleForm({
  * A selectable "chip" button, standing in for web's `<select>`/checkbox row — RN has no native
  * `<select>`, and this app deliberately doesn't add a dropdown library (see task constraints).
  */
-function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }): React.JSX.Element {
-  return <Button label={selected ? `✓ ${label}` : label} onPress={onPress} variant={selected ? 'primary' : 'default'} />;
+function Chip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}): React.JSX.Element {
+  return (
+    <Button
+      label={selected ? `✓ ${label}` : label}
+      onPress={onPress}
+      variant={selected ? 'primary' : 'default'}
+    />
+  );
 }

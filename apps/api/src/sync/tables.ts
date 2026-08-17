@@ -4,7 +4,9 @@ import {
   intakeLogSchema,
   inventoryAdjustmentSchema,
   inventoryItemSchema,
+  medicinePatientSchema,
   medicineSchema,
+  patientSchema,
   scheduleSchema,
   shabbatConfigSchema,
   shabbatWindowSchema,
@@ -67,13 +69,40 @@ export const TABLES: Record<SyncableTable, TableConfig> = {
     }),
   },
 
+  patients: {
+    table: 'patients',
+    sqlTable: 'patients',
+    writeRule: 'lww',
+    schema: patientSchema as never,
+    columns: (r: any) => ({
+      display_name: r.displayName,
+      archived: bool(r.archived),
+      sort_order: r.sortOrder,
+    }),
+  },
+
+  medicinePatients: {
+    table: 'medicinePatients',
+    sqlTable: 'medicine_patients',
+    writeRule: 'lww',
+    schema: medicinePatientSchema as never,
+    columns: (r: any) => ({
+      medicine_id: r.medicineId,
+      patient_id: r.patientId,
+      active: bool(r.active),
+    }),
+  },
+
   medicines: {
     table: 'medicines',
     sqlTable: 'medicines',
     writeRule: 'lww',
     schema: medicineSchema as never,
     columns: (r: any) => ({
-      patient_id: r.patientId,
+      // Vestigial (see the doc comment on `Medicine.patientId` in packages/shared/src/types.ts):
+      // who takes a medicine is now `medicinePatients` rows. The column is `NOT NULL`, so an
+      // absent field still needs a value; empty string is fine since nothing reads this column.
+      patient_id: r.patientId ?? '',
       name: r.name,
       as_needed: bool(r.asNeeded),
       min_hours_between_doses: optionalNumber(r.minHoursBetweenDoses),
