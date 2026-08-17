@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock } from '@medguard/shared/testing';
+import { SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { MedGuardRepository } from '@medguard/store';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import { ExportScreen } from './ExportScreen.js';
@@ -24,7 +25,7 @@ async function seedOneDose(repository: MedGuardRepository) {
   await repository.saveMedicine(
     {
       id: 'medicine-1',
-      patientId: 'patient-1',
+      patientId: SINGLE_PATIENT_ID,
       name: 'Ondansetron',
       strength: '4mg',
       form: 'pill',
@@ -38,7 +39,7 @@ async function seedOneDose(repository: MedGuardRepository) {
   );
   await repository.recordDose({
     id: 'log-1',
-    patientId: 'patient-1',
+    patientId: SINGLE_PATIENT_ID,
     medicineId: 'medicine-1',
     type: 'prn',
     status: 'taken',
@@ -72,6 +73,20 @@ describe('ExportScreen', () => {
     expect(await screen.findByText('Ondansetron 4mg')).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '08:00' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download CSV' })).toBeEnabled();
+  });
+
+  it('names the patient in the printable summary — a hospital record must never leave a dose unattributed', async () => {
+    await renderWithRepository(<ExportScreen />, {
+      clock: fixedClock('2026-06-15T12:00:00.000Z'),
+      timeZone: TIME_ZONE,
+      seed: seedOneDose,
+    });
+
+    await screen.findByText('Ondansetron 4mg');
+    // `PatientProvider`'s first-run bootstrap names the single default patient "Patient" —
+    // awaited rather than asserted immediately, since the bootstrap write is asynchronous and can
+    // still be in flight the instant the medicine/log data above has already rendered.
+    expect(await screen.findByRole('cell', { name: 'Patient' })).toBeInTheDocument();
   });
 
   it('triggers a CSV download with a filename and content type when clicked', async () => {
@@ -113,7 +128,7 @@ describe('ExportScreen', () => {
         await seedOneDose(repository);
         await repository.correctDose('log-1', {
           id: 'log-2',
-          patientId: 'patient-1',
+          patientId: SINGLE_PATIENT_ID,
           medicineId: 'medicine-1',
           type: 'prn',
           status: 'taken',

@@ -17,6 +17,7 @@ const CSV_HEADER = [
   'Scheduled time',
   'Time given',
   'Medicine',
+  'Patient',
   'Type',
   'Status',
   'Quantity',
@@ -49,13 +50,21 @@ function statusLabel(status: IntakeLog['status']): string {
 /**
  * Builds the CSV text for a household's medication log, oldest entry first — the order a
  * caregiver would read a paper chart in.
+ *
+ * `patientNames` is required, not optional: a CSV handed to a hospital that silently mixes two
+ * people's dosing histories is a real hazard (the multi-patient plan calls this out as the
+ * highest-consequence gap in the whole feature), so there is no quiet single-patient shortcut
+ * here — every household has at least one row in the patients table, so the map always resolves.
  */
 export function buildIntakeLogCsv(
   logs: readonly IntakeLog[],
   medicineNames: ReadonlyMap<Uuid, string>,
+  patientNames: ReadonlyMap<Uuid, string>,
   timeZone: string,
 ): string {
-  const rows = [...effectiveLogs(logs)].sort((a, b) => fromIso(a.actualTime) - fromIso(b.actualTime));
+  const rows = [...effectiveLogs(logs)].sort(
+    (a, b) => fromIso(a.actualTime) - fromIso(b.actualTime),
+  );
 
   const lines = [CSV_HEADER.map(csvField).join(',')];
   for (const log of rows) {
@@ -65,9 +74,12 @@ export function buildIntakeLogCsv(
         formatLocalDate(timeZone, instantMs),
         // Blank for an as-needed dose, which has no scheduled time by definition. Keeping both
         // columns is what lets a clinician see that the 08:00 dose was actually given at 09:15.
-        log.scheduledTime === undefined ? '' : formatLocalTime(timeZone, fromIso(log.scheduledTime)),
+        log.scheduledTime === undefined
+          ? ''
+          : formatLocalTime(timeZone, fromIso(log.scheduledTime)),
         formatLocalTime(timeZone, instantMs),
         medicineNames.get(log.medicineId) ?? 'Unknown medicine',
+        patientNames.get(log.patientId) ?? 'Unknown patient',
         log.type === 'prn' ? 'As needed' : 'Scheduled',
         statusLabel(log.status),
         String(log.quantityTaken),

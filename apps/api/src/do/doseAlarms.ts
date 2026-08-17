@@ -25,6 +25,7 @@ import type {
   InventoryItem,
   Medicine,
   Occurrence,
+  Patient,
   Schedule,
   ShabbatConfig,
   ShabbatWindow,
@@ -85,6 +86,7 @@ interface DoseAlarmRow extends Record<string, SqlStorageValue> {
   medicine_id: string;
   patient_id: string;
   medicine_name: string;
+  patient_name: string;
   dosage_quantity: number;
   due_at_ms: number;
   /** When the dose alert is owed — the due time, or a snooze's deadline once one is granted. */
@@ -120,7 +122,10 @@ export function createAlarmTables(sql: SqlStorage): void {
       -- Mark-and-sweep marker: set on every row a materialization pass still produces, so the
       -- pass can delete whatever it no longer produces. Without it a schedule moved from 08:00 to
       -- 09:00 would keep firing at 08:00 forever, because re-materializing only ever adds.
-      seen_at_ms      INTEGER NOT NULL DEFAULT 0
+      seen_at_ms      INTEGER NOT NULL DEFAULT 0,
+      -- Multi-patient (Phase 4): denormalized the same way medicine_name is, so a notification can
+      -- name whose dose it is without a database read on a woken device.
+      patient_name    TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_dose_alarms_state ON dose_alarms(state, notify_at_ms);
     CREATE TABLE IF NOT EXISTS low_stock_flags (
@@ -145,9 +150,31 @@ export function createAlarmTables(sql: SqlStorage): void {
       due_at_ms       INTEGER NOT NULL,
       -- 1-based, and always the push *not yet sent*: the first goes out inline with the alert.
       next_index      INTEGER NOT NULL,
-      next_at_ms      INTEGER NOT NULL
+      next_at_ms      INTEGER NOT NULL,
+      -- Multi-patient (Phase 4): this table carries no other link back to dose_alarms once the
+      -- burst is running (see the comment above), so who the dose belongs to has to be denormalized
+      -- in here too, the same as medicine_name already is.
+      patient_id      TEXT NOT NULL DEFAULT '',
+      patient_name    TEXT NOT NULL DEFAULT ''
     );
   `);
+
+  // `CREATE TABLE IF NOT EXISTS` is a no-op against a Durable Object whose tables were created
+  // before this column existed — unlike the D1 migrations (`apps/api/migrations/`), there is no
+  // versioned migration runner for a DO's own SQLite storage, so a column added here has to be
+  // backfilled onto already-running households by hand, once, guarded by a check rather than by a
+  // migration number.
+  ensureColumn(sql, 'dose_alarms', 'patient_name', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(sql, 'shabbat_bursts', 'patient_id', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(sql, 'shabbat_bursts', 'patient_name', "TEXT NOT NULL DEFAULT ''");
+}
+
+/** Adds `column` to `table` if it isn't already there — see the comment above `createAlarmTables`. */
+function ensureColumn(sql: SqlStorage, table: string, column: string, definition: string): void {
+  const existing = sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray();
+  if (!existing.some((row) => row.name === column)) {
+    sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 interface HouseholdWindows {
@@ -263,7 +290,7 @@ export class DoseAlarmChain {
     const fromMs = nowMs - missedAfterMs;
     const toMs = nowMs + HORIZON_MS;
 
-    const [schedules, medicines, logs, snoozes] = await Promise.all([
+    const [schedules, medicines, logs, snoozes, patients] = await Promise.all([
       this.readPayloads<Schedule>('schedules', householdId),
       this.readPayloads<Medicine>('medicines', householdId),
       this.readPayloads<IntakeLog>(
@@ -278,9 +305,11 @@ export class DoseAlarmChain {
         ' AND created_at >= ?',
         toIso(fromMs - missedAfterMs),
       ),
+      this.readPayloads<Patient>('patients', householdId),
     ]);
 
     const medicinesById = new Map(medicines.map((medicine) => [medicine.id, medicine]));
+    const patientNamesById = new Map(patients.map((patient) => [patient.id, patient.displayName]));
     const occurrences = expandSchedules(schedules, { fromMs, toMs }, windows.timeZone);
 
     for (const occurrence of occurrences) {
@@ -301,7 +330,8 @@ export class DoseAlarmChain {
         continue;
       }
 
-      this.upsertOccurrence(occurrence, medicine, dueAtMs, snoozes, windows, nowMs);
+      const patientName = patientNamesById.get(occurrence.patientId) ?? '';
+      this.upsertOccurrence(occurrence, medicine, patientName, dueAtMs, snoozes, windows, nowMs);
     }
 
     // The sweep half of mark-and-sweep. Anything this pass did not produce is no longer owed:
@@ -321,6 +351,7 @@ export class DoseAlarmChain {
   private upsertOccurrence(
     occurrence: Occurrence,
     medicine: Medicine,
+    patientName: string,
     dueAtMs: number,
     snoozes: readonly DoseSnooze[],
     windows: HouseholdWindows,
@@ -334,15 +365,16 @@ export class DoseAlarmChain {
       `INSERT INTO dose_alarms (
          occurrence_id, schedule_id, medicine_id, patient_id, medicine_name, dosage_quantity,
          due_at_ms, notify_at_ms, escalate_at_ms, missed_at_ms, state, snooze_count, fired_at_ms,
-         seen_at_ms
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?)
+         seen_at_ms, patient_name
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)
        ON CONFLICT(occurrence_id) DO UPDATE SET
          medicine_name   = excluded.medicine_name,
          dosage_quantity = excluded.dosage_quantity,
          notify_at_ms    = excluded.notify_at_ms,
          escalate_at_ms  = excluded.escalate_at_ms,
          missed_at_ms    = excluded.missed_at_ms,
-         seen_at_ms      = excluded.seen_at_ms`,
+         seen_at_ms      = excluded.seen_at_ms,
+         patient_name    = excluded.patient_name`,
       id,
       occurrence.scheduleId,
       occurrence.medicineId,
@@ -355,6 +387,7 @@ export class DoseAlarmChain {
       dueAtMs + MISSED_AFTER_MINUTES * MS_PER_MINUTE,
       snooze.count,
       nowMs,
+      patientName,
     );
   }
 
@@ -508,7 +541,14 @@ export class DoseAlarmChain {
     }
   }
 
-  private occurrencePayload(row: DoseAlarmRow, nowMs: number): Omit<DosePushPayload, 'kind'> {
+  private async occurrencePayload(
+    householdId: string,
+    row: DoseAlarmRow,
+    nowMs: number,
+  ): Promise<Omit<DosePushPayload, 'kind'>> {
+    const patientName = (await this.isMultiPatientHousehold(householdId))
+      ? row.patient_name
+      : undefined;
     return {
       v: PUSH_PAYLOAD_VERSION,
       sentAtIso: toIso(nowMs),
@@ -518,7 +558,20 @@ export class DoseAlarmChain {
       scheduleId: row.schedule_id,
       dueAtIso: toIso(row.due_at_ms),
       dosageQuantity: row.dosage_quantity,
+      ...(patientName ? { patientName } : {}),
     };
+  }
+
+  /**
+   * Whether this household has more than one active patient — the same rule that decides whether
+   * a name gets prefixed onto a push title (`describePush`'s `patientName`) or a local alarm's
+   * title (`apps/android/src/alarms/horizon.ts`). Archived patients don't count: a household back
+   * down to one active patient reads like a single-patient one again, even if a past patient's
+   * name is still on file.
+   */
+  private async isMultiPatientHousehold(householdId: string): Promise<boolean> {
+    const patients = await this.readPayloads<Patient>('patients', householdId);
+    return patients.filter((patient) => !patient.archived).length > 1;
   }
 
   private async notify(
@@ -533,7 +586,7 @@ export class DoseAlarmChain {
     }
 
     await dispatchToHousehold(this.env, householdId, {
-      ...this.occurrencePayload(row, nowMs),
+      ...(await this.occurrencePayload(householdId, row, nowMs)),
       kind: 'dose',
     });
     this.sql.exec(
@@ -567,7 +620,7 @@ export class DoseAlarmChain {
     row: DoseAlarmRow,
     nowMs: number,
   ): Promise<void> {
-    const payload = this.occurrencePayload(row, nowMs);
+    const payload = await this.occurrencePayload(householdId, row, nowMs);
 
     // Native first, and exactly one: `burstTotal: 1` is the honest description of what this
     // device is being sent, and it is what the client reads to know it is not mid-burst.
@@ -605,8 +658,8 @@ export class DoseAlarmChain {
       this.sql.exec(
         `INSERT INTO shabbat_bursts (
            occurrence_id, schedule_id, medicine_id, medicine_name, dosage_quantity, due_at_ms,
-           next_index, next_at_ms
-         ) VALUES (?, ?, ?, ?, ?, ?, 2, ?)
+           next_index, next_at_ms, patient_id, patient_name
+         ) VALUES (?, ?, ?, ?, ?, ?, 2, ?, ?, ?)
          ON CONFLICT(occurrence_id) DO UPDATE SET next_index = 2, next_at_ms = excluded.next_at_ms`,
         row.occurrence_id,
         row.schedule_id,
@@ -615,6 +668,8 @@ export class DoseAlarmChain {
         row.dosage_quantity,
         row.due_at_ms,
         nowMs + SHABBAT_BURST_SPACING_MS,
+        row.patient_id,
+        row.patient_name,
       );
     }
 
@@ -638,12 +693,22 @@ export class DoseAlarmChain {
         due_at_ms: number;
         next_index: number;
         next_at_ms: number;
+        patient_id: string;
+        patient_name: string;
       }>(
         'SELECT * FROM shabbat_bursts WHERE next_at_ms <= ? ORDER BY next_at_ms LIMIT ?',
         nowMs,
         MAX_WORK_PER_WAKE,
       )
       .toArray();
+
+    if (due.length === 0) {
+      return;
+    }
+
+    // Once per wake rather than once per burst row: every row belongs to the same household, and
+    // "does this household have more than one patient" doesn't change between rows of one wake.
+    const showPatientName = await this.isMultiPatientHousehold(householdId);
 
     for (const burst of due) {
       await dispatchToHousehold(
@@ -661,6 +726,7 @@ export class DoseAlarmChain {
           dosageQuantity: burst.dosage_quantity,
           burstIndex: burst.next_index,
           burstTotal: SHABBAT_BURST_COUNT,
+          ...(showPatientName && burst.patient_name ? { patientName: burst.patient_name } : {}),
         },
         { providers: ['webpush'] },
       );
@@ -732,7 +798,7 @@ export class DoseAlarmChain {
    */
   private async escalate(householdId: string, row: DoseAlarmRow, nowMs: number): Promise<void> {
     await dispatchToHousehold(this.env, householdId, {
-      ...this.occurrencePayload(row, nowMs),
+      ...(await this.occurrencePayload(householdId, row, nowMs)),
       kind: 'escalation',
       minutesUnacknowledged: Math.max(0, Math.round((nowMs - row.due_at_ms) / MS_PER_MINUTE)),
     });

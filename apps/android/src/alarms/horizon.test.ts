@@ -129,6 +129,55 @@ describe('materializeHorizon', () => {
     expect(first?.body).toBe('2 doses · 12:00');
   });
 
+  it('prefixes the patient name once the household has more than one patient', () => {
+    const [first] = materializeHorizon(
+      baseInput({
+        patients: [
+          {
+            id: 'patient-1',
+            displayName: 'Yoni',
+            archived: false,
+            sortOrder: 0,
+            updatedAt: '',
+            updatedByDeviceId: '',
+            syncStatus: 'synced',
+          },
+          {
+            id: 'patient-2',
+            displayName: 'Dad',
+            archived: false,
+            sortOrder: 1,
+            updatedAt: '',
+            updatedByDeviceId: '',
+            syncStatus: 'synced',
+          },
+        ],
+      }),
+    );
+
+    expect(first?.title).toBe('Yoni · Ondansetron 4mg is due');
+  });
+
+  it('never prefixes a name for a single-patient household, even when a roster is given', () => {
+    const [first] = materializeHorizon(
+      baseInput({
+        patients: [
+          {
+            id: 'patient-1',
+            displayName: 'Yoni',
+            archived: false,
+            sortOrder: 0,
+            updatedAt: '',
+            updatedByDeviceId: '',
+            syncStatus: 'synced',
+          },
+        ],
+      }),
+    );
+
+    expect(first?.title).toBe('Ondansetron 4mg is due');
+  });
+
   it('does not arm a dose that already has a log', () => {
     const planned = materializeHorizon(
       baseInput({ logs: [makeLog({ scheduledTime: '2026-06-15T09:00:00.000Z' })] }),

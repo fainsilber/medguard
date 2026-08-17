@@ -425,17 +425,31 @@ describe('snooze', () => {
 
     for (let i = 1; i <= 3; i += 1) {
       const { blocked } = await push(session, [
-        snoozeRecord(occurrenceId, dueAtMs + i * MS_PER_MINUTE, i, `7777777${i}-7777-4777-8777-777777777777`),
+        snoozeRecord(
+          occurrenceId,
+          dueAtMs + i * MS_PER_MINUTE,
+          i,
+          `7777777${i}-7777-4777-8777-777777777777`,
+        ),
       ]);
       expect(blocked).toEqual([]);
     }
 
     const { blocked } = await push(session, [
-      snoozeRecord(occurrenceId, dueAtMs + 4 * MS_PER_MINUTE, 4, '88888888-8888-4888-8888-888888888888'),
+      snoozeRecord(
+        occurrenceId,
+        dueAtMs + 4 * MS_PER_MINUTE,
+        4,
+        '88888888-8888-4888-8888-888888888888',
+      ),
     ]);
 
     expect(blocked).toEqual([
-      { table: 'doseSnoozes', id: '88888888-8888-4888-8888-888888888888', reason: 'snooze_limit_reached' },
+      {
+        table: 'doseSnoozes',
+        id: '88888888-8888-4888-8888-888888888888',
+        reason: 'snooze_limit_reached',
+      },
     ]);
   });
 
@@ -580,19 +594,28 @@ describe('low stock (PRD §2.4)', () => {
 
     await push(session, [
       { table: 'inventoryItems', record: inventoryItem(5) },
-      { table: 'inventoryAdjustments', record: adjustment('dddddddd-dddd-4ddd-8ddd-ddddddddddd1', 20, 'initial') },
+      {
+        table: 'inventoryAdjustments',
+        record: adjustment('dddddddd-dddd-4ddd-8ddd-ddddddddddd1', 20, 'initial'),
+      },
     ]);
     sentTo = [];
 
     // 20 → 5: at the threshold, which `deriveInventoryState` counts as low.
     await push(session, [
-      { table: 'inventoryAdjustments', record: adjustment('dddddddd-dddd-4ddd-8ddd-ddddddddddd2', -15, 'correction') },
+      {
+        table: 'inventoryAdjustments',
+        record: adjustment('dddddddd-dddd-4ddd-8ddd-ddddddddddd2', -15, 'correction'),
+      },
     ]);
     expect(sentTo).toHaveLength(1);
 
     sentTo = [];
     await push(session, [
-      { table: 'inventoryAdjustments', record: adjustment('dddddddd-dddd-4ddd-8ddd-ddddddddddd3', -1, 'dose') },
+      {
+        table: 'inventoryAdjustments',
+        record: adjustment('dddddddd-dddd-4ddd-8ddd-ddddddddddd3', -1, 'dose'),
+      },
     ]);
     expect(sentTo).toEqual([]);
   });
@@ -602,17 +625,26 @@ describe('low stock (PRD §2.4)', () => {
 
     await push(session, [
       { table: 'inventoryItems', record: inventoryItem(5) },
-      { table: 'inventoryAdjustments', record: adjustment('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', 5, 'initial') },
+      {
+        table: 'inventoryAdjustments',
+        record: adjustment('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', 5, 'initial'),
+      },
     ]);
     sentTo = [];
 
     await push(session, [
-      { table: 'inventoryAdjustments', record: adjustment('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2', 50, 'refill') },
+      {
+        table: 'inventoryAdjustments',
+        record: adjustment('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2', 50, 'refill'),
+      },
     ]);
     expect(sentTo).toEqual([]);
 
     await push(session, [
-      { table: 'inventoryAdjustments', record: adjustment('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3', -50, 'correction') },
+      {
+        table: 'inventoryAdjustments',
+        record: adjustment('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3', -50, 'correction'),
+      },
     ]);
     expect(sentTo).toHaveLength(1);
   });
@@ -622,7 +654,10 @@ describe('low stock (PRD §2.4)', () => {
     sentTo = [];
 
     await push(session, [
-      { table: 'inventoryAdjustments', record: adjustment('ffffffff-ffff-4fff-8fff-fffffffffff1', -1, 'dose') },
+      {
+        table: 'inventoryAdjustments',
+        record: adjustment('ffffffff-ffff-4fff-8fff-fffffffffff1', -1, 'dose'),
+      },
     ]);
 
     expect(sentTo).toEqual([]);
@@ -656,6 +691,103 @@ describe('an fcm household', () => {
       occurrenceId: `${SCHEDULE_ID}:${toIso(dueAtMs)}`,
       dosageQuantity: 2,
     });
+    // A single-patient household reads exactly as it always has — no name to disambiguate.
+    expect(sentPayloads[0]).not.toHaveProperty('patientName');
+  });
+});
+
+describe('multi-patient households (Phase 4)', () => {
+  const YONI_ID = '66666666-6666-4666-8666-666666666666';
+  const DAD_ID = '77777777-7777-4777-8777-777777777777';
+
+  function patientRecord(id: string, displayName: string, sortOrder: number) {
+    return {
+      id,
+      displayName,
+      archived: false,
+      sortOrder,
+      updatedAt: toIso(Date.now()),
+      updatedByDeviceId: 'device',
+      syncStatus: 'synced',
+    };
+  }
+
+  it("names the dose's patient in the push once the household has more than one", async () => {
+    const session = await createHousehold();
+    const dueAtMs = minuteAligned(Date.now() + 30 * MS_PER_MINUTE);
+
+    await SELF.fetch(
+      `${BASE}/devices/push`,
+      authed(session, {
+        method: 'POST',
+        body: JSON.stringify({ provider: 'fcm', token: 'registration-token' }),
+      }),
+    );
+    await push(session, [
+      { table: 'householdSettings', record: settings() },
+      { table: 'patients', record: patientRecord(YONI_ID, 'Yoni', 0) },
+      { table: 'patients', record: patientRecord(DAD_ID, 'Dad', 1) },
+      { table: 'medicines', record: medicine() },
+      { table: 'schedules', record: schedule(dueAtMs, { patientId: YONI_ID }) },
+    ]);
+
+    await runChainAt(stubFor(session), dueAtMs);
+
+    expect(sentPayloads).toHaveLength(1);
+    expect(sentPayloads[0]).toMatchObject({ kind: 'dose', patientName: 'Yoni' });
+  });
+
+  it('never names the patient once an archived roster leaves only one active', async () => {
+    const session = await createHousehold();
+    const dueAtMs = minuteAligned(Date.now() + 30 * MS_PER_MINUTE);
+
+    await SELF.fetch(
+      `${BASE}/devices/push`,
+      authed(session, {
+        method: 'POST',
+        body: JSON.stringify({ provider: 'fcm', token: 'registration-token' }),
+      }),
+    );
+    await push(session, [
+      { table: 'householdSettings', record: settings() },
+      { table: 'patients', record: patientRecord(YONI_ID, 'Yoni', 0) },
+      { table: 'patients', record: { ...patientRecord(DAD_ID, 'Dad', 1), archived: true } },
+      { table: 'medicines', record: medicine() },
+      { table: 'schedules', record: schedule(dueAtMs, { patientId: YONI_ID }) },
+    ]);
+
+    await runChainAt(stubFor(session), dueAtMs);
+
+    expect(sentPayloads).toHaveLength(1);
+    expect(sentPayloads[0]).not.toHaveProperty('patientName');
+  });
+
+  it('names the patient on an escalation push too, not just the initial dose alert', async () => {
+    const session = await createHousehold();
+    const dueAtMs = minuteAligned(Date.now() + 30 * MS_PER_MINUTE);
+
+    await SELF.fetch(
+      `${BASE}/devices/push`,
+      authed(session, {
+        method: 'POST',
+        body: JSON.stringify({ provider: 'fcm', token: 'registration-token' }),
+      }),
+    );
+    await push(session, [
+      { table: 'householdSettings', record: settings() },
+      { table: 'patients', record: patientRecord(YONI_ID, 'Yoni', 0) },
+      { table: 'patients', record: patientRecord(DAD_ID, 'Dad', 1) },
+      { table: 'medicines', record: medicine() },
+      { table: 'schedules', record: schedule(dueAtMs, { patientId: YONI_ID }) },
+    ]);
+
+    await runChainAt(stubFor(session), dueAtMs);
+    sentPayloads = [];
+
+    await runChainAt(stubFor(session), dueAtMs + ESCALATION_MINUTES * MS_PER_MINUTE);
+
+    expect(sentPayloads).toHaveLength(1);
+    expect(sentPayloads[0]).toMatchObject({ kind: 'escalation', patientName: 'Yoni' });
   });
 });
 
@@ -679,7 +811,10 @@ describe('the chain across schedule edits', () => {
     const { session, stub } = await householdWithDose(30);
 
     await push(session, [
-      { table: 'medicines', record: medicine({ archived: true, updatedAt: toIso(Date.now() + 1000) }) },
+      {
+        table: 'medicines',
+        record: medicine({ archived: true, updatedAt: toIso(Date.now() + 1000) }),
+      },
     ]);
 
     expect(await nextWake(stub)).toBeNull();

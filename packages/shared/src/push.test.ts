@@ -29,7 +29,12 @@ const escalation: EscalationPushPayload = {
   kind: 'escalation',
   minutesUnacknowledged: 15,
 };
-const shabbat: ShabbatPushPayload = { ...occurrence, kind: 'shabbat', burstIndex: 1, burstTotal: 10 };
+const shabbat: ShabbatPushPayload = {
+  ...occurrence,
+  kind: 'shabbat',
+  burstIndex: 1,
+  burstTotal: 10,
+};
 const lowStock: LowStockPushPayload = {
   v: PUSH_PAYLOAD_VERSION,
   sentAtIso: '2026-08-09T08:00:00.000Z',
@@ -60,6 +65,26 @@ describe('describePush', () => {
     const { body } = describePush(lowStock);
     expect(body).toContain('4 pills');
     expect(body).toContain('5');
+  });
+
+  it('prefixes the patient name on dose/escalation/shabbat kinds when set, for a multi-patient household', () => {
+    expect(describePush({ ...dose, patientName: 'Yoni' }).title).toBe(
+      'Yoni · Methotrexate — dose due',
+    );
+    expect(describePush({ ...escalation, patientName: 'Yoni' }).title).toBe(
+      'Yoni · Methotrexate — dose not confirmed',
+    );
+    expect(describePush({ ...shabbat, patientName: 'Yoni' }).title).toBe(
+      'Yoni · Methotrexate — dose due',
+    );
+  });
+
+  it('omits the patient prefix when unset — a single-patient household reads exactly as before', () => {
+    expect(describePush(dose).title).toBe('Methotrexate — dose due');
+  });
+
+  it('never prefixes a low-stock alert with a patient — stock is shared, not per-patient', () => {
+    expect(describePush(lowStock).title).toBe('Methotrexate — running low');
   });
 });
 

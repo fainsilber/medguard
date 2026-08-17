@@ -12,6 +12,7 @@ import { createSqliteSchema, ExpoSqliteDriver } from '../store/expoSqliteDriver.
 import { getHouseholdSession, setHouseholdSession } from '../identity/session.js';
 import { FakeWebSocket } from '../testUtils/FakeWebSocket.js';
 import { renderWithRepository } from '../testUtils/renderWithRepository.js';
+import { seedPatient } from '../testUtils/seedAlarmData.js';
 import { RevokedDeviceBanner } from './RevokedDeviceBanner.js';
 import { SafetyWarningBanner } from './SafetyWarningBanner.js';
 import { SyncProvider } from './SyncProvider.js';
@@ -320,6 +321,64 @@ describe('SyncProvider', () => {
 
     await findByText(/Morphine/);
     expect(getByText(/override/i)).toBeTruthy();
+  });
+
+  it("names the patient once the household has more than one, using the broadcast's own patientId", async () => {
+    const dbName = 'sync-provider-safety-multi-patient.db';
+    const medicineId = '33333333-3333-4333-8333-333333333333';
+    const yoniId = '44444444-4444-4444-8444-444444444444';
+    const dadId = '55555555-5555-4555-8555-555555555555';
+    await setHouseholdSession({
+      deviceToken: 'tok-1',
+      householdId: 'h1',
+      userId: 'u1',
+      deviceId: 'd1',
+    });
+    stubFetch();
+    await seedMedicineDirect(dbName, {
+      id: medicineId,
+      name: 'Paracetamol',
+      strength: '500mg',
+      form: 'pill',
+    });
+    await seedPatient(dbName, {
+      id: yoniId,
+      displayName: 'Yoni',
+      archived: false,
+      sortOrder: 0,
+      updatedAt: '2026-08-03T10:00:00.000Z',
+      updatedByDeviceId: 'device-a',
+      syncStatus: 'synced',
+    });
+    await seedPatient(dbName, {
+      id: dadId,
+      displayName: 'Dad',
+      archived: false,
+      sortOrder: 1,
+      updatedAt: '2026-08-03T10:00:00.000Z',
+      updatedByDeviceId: 'device-a',
+      syncStatus: 'synced',
+    });
+
+    const { findByText } = renderWithRepository(
+      <SyncProvider>
+        <SafetyWarningBanner />
+      </SyncProvider>,
+      { dbName },
+    );
+
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+    FakeWebSocket.latest().open();
+    FakeWebSocket.latest().message({
+      type: 'safety.warning',
+      medicineId,
+      patientId: yoniId,
+      blockedBy: 'cooldown',
+      attemptedByUserId: 'user-dad',
+      outcome: 'blocked',
+    });
+
+    await findByText(/Yoni · Paracetamol/);
   });
 
   it('shows Removed and the revoked banner once the server rejects this device as unauthorized', async () => {

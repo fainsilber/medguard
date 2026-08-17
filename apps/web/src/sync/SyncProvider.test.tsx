@@ -33,10 +33,16 @@ function jsonResponse(body: unknown, status = 200) {
  */
 function defaultFetchHandler(url: string, init?: RequestInit): Response {
   if (url.includes('/sync/push')) {
-    const body = init?.body ? (JSON.parse(String(init.body)) as { changes: { table: string; record: { id: string } }[] }) : { changes: [] };
+    const body = init?.body
+      ? (JSON.parse(String(init.body)) as { changes: { table: string; record: { id: string } }[] })
+      : { changes: [] };
     return jsonResponse({
       cursor: 1,
-      results: body.changes.map((change) => ({ table: change.table, id: change.record.id, outcome: 'applied' })),
+      results: body.changes.map((change) => ({
+        table: change.table,
+        id: change.record.id,
+        outcome: 'applied',
+      })),
       blocked: [],
       rejected: [],
     });
@@ -47,7 +53,10 @@ function defaultFetchHandler(url: string, init?: RequestInit): Response {
 function stubFetch(
   handler: (url: string, init?: RequestInit) => Response | Promise<Response> = defaultFetchHandler,
 ) {
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => handler(url, init)));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => handler(url, init)),
+  );
 }
 
 beforeEach(() => {
@@ -108,7 +117,11 @@ describe('SyncProvider', () => {
     });
 
     render(
-      <RepositoryProvider userId="Mom" dbName={dbName} clock={fixedClock('2026-08-03T12:00:00.000Z')}>
+      <RepositoryProvider
+        userId="Mom"
+        dbName={dbName}
+        clock={fixedClock('2026-08-03T12:00:00.000Z')}
+      >
         <SyncProvider>
           <SyncStatusBadge />
         </SyncProvider>
@@ -150,7 +163,7 @@ describe('SyncProvider', () => {
     await screen.findByText('Synced');
   });
 
-  it('shows a live safety.warning broadcast with the medicine\'s name, dismissible', async () => {
+  it("shows a live safety.warning broadcast with the medicine's name, dismissible", async () => {
     const medicineId = '11111111-1111-4111-8111-111111111111';
     setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
     stubFetch();
@@ -236,6 +249,73 @@ describe('SyncProvider', () => {
     await screen.findByRole('alert');
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Morphine/));
     expect(screen.getByRole('alert')).toHaveTextContent(/override/i);
+  });
+
+  it("names the patient once the household has more than one, using the broadcast's own patientId", async () => {
+    const medicineId = '33333333-3333-4333-8333-333333333333';
+    const yoniId = '44444444-4444-4444-8444-444444444444';
+    const dadId = '55555555-5555-4555-8555-555555555555';
+    setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
+    stubFetch();
+
+    await renderWithRepository(
+      <SyncProvider>
+        <SafetyWarningBanner />
+      </SyncProvider>,
+      {
+        clock: fixedClock('2026-08-03T12:00:00.000Z'),
+        seed: async (repository) => {
+          await repository.savePatient(
+            {
+              id: yoniId,
+              displayName: 'Yoni',
+              archived: false,
+              sortOrder: 0,
+              updatedAt: '2026-08-03T10:00:00.000Z',
+              updatedByDeviceId: 'device-a',
+              syncStatus: 'synced',
+            },
+            'CREATE',
+          );
+          await repository.savePatient(
+            {
+              id: dadId,
+              displayName: 'Dad',
+              archived: false,
+              sortOrder: 1,
+              updatedAt: '2026-08-03T10:00:00.000Z',
+              updatedByDeviceId: 'device-a',
+              syncStatus: 'synced',
+            },
+            'CREATE',
+          );
+          await repository.saveMedicine({
+            id: medicineId,
+            name: 'Paracetamol',
+            strength: '500mg',
+            form: 'pill',
+            asNeeded: true,
+            archived: false,
+            updatedAt: '2026-08-03T10:00:00.000Z',
+            updatedByDeviceId: 'device-a',
+            syncStatus: 'synced',
+          });
+        },
+      },
+    );
+
+    FakeWebSocket.latest().open();
+    FakeWebSocket.latest().message({
+      type: 'safety.warning',
+      medicineId,
+      patientId: yoniId,
+      blockedBy: 'cooldown',
+      attemptedByUserId: 'user-dad',
+      outcome: 'blocked',
+    });
+
+    await screen.findByRole('alert');
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Yoni · Paracetamol/));
   });
 
   it('shows Removed and the revoked banner once the server rejects this device as unauthorized', async () => {
