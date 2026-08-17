@@ -14,6 +14,7 @@ import {
 } from '@medguard/shared';
 import type { BlockReason, IntakeLog, ReconciliationItem } from '@medguard/shared';
 import type { ReconciliationEntry } from '@medguard/store';
+import { usePatients } from '../../app/PatientProvider.js';
 import {
   useClock,
   useCurrentDeviceId,
@@ -25,6 +26,7 @@ import {
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { getLocalClockTrust } from '../../clock/localClockGuard.js';
 import {
+  Badge,
   Card,
   buttonClass,
   inputClass,
@@ -76,11 +78,21 @@ export function ReconciliationSheet({ onDone }: { onDone?: () => void }) {
   const userId = useCurrentUserId();
   const deviceId = useCurrentDeviceId();
   const householdSettings = useHouseholdSettings();
+  const { patients } = usePatients();
 
   const windows = useLiveQuery(() => db.shabbatWindows.toArray(), [db]);
   const schedules = useLiveQuery(() => db.schedules.toArray(), [db]);
   const medicines = useLiveQuery(() => db.medicines.toArray(), [db]);
   const logs = useLiveQuery(() => db.intakeLogs.toArray(), [db]);
+
+  // Reconciliation always spans every patient's outstanding Shabbat doses in one sitting,
+  // regardless of the header switcher — a caregiver working through this sheet needs to see the
+  // whole household's backlog, not just whoever happened to be selected before Havdalah.
+  const patientNames = useMemo(
+    () => new Map(patients.map((patient) => [patient.id, patient.displayName])),
+    [patients],
+  );
+  const showPatientBadges = patients.length > 1;
 
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [saving, setSaving] = useState(false);
@@ -226,7 +238,14 @@ export function ReconciliationSheet({ onDone }: { onDone?: () => void }) {
                   className="flex flex-col gap-2 rounded-md border border-slate-800 p-3 text-sm"
                 >
                   <div>
-                    <p className="font-medium">{item.medicineName}</p>
+                    <p className="font-medium">
+                      {item.medicineName}
+                      {showPatientBadges && (
+                        <Badge tone="neutral">
+                          {patientNames.get(item.occurrence.patientId) ?? 'Unknown patient'}
+                        </Badge>
+                      )}
+                    </p>
                     <p className="text-slate-400">
                       Due {formatLocalDate(timeZone, fromIso(item.occurrence.dueAt))} ·{' '}
                       {item.occurrence.scheduledLocalTime} · {item.occurrence.dosageQuantity}
@@ -315,14 +334,20 @@ function RetroactivePrn({ timeZone }: { timeZone: string }) {
   const ids = useIdGenerator();
   const userId = useCurrentUserId();
   const deviceId = useCurrentDeviceId();
+  const { patients } = usePatients();
 
   const medicines = useLiveQuery(
     () => db.medicines.filter((medicine) => medicine.asNeeded && !medicine.archived).toArray(),
     [db],
   );
   const logs = useLiveQuery(() => db.intakeLogs.toArray(), [db]);
+  const assignments = useLiveQuery(
+    () => db.medicinePatients.filter((row) => row.active).toArray(),
+    [db],
+  );
 
   const [medicineId, setMedicineId] = useState('');
+  const [patientId, setPatientId] = useState('');
   const [date, setDate] = useState(formatLocalDate(timeZone, clock.nowMs()));
   const [time, setTime] = useState('');
   const [quantity, setQuantity] = useState('1');
@@ -332,12 +357,31 @@ function RetroactivePrn({ timeZone }: { timeZone: string }) {
   const [error, setError] = useState<string | null>(null);
   const [recorded, setRecorded] = useState<string | null>(null);
 
-  if (!medicines || medicines.length === 0 || !logs) {
+  if (!medicines || medicines.length === 0 || !logs || !assignments) {
     return null;
   }
 
+  // Which patients the chosen medicine is assigned to, in roster order — falling back to the
+  // single-patient default for a medicine with no assignment yet, the same fallback
+  // `MedicineForm`'s absence implies everywhere else.
+  const candidatePatientIds = medicineId
+    ? (() => {
+        const assignedIds = new Set(
+          assignments
+            .filter((assignment) => assignment.medicineId === medicineId)
+            .map((assignment) => assignment.patientId),
+        );
+        const ordered = patients.filter((patient) => assignedIds.has(patient.id)).map((p) => p.id);
+        return ordered.length > 0 ? ordered : [SINGLE_PATIENT_ID];
+      })()
+    : [];
+  const resolvedPatientId =
+    candidatePatientIds.length === 1 ? candidatePatientIds[0]! : patientId;
+  const needsPatientChoice = candidatePatientIds.length > 1;
+
   const reset = () => {
     setMedicineId('');
+    setPatientId('');
     setTime('');
     setQuantity('1');
     setReason('');
@@ -346,8 +390,8 @@ function RetroactivePrn({ timeZone }: { timeZone: string }) {
 
   const record = async (override?: { reason: string; blockedBy: BlockReason }) => {
     const medicine = medicines.find((candidate) => candidate.id === medicineId);
-    if (!medicine || !time) {
-      setError('Choose a medicine and the time it was given.');
+    if (!medicine || !time || !resolvedPatientId) {
+      setError('Choose a medicine, a patient, and the time it was given.');
       return;
     }
 
@@ -357,7 +401,7 @@ function RetroactivePrn({ timeZone }: { timeZone: string }) {
     if (!override) {
       const safety = assessDose({
         medicine,
-        patientId: SINGLE_PATIENT_ID,
+        patientId: resolvedPatientId,
         logs,
         // The instant the dose was given, not the instant it is being typed in.
         clock: clockAt(givenAtMs),
@@ -375,7 +419,7 @@ function RetroactivePrn({ timeZone }: { timeZone: string }) {
     try {
       await repository.recordDose({
         id: ids.next(),
-        patientId: SINGLE_PATIENT_ID,
+        patientId: resolvedPatientId,
         medicineId: medicine.id,
         type: 'prn',
         status: 'taken',
@@ -418,6 +462,7 @@ function RetroactivePrn({ timeZone }: { timeZone: string }) {
           value={medicineId}
           onChange={(event) => {
             setMedicineId(event.target.value);
+            setPatientId('');
             setBlockedBy(null);
           }}
           aria-label="Medicine given as needed"
@@ -430,6 +475,31 @@ function RetroactivePrn({ timeZone }: { timeZone: string }) {
           ))}
         </select>
       </label>
+
+      {needsPatientChoice && (
+        <label className={labelClass}>
+          For which patient?
+          <select
+            className={inputClass}
+            value={patientId}
+            onChange={(event) => {
+              setPatientId(event.target.value);
+              setBlockedBy(null);
+            }}
+            aria-label="Patient given as needed"
+          >
+            <option value="">Choose…</option>
+            {candidatePatientIds.map((id) => {
+              const name = patients.find((patient) => patient.id === id)?.displayName ?? id;
+              return (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+      )}
 
       <div className="flex flex-wrap gap-3">
         <label className={labelClass}>
@@ -499,7 +569,7 @@ function RetroactivePrn({ timeZone }: { timeZone: string }) {
         <button
           type="button"
           className={buttonClass}
-          disabled={saving || !medicineId || !time}
+          disabled={saving || !medicineId || !time || !resolvedPatientId}
           onClick={() => void record()}
         >
           {saving ? 'Recording…' : 'Record this dose'}

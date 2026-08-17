@@ -1,21 +1,42 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo } from 'react';
 import { deriveInventoryState, formatLocalDate } from '@medguard/shared';
+import { usePatients } from '../../app/PatientProvider.js';
 import { useClock, useMedGuardDb } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import { Card } from '../../ui/primitives.js';
 import { InventoryCard } from './InventoryCard.js';
 
-/** PRD's low-stock banner plus per-medicine stock cards, days-of-supply, and manual adjustments. */
+/**
+ * PRD's low-stock banner plus per-medicine stock cards, days-of-supply, and manual adjustments.
+ *
+ * Which medicines appear is filtered by the selected patient (through `medicinePatients`), but
+ * stock itself is never split by patient — a shared medicine is one bottle, one ledger, one card,
+ * regardless of who's selected.
+ */
 export function InventoryScreen() {
   const db = useMedGuardDb();
   const clock = useClock();
   const householdSettings = useHouseholdSettings();
+  const { filterPatientId } = usePatients();
 
-  const medicines = useLiveQuery(
+  const allMedicines = useLiveQuery(
     () => db.medicines.filter((medicine) => !medicine.archived).toArray(),
     [db],
   );
+  const assignedMedicineIds = useLiveQuery(async () => {
+    if (filterPatientId === undefined) return undefined;
+    const rows = await db.medicinePatients.where('patientId').equals(filterPatientId).toArray();
+    return new Set(rows.filter((row) => row.active).map((row) => row.medicineId));
+  }, [db, filterPatientId]);
+
+  const medicines =
+    filterPatientId === undefined || allMedicines === undefined
+      ? allMedicines
+      : assignedMedicineIds === undefined
+        ? undefined
+        : allMedicines.filter((medicine) => assignedMedicineIds.has(medicine.id));
+
   const items = useLiveQuery(() => db.inventoryItems.toArray(), [db]);
   const adjustments = useLiveQuery(() => db.inventoryAdjustments.toArray(), [db]);
   const schedules = useLiveQuery(() => db.schedules.toArray(), [db]);

@@ -311,3 +311,120 @@ describe('retroactive PRN entry', () => {
     });
   });
 });
+
+describe('multi-patient', () => {
+  function makePatient(id: string, displayName: string, sortOrder: number) {
+    return {
+      id,
+      displayName,
+      archived: false,
+      sortOrder,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      updatedByDeviceId: 'seed',
+      syncStatus: 'synced' as const,
+    };
+  }
+
+  it('badges each scheduled-dose item with the patient it belongs to', async () => {
+    await renderWithRepository(<ReconciliationSheet />, {
+      clock: fixedClock(NOW),
+      timeZone: JERUSALEM,
+      seed: async (repository, store) => {
+        await repository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await repository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+        await repository.saveMedicine(makeMedicine({ id: 'medicine-yoni' }), 'CREATE');
+        await repository.saveSchedule(
+          { ...makeSchedule(), id: 'schedule-yoni', medicineId: 'medicine-yoni', patientId: 'yoni' },
+          'CREATE',
+        );
+        await putWindow(store);
+      },
+    });
+
+    await screen.findByText(/scheduled doses from Shabbat/);
+    expect(screen.getAllByText('Yoni').length).toBeGreaterThan(0);
+  });
+
+  it('asks which patient a retroactive PRN dose is for, when the medicine is shared', async () => {
+    const user = userEvent.setup();
+    let repository: MedGuardRepository | undefined;
+    const sharedPrn = makeMedicine({
+      id: 'medicine-shared-prn',
+      name: 'Paracetamol PRN',
+      asNeeded: true,
+      minHoursBetweenDoses: 6,
+    });
+
+    await renderWithRepository(<ReconciliationSheet />, {
+      clock: fixedClock(NOW),
+      timeZone: JERUSALEM,
+      seed: async (seedRepository, store) => {
+        repository = seedRepository;
+        await seedRepository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await seedRepository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+        await seedRepository.saveMedicine(sharedPrn, 'CREATE');
+        await seedRepository.assignMedicine('medicine-shared-prn', 'yoni');
+        await seedRepository.assignMedicine('medicine-shared-prn', 'dad');
+        await putWindow(store);
+      },
+    });
+
+    await user.selectOptions(
+      await screen.findByLabelText('Medicine given as needed'),
+      'medicine-shared-prn',
+    );
+    const patientPicker = screen.getByLabelText('Patient given as needed');
+    expect(Array.from(patientPicker.querySelectorAll('option')).map((o) => o.textContent)).toEqual([
+      'Choose…',
+      'Yoni',
+      'Dad',
+    ]);
+
+    await user.selectOptions(patientPicker, 'dad');
+    await user.clear(screen.getByLabelText('Date given'));
+    await user.type(screen.getByLabelText('Date given'), '2026-08-15');
+    await user.type(screen.getByLabelText('Time given as needed'), '14:00');
+    await user.click(screen.getByRole('button', { name: 'Record this dose' }));
+
+    const logs = await repository!.logsForMedicine('medicine-shared-prn');
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ patientId: 'dad', status: 'taken' });
+  });
+
+  it('does not ask, and uses the sole assigned patient, for a private PRN medicine', async () => {
+    const user = userEvent.setup();
+    let repository: MedGuardRepository | undefined;
+    const privatePrn = makeMedicine({
+      id: 'medicine-private-prn',
+      name: 'Ibuprofen PRN',
+      asNeeded: true,
+    });
+
+    await renderWithRepository(<ReconciliationSheet />, {
+      clock: fixedClock(NOW),
+      timeZone: JERUSALEM,
+      seed: async (seedRepository, store) => {
+        repository = seedRepository;
+        await seedRepository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await seedRepository.saveMedicine(privatePrn, 'CREATE');
+        await seedRepository.assignMedicine('medicine-private-prn', 'yoni');
+        await putWindow(store);
+      },
+    });
+
+    await user.selectOptions(
+      await screen.findByLabelText('Medicine given as needed'),
+      'medicine-private-prn',
+    );
+    expect(screen.queryByLabelText('Patient given as needed')).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText('Date given'));
+    await user.type(screen.getByLabelText('Date given'), '2026-08-15');
+    await user.type(screen.getByLabelText('Time given as needed'), '14:00');
+    await user.click(screen.getByRole('button', { name: 'Record this dose' }));
+
+    const logs = await repository!.logsForMedicine('medicine-private-prn');
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ patientId: 'yoni', status: 'taken' });
+  });
+});
