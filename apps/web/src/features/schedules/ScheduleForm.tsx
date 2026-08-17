@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { DAY_LABELS, SINGLE_PATIENT_ID } from '@medguard/shared';
-import type { FrequencyType, LocalDate, Schedule } from '@medguard/shared';
+import { DAY_LABELS } from '@medguard/shared';
+import type { FrequencyType, LocalDate, Schedule, Uuid } from '@medguard/shared';
 import { useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
 import { buttonClass, inputClass, labelClass, primaryButtonClass } from '../../ui/primitives.js';
 
@@ -15,12 +15,16 @@ import { buttonClass, inputClass, labelClass, primaryButtonClass } from '../../u
  */
 export function ScheduleForm({
   medicineId,
+  patientId,
   existing,
   today,
   onDone,
   onCancel,
 }: {
   medicineId: string;
+  /** Which patient a *new* schedule belongs to. Ignored when revising `existing` — a revision
+   * keeps its own patient, resolved by the caller (`ScheduleList`) from the record being edited. */
+  patientId: Uuid;
   existing?: Schedule;
   /** The household-local date, for defaulting a revision's effective date to "today". */
   today: LocalDate;
@@ -106,7 +110,7 @@ export function ScheduleForm({
           {
             id: ids.next(),
             medicineId,
-            patientId: SINGLE_PATIENT_ID,
+            patientId,
             startDate,
             active: true,
             ...shared,

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { fromIso, toIso } from '@medguard/shared';
+import { SINGLE_PATIENT_ID, fromIso, toIso } from '@medguard/shared';
 import type { Clock } from '@medguard/shared';
 import type { MedGuardRepository } from '@medguard/store';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
@@ -30,7 +30,7 @@ async function seedPrnMedicine(repository: MedGuardRepository) {
   await repository.saveMedicine(
     {
       id: 'medicine-prn',
-      patientId: 'patient-1',
+      patientId: SINGLE_PATIENT_ID,
       name: 'Ondansetron',
       strength: '4mg',
       form: 'pill',
@@ -49,7 +49,7 @@ async function seedScheduledMedicine(repository: MedGuardRepository) {
   await repository.saveMedicine(
     {
       id: 'medicine-scheduled',
-      patientId: 'patient-1',
+      patientId: SINGLE_PATIENT_ID,
       name: 'Prednisone',
       strength: '20mg',
       form: 'pill',
@@ -65,7 +65,7 @@ async function seedScheduledMedicine(repository: MedGuardRepository) {
     {
       id: 'schedule-1',
       medicineId: 'medicine-scheduled',
-      patientId: 'patient-1',
+      patientId: SINGLE_PATIENT_ID,
       frequencyType: 'daily',
       timesOfDay: ['08:00'],
       dosageQuantity: 1,
@@ -115,7 +115,7 @@ describe('PrnScreen', () => {
         await seedPrnMedicine(repository);
         await repository.recordDose({
           id: 'log-1',
-          patientId: 'patient-1',
+          patientId: SINGLE_PATIENT_ID,
           medicineId: 'medicine-prn',
           type: 'prn',
           status: 'taken',
@@ -151,5 +151,85 @@ describe('PrnScreen', () => {
 
     expect(await screen.findByText('🔴 Clock unverified')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Give dose' })).not.toBeInTheDocument();
+  });
+});
+
+describe('PrnScreen — multi-patient', () => {
+  function makePatient(id: string, displayName: string, sortOrder: number) {
+    return {
+      id,
+      displayName,
+      archived: false,
+      sortOrder,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      updatedByDeviceId: 'seed',
+      syncStatus: 'synced' as const,
+    };
+  }
+
+  async function seedSharedPrnMedicine(repository: MedGuardRepository) {
+    await repository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+    await repository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+    await repository.saveMedicine(
+      {
+        id: 'medicine-prn',
+        name: 'Paracetamol',
+        strength: '500mg',
+        form: 'pill',
+        asNeeded: true,
+        minHoursBetweenDoses: 6,
+        archived: false,
+        updatedAt: '2026-06-01T00:00:00.000Z',
+        updatedByDeviceId: 'seed',
+        syncStatus: 'synced',
+      },
+      'CREATE',
+    );
+    await repository.assignMedicine('medicine-prn', 'yoni');
+    await repository.assignMedicine('medicine-prn', 'dad');
+  }
+
+  it('renders one card per assigned patient, each independently scoped', async () => {
+    await renderWithRepository(<PrnScreen clockTrust={{ kind: 'trusted', offsetMs: 0 }} />, {
+      clock: manualClock('2026-06-15T12:00:00.000Z'),
+      timeZone: TIME_ZONE,
+      seed: async (repository) => {
+        await seedSharedPrnMedicine(repository);
+        // Yoni took a dose an hour ago — well inside the 6h cooldown. Dad has never taken one.
+        await repository.recordDose({
+          id: 'yoni-dose',
+          patientId: 'yoni',
+          medicineId: 'medicine-prn',
+          type: 'prn',
+          status: 'taken',
+          actualTime: '2026-06-15T11:00:00.000Z',
+          quantityTaken: 1,
+          loggedByUserId: 'Mom',
+          loggedByDeviceId: 'seed-device',
+          syncStatus: 'synced',
+        });
+      },
+    });
+
+    const yoniCard = (await screen.findByText('Yoni')).closest('section')!;
+    const dadCard = screen.getByText('Dad').closest('section')!;
+
+    expect(yoniCard.textContent).toContain('Locked');
+    expect(dadCard.textContent).toContain('Safe to take');
+  });
+
+  it('shows only the selected patient’s card, with no badge', async () => {
+    localStorage.setItem('medguard.selectedPatientId', 'yoni');
+
+    await renderWithRepository(<PrnScreen clockTrust={{ kind: 'trusted', offsetMs: 0 }} />, {
+      clock: manualClock('2026-06-15T12:00:00.000Z'),
+      timeZone: TIME_ZONE,
+      seed: seedSharedPrnMedicine,
+    });
+
+    await screen.findByText('Paracetamol', { exact: false });
+    expect(screen.queryByText('Yoni')).not.toBeInTheDocument();
+    expect(screen.queryByText('Dad')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Paracetamol', { exact: false })).toHaveLength(1);
   });
 });

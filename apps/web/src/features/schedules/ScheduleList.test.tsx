@@ -201,3 +201,93 @@ describe('ScheduleList', () => {
     expect(screen.getByText('No active schedule.')).toBeInTheDocument();
   });
 });
+
+describe('ScheduleList — shared medicine', () => {
+  function makePatient(id: string, displayName: string, sortOrder: number) {
+    return {
+      id,
+      displayName,
+      archived: false,
+      sortOrder,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      updatedByDeviceId: 'seed',
+      syncStatus: 'synced' as const,
+    };
+  }
+
+  async function renderSharedScheduleList() {
+    return renderWithRepository(<ScheduleList medicineId="medicine-1" />, {
+      clock: CLOCK,
+      timeZone: TIME_ZONE,
+      seed: async (repository) => {
+        await repository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await repository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+        await repository.assignMedicine('medicine-1', 'yoni');
+        await repository.assignMedicine('medicine-1', 'dad');
+      },
+    });
+  }
+
+  it('asks which patient a new schedule is for', async () => {
+    const user = userEvent.setup();
+    await renderSharedScheduleList();
+    await screen.findByText('No active schedule.');
+
+    await user.click(screen.getByRole('button', { name: '+ Add schedule' }));
+
+    const picker = screen.getByLabelText('For which patient?');
+    expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['Yoni', 'Dad']);
+
+    await user.selectOptions(picker, 'dad');
+    setFieldValue('Time 1', '08:00');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await screen.findByText(/Every day at 08:00/);
+    expect(screen.getByText('Dad')).toBeInTheDocument();
+  });
+
+  it('badges each schedule with the patient it belongs to', async () => {
+    const user = userEvent.setup();
+    await renderSharedScheduleList();
+    await screen.findByText('No active schedule.');
+
+    await user.click(screen.getByRole('button', { name: '+ Add schedule' }));
+    await user.selectOptions(screen.getByLabelText('For which patient?'), 'yoni');
+    setFieldValue('Time 1', '08:00');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText(/Every day at 08:00/);
+
+    await user.click(screen.getByRole('button', { name: '+ Add schedule' }));
+    await user.selectOptions(screen.getByLabelText('For which patient?'), 'dad');
+    setFieldValue('Time 1', '20:00');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Yoni')).toBeInTheDocument();
+      expect(screen.getByText('Dad')).toBeInTheDocument();
+    });
+  });
+
+  it('does not ask, and uses the sole assigned patient, for a private medicine', async () => {
+    const user = userEvent.setup();
+    await renderWithRepository(<ScheduleList medicineId="medicine-1" />, {
+      clock: CLOCK,
+      timeZone: TIME_ZONE,
+      seed: async (repository) => {
+        await repository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await repository.assignMedicine('medicine-1', 'yoni');
+      },
+    });
+    await screen.findByText('No active schedule.');
+
+    await user.click(screen.getByRole('button', { name: '+ Add schedule' }));
+    expect(screen.queryByLabelText('For which patient?')).not.toBeInTheDocument();
+
+    setFieldValue('Time 1', '08:00');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    // Not shared, so no badge — the row reads exactly as it did before multi-patient support.
+    await screen.findByText(/Every day at 08:00/);
+    expect(screen.queryByText('Yoni')).not.toBeInTheDocument();
+  });
+});

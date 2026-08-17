@@ -242,4 +242,20 @@ describe('PrnCard', () => {
       await screen.findByRole('button', { name: 'Give anyway (override)' }),
     ).toBeInTheDocument();
   });
+
+  it('shows a patient name badge when given one, and none when not', async () => {
+    const { unmount } = await renderWithRepository(
+      <PrnCard medicine={medicine()} patientId="patient-1" patientName="Yoni" logs={[]} timeZone={TIME_ZONE} />,
+      { clock: fixedClock('2026-06-15T12:00:00.000Z'), timeZone: TIME_ZONE },
+    );
+    expect(await screen.findByText('Yoni')).toBeInTheDocument();
+    unmount();
+
+    await renderWithRepository(
+      <PrnCard medicine={medicine()} patientId="patient-1" logs={[]} timeZone={TIME_ZONE} />,
+      { clock: fixedClock('2026-06-15T12:00:00.000Z'), timeZone: TIME_ZONE },
+    );
+    expect(await screen.findByText('Ondansetron')).toBeInTheDocument();
+    expect(screen.queryByText('Yoni')).not.toBeInTheDocument();
+  });
 });
