@@ -2,10 +2,10 @@ import { waitFor } from '@testing-library/react-native';
 import { AlarmProvider } from '../../alarms/AlarmProvider.js';
 import { SyncProvider } from '../../sync/SyncProvider.js';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
-import { DiagnosticsScreen } from './DiagnosticsScreen.js';
+import { SettingsScreen } from './SettingsScreen.js';
 
 /**
- * Confirms the Diagnostics screen — which absorbed Sprint A0's SpikeScreen content plus sync
+ * Confirms the Settings screen — which absorbed Sprint A0's SpikeScreen content plus sync
  * status and the app log — renders against a real (in-memory-for-tests) repository and sync
  * provider without throwing. Not screen-specific coverage of every row, just the wiring.
  *
@@ -17,22 +17,22 @@ import { DiagnosticsScreen } from './DiagnosticsScreen.js';
  * writes now notifies.
  *
  * Wrapped in `AlarmProvider` too, matching `App.tsx`'s real nesting (just inside `SyncProvider`):
- * `DiagnosticsScreen` renders `AlarmSetupChecklist`, which reads `useAlarmHealth()` and throws
+ * `SettingsScreen` renders `AlarmSetupChecklist`, which reads `useAlarmHealth()` and throws
  * outside a provider.
  */
-describe('DiagnosticsScreen', () => {
+describe('SettingsScreen', () => {
   it('renders once the repository has finished initializing', async () => {
     const { getByText, queryByText } = renderWithRepository(
       <SyncProvider>
         <AlarmProvider>
-          <DiagnosticsScreen />
+          <SettingsScreen />
         </AlarmProvider>
       </SyncProvider>,
-      { dbName: 'diagnostics-smoke.db' },
+      { dbName: 'settings-smoke.db' },
     );
 
     await waitFor(() => {
-      expect(queryByText('Diagnostics')).toBeTruthy();
+      expect(queryByText('Settings')).toBeTruthy();
     });
 
     expect(getByText('Build')).toBeTruthy();

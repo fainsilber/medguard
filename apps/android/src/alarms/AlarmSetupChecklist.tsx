@@ -20,7 +20,7 @@ import type { PushRegistrationOutcome } from './pushRegistration.js';
  * Samsung) has no API to request through, so the checklist says so rather than pretending a
  * button could fix it.
  *
- * Shared between `DiagnosticsScreen` (always visible, for a caregiver or developer checking
+ * Shared between `SettingsScreen` (always visible, for a caregiver or developer checking
  * proactively) and `AlarmHealthBanner` (surfaced reactively, only when something is actually
  * wrong) — one component rather than two copies of four permission rows.
  *

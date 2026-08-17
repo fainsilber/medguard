@@ -29,8 +29,8 @@
 #     `am broadcast -n` from the plain shell UID gets "Permission Denial". This requires `adb
 #     root` first (root is exempt) and a `google_apis` system image (not `google_play`, which
 #     isn't rootable) — see docs/testing.md for the emulator setup this needs.
-#   - The alarm armed by the Maestro flow comes from Diagnostics' "Locked-phone dry run" card
-#     (DiagnosticsScreen.tsx), which arms a real AlarmManager alarm through the exact same
+#   - The alarm armed by the Maestro flow comes from Settings' "Locked-phone dry run" card
+#     (SettingsScreen.tsx), which arms a real AlarmManager alarm through the exact same
 #     scheduleDoseAlarm() path a due dose uses — but its occurrenceKey is a bare
 #     `Crypto.randomUUID()`, not the `${scheduleId}:${dueAt}` shape a real schedule occurrence
 #     has (packages/store/src/pendingActions.ts). NotificationActionReceiver doesn't care — it
@@ -62,7 +62,7 @@ echo "== adb root (required — NotificationActionReceiver is exported=false) ==
 adb root
 adb wait-for-device
 
-echo "== Arming a real AlarmManager alarm via Diagnostics =="
+echo "== Arming a real AlarmManager alarm via Settings =="
 maestro test .maestro/alarm-notification-action.yaml
 
 echo "== Reading back the occurrenceKey the app actually armed =="
@@ -127,7 +127,7 @@ adb shell am broadcast -a com.medguard.alarms.action.TAKEN -n "$RECEIVER" \
 # The `sleep 1` that used to sit here wasn't giving the filesystem "a beat", as the comment
 # claimed — it was giving MedGuardHeadlessService's own drain (started moments earlier by the
 # same onReceive(), and just as fast on this emulator) a full second's head start to read, ack,
-# and clear the very entry this check exists to find. Diagnostics' synthetic UUID occurrenceKey
+# and clear the very entry this check exists to find. Settings' synthetic UUID occurrenceKey
 # makes that ack happen almost immediately by design (see this script's header comment: no
 # matching schedule means the drain acks-without-applying), so the delay was actively working
 # against the assertion it was meant to protect. Checking immediately, right as the broadcast's

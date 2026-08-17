@@ -131,6 +131,40 @@ describe('InventoryScreen', () => {
     expect(await screen.findByText('25 pills remaining')).toBeInTheDocument();
   });
 
+  it('sets stock to the exact entered count on a recount, rather than adding it', async () => {
+    const user = userEvent.setup();
+    await renderWithRepository(<InventoryScreen />, {
+      clock: fixedClock('2026-06-15T12:00:00.000Z'),
+      timeZone: TIME_ZONE,
+      seed: async (repository) => {
+        await seedMedicine(repository);
+        await repository.saveInventoryItem(
+          {
+            id: 'item-1',
+            medicineId: 'medicine-1',
+            refillThreshold: 2,
+            unitName: 'pills',
+            updatedAt: '2026-06-01T00:00:00.000Z',
+            updatedByDeviceId: 'seed',
+            syncStatus: 'synced',
+          },
+          'CREATE',
+        );
+        await repository.adjustInventory({ medicineId: 'medicine-1', delta: 20, reason: 'initial' });
+      },
+    });
+
+    await screen.findByText('20 pills remaining');
+    await user.click(screen.getByRole('button', { name: 'Adjust stock' }));
+
+    const form = screen.getByRole('button', { name: 'Save' }).closest('form')!;
+    await user.selectOptions(within(form).getByLabelText('Reason'), 'correction');
+    await user.type(within(form).getByLabelText('Amount'), '13');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('13 pills remaining')).toBeInTheDocument();
+  });
+
   it('flags a negative stock count distinctly from ordinary low stock', async () => {
     await renderWithRepository(<InventoryScreen />, {
       clock: fixedClock('2026-06-15T12:00:00.000Z'),

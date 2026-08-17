@@ -25,7 +25,7 @@ import { APP_VERSION, BUILD_TIME, GIT_SHA, NATIVE_BUILD_VERSION } from '../../ve
 const JERUSALEM = 'Asia/Jerusalem';
 
 /**
- * The Android Diagnostics tab. Deliberately **not** a port of web's `probe/ProbePage.tsx` — that
+ * The Android Settings tab. Deliberately **not** a port of web's `probe/ProbePage.tsx` — that
  * screen tests Service Worker / Web Push reliability, none of which applies to a native app using
  * FCM (Sprint A4). This tab instead repurposes Sprint A0's `SpikeScreen` (the still-relevant
  * Hermes ICU check and alarm-permission/test-chime tooling — the native alarm layer needs the
@@ -34,7 +34,7 @@ const JERUSALEM = 'Asia/Jerusalem';
  * outbox count, and the in-memory app log (`logging/appLog.ts`), exportable via the share sheet
  * for a bug report instead of a screenshot.
  */
-export function DiagnosticsScreen(): React.JSX.Element {
+export function SettingsScreen(): React.JSX.Element {
   const repository = useRepository();
   const { status } = useSyncStatus();
   const pendingCount = useLiveQuery(() => repository.pendingSyncCount(), ['syncOutbox']);
@@ -104,7 +104,7 @@ export function DiagnosticsScreen(): React.JSX.Element {
 
   return (
     <ScrollView style={ui.screen} contentContainerStyle={ui.content}>
-      <Text style={ui.title}>Diagnostics</Text>
+      <Text style={ui.title}>Settings</Text>
       <Text style={ui.subtitle}>
         Device- and sync-level checks, not a port of the web app&rsquo;s push-testing screen — see
         the code comment in this file for why.

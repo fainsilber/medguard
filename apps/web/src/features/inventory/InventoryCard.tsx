@@ -5,10 +5,10 @@ import type { InventoryAdjustment, InventoryItem, LocalDate, ManualAdjustmentInp
 import { useIdGenerator, useRepository } from '../../app/RepositoryContext.js';
 import { Badge, Card, buttonClass, inputClass, labelClass, primaryButtonClass } from '../../ui/primitives.js';
 
-const ADJUSTMENT_REASONS: { value: ManualAdjustmentInput['reason']; label: string; sign: 1 | -1 }[] = [
-  { value: 'refill', label: 'Refill (add stock)', sign: 1 },
-  { value: 'lost', label: 'Lost / dropped / spilled (remove stock)', sign: -1 },
-  { value: 'correction', label: 'Recount correction', sign: 1 },
+const ADJUSTMENT_REASONS: { value: ManualAdjustmentInput['reason']; label: string }[] = [
+  { value: 'refill', label: 'Refill (add stock)' },
+  { value: 'lost', label: 'Lost / dropped / spilled (remove stock)' },
+  { value: 'correction', label: 'Recount (set exact stock)' },
 ];
 
 function formatDaysOfSupply(days: number | null): string {
@@ -122,7 +122,15 @@ function SetupForm({ medicine, onDone }: { medicine: Medicine; onDone: () => voi
   );
 }
 
-function AdjustForm({ medicineId, onDone }: { medicineId: string; onDone: () => void }) {
+function AdjustForm({
+  medicineId,
+  currentQuantity,
+  onDone,
+}: {
+  medicineId: string;
+  currentQuantity: number;
+  onDone: () => void;
+}) {
   const repository = useRepository();
   const [reason, setReason] = useState<ManualAdjustmentInput['reason']>('refill');
   const [amount, setAmount] = useState('');
@@ -140,13 +148,17 @@ function AdjustForm({ medicineId, onDone }: { medicineId: string; onDone: () => 
       return;
     }
 
-    const sign = ADJUSTMENT_REASONS.find((option) => option.value === reason)?.sign ?? 1;
+    // 'refill' adds, 'lost' subtracts, 'correction' (recount) sets the stock to exactly the
+    // entered amount rather than adding it — the ledger only stores deltas, so that means the
+    // delta between the entered count and what the ledger currently sums to.
+    const delta =
+      reason === 'refill' ? magnitude : reason === 'lost' ? -magnitude : magnitude - currentQuantity;
 
     setSaving(true);
     try {
       await repository.adjustInventory({
         medicineId,
-        delta: magnitude * sign,
+        delta,
         reason,
         ...(note.trim() ? { note: note.trim() } : {}),
       });
@@ -258,7 +270,11 @@ export function InventoryCard({
       <p className="text-xs text-slate-400">{formatDaysOfSupply(projection)}</p>
 
       {adjusting ? (
-        <AdjustForm medicineId={medicine.id} onDone={() => setAdjusting(false)} />
+        <AdjustForm
+          medicineId={medicine.id}
+          currentQuantity={state.currentQuantity}
+          onDone={() => setAdjusting(false)}
+        />
       ) : (
         <button type="button" className={buttonClass} onClick={() => setAdjusting(true)}>
           Adjust stock
