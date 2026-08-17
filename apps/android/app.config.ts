@@ -57,7 +57,7 @@ const config: ExpoConfig = {
   slug: 'medguard',
   scheme: 'medguard',
   owner: 'medguard',
-  version: '1.0.0',
+  version: '2.0.0',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   platforms: ['android'],

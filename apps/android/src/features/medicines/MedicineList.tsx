@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { Medicine, MedicinePatient, Schedule } from '@medguard/shared';
 import { usePatients } from '../../app/PatientProvider.js';
 import { useRepository } from '../../app/RepositoryContext.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
-import { Badge, Button, Card, colors, styles as sharedStyles } from '../../ui/primitives.js';
+import { Badge, Button, colors, styles as sharedStyles } from '../../ui/primitives.js';
 import { ScheduleList } from '../schedules/ScheduleList.js';
 
 /**
@@ -59,7 +59,7 @@ export function MedicineList({
   }, [allMedicines, assignments, filterPatientId]);
 
   return (
-    <Card>
+    <ScrollView style={sharedStyles.screen} contentContainerStyle={{ padding: 16, gap: 16 }}>
       <View style={[sharedStyles.row, { justifyContent: 'space-between' }]}>
         <Text style={sharedStyles.title}>Medicines</Text>
         <Button label="+ Add medicine" onPress={onAddMedicine} variant="primary" />
@@ -144,7 +144,7 @@ export function MedicineList({
           ))}
         </View>
       )}
-    </Card>
+    </ScrollView>
   );
 }
 
