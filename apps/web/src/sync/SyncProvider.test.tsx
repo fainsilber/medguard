@@ -21,11 +21,33 @@ function jsonResponse(body: unknown, status = 200) {
   return { ok: status < 400, status, json: async () => body } as Response;
 }
 
+/**
+ * The default handler answers both pull and push shapes generically, applying every pushed
+ * change (echoing each one back as `outcome: 'applied'`, keyed off the request body it actually
+ * received — a hardcoded empty `results` would leave the pushed record's local `syncStatus`
+ * stuck at "pending" forever, since nothing in the response would match it).
+ *
+ * Needed because `renderWithRepository` mounts `PatientProvider`, which on a first render with no
+ * patients bootstraps a default one (see `PatientProvider.tsx`) — a real local mutation that
+ * queues an outbox entry and triggers a genuine push, not just a pull, in every test here.
+ */
+function defaultFetchHandler(url: string, init?: RequestInit): Response {
+  if (url.includes('/sync/push')) {
+    const body = init?.body ? (JSON.parse(String(init.body)) as { changes: { table: string; record: { id: string } }[] }) : { changes: [] };
+    return jsonResponse({
+      cursor: 1,
+      results: body.changes.map((change) => ({ table: change.table, id: change.record.id, outcome: 'applied' })),
+      blocked: [],
+      rejected: [],
+    });
+  }
+  return jsonResponse({ cursor: 0, records: [], hasMore: false });
+}
+
 function stubFetch(
-  handler: (url: string) => Response | Promise<Response> = () =>
-    jsonResponse({ cursor: 0, records: [], hasMore: false }),
+  handler: (url: string, init?: RequestInit) => Response | Promise<Response> = defaultFetchHandler,
 ) {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => handler(url)));
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => handler(url, init)));
 }
 
 beforeEach(() => {
@@ -260,12 +282,12 @@ describe('SyncProvider', () => {
     setHouseholdSession({ deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' });
 
     let failPull = false;
-    stubFetch((url) => {
+    stubFetch((url, init) => {
       // A fresh device has no cursor yet, so its first pull is a bootstrap, not a delta pull.
       if ((url.includes('/sync/pull') || url.includes('/sync/bootstrap')) && failPull) {
         throw new Error('network unreachable');
       }
-      return jsonResponse({ cursor: 0, records: [], hasMore: false });
+      return defaultFetchHandler(url, init);
     });
 
     await renderWithRepository(

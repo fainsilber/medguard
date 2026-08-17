@@ -2,8 +2,21 @@ import 'fake-indexeddb/auto';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { MedGuardRepository } from '@medguard/store';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import { MedicineList } from './MedicineList.js';
+
+function makePatient(id: string, displayName: string, sortOrder: number) {
+  return {
+    id,
+    displayName,
+    archived: false,
+    sortOrder,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    updatedByDeviceId: 'seed',
+    syncStatus: 'synced' as const,
+  };
+}
 
 afterEach(() => {
   localStorage.clear();
@@ -151,5 +164,133 @@ describe('MedicineList', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(screen.getByText('No medicines yet.')).toBeInTheDocument();
+  });
+});
+
+describe('medicine ↔ patient assignment', () => {
+  it('assigns a new medicine to the patient checked in the form', async () => {
+    const user = userEvent.setup();
+    let repository: MedGuardRepository | undefined;
+    await renderWithRepository(<MedicineList />, {
+      seed: async (seedRepository) => {
+        repository = seedRepository;
+        await seedRepository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await seedRepository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+      },
+    });
+    await screen.findByText('No medicines yet.');
+
+    await user.click(screen.getByRole('button', { name: '+ Add medicine' }));
+    await user.type(screen.getByLabelText('Name'), 'Ondansetron');
+    await user.type(screen.getByLabelText('Strength'), '4mg');
+    await user.click(screen.getByRole('checkbox', { name: 'Yoni' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Ondansetron');
+
+    const [medicine] = await repository!.allMedicines();
+    const assigned = await repository!.patientsForMedicine(medicine!.id);
+    expect(assigned.map((p) => p.displayName)).toEqual(['Yoni']);
+  });
+
+  it('shares a medicine by checking more than one patient', async () => {
+    const user = userEvent.setup();
+    let repository: MedGuardRepository | undefined;
+    await renderWithRepository(<MedicineList />, {
+      seed: async (seedRepository) => {
+        repository = seedRepository;
+        await seedRepository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await seedRepository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+      },
+    });
+    await screen.findByText('No medicines yet.');
+
+    await user.click(screen.getByRole('button', { name: '+ Add medicine' }));
+    await user.type(screen.getByLabelText('Name'), 'Paracetamol');
+    await user.type(screen.getByLabelText('Strength'), '500mg');
+    await user.click(screen.getByRole('checkbox', { name: 'Yoni' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Dad' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Paracetamol');
+
+    const [medicine] = await repository!.allMedicines();
+    const assigned = await repository!.patientsForMedicine(medicine!.id);
+    expect(assigned.map((p) => p.displayName).sort()).toEqual(['Dad', 'Yoni']);
+  });
+
+  it('editing to uncheck a patient unassigns them', async () => {
+    const user = userEvent.setup();
+    let repository: MedGuardRepository | undefined;
+    await renderWithRepository(<MedicineList />, {
+      seed: async (seedRepository) => {
+        repository = seedRepository;
+        await seedRepository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await seedRepository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+      },
+    });
+    await screen.findByText('No medicines yet.');
+
+    await user.click(screen.getByRole('button', { name: '+ Add medicine' }));
+    await user.type(screen.getByLabelText('Name'), 'Paracetamol');
+    await user.type(screen.getByLabelText('Strength'), '500mg');
+    await user.click(screen.getByRole('checkbox', { name: 'Yoni' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Dad' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Paracetamol');
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    // Pre-checked from the existing assignment, both boxes checked; uncheck Dad.
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Dad' })).toBeChecked());
+    await user.click(screen.getByRole('checkbox', { name: 'Dad' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Paracetamol');
+
+    const [medicine] = await repository!.allMedicines();
+    const assigned = await repository!.patientsForMedicine(medicine!.id);
+    expect(assigned.map((p) => p.displayName)).toEqual(['Yoni']);
+  });
+
+  it('filters the list to the selected patient, showing a shared medicine for either one', async () => {
+    localStorage.setItem('medguard.selectedPatientId', 'yoni');
+
+    await renderWithRepository(<MedicineList />, {
+      seed: async (repository) => {
+        await repository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+        await repository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+        await repository.saveMedicine(
+          {
+            id: 'private-to-dad',
+            name: 'Statin',
+            strength: '10mg',
+            form: 'pill',
+            asNeeded: false,
+            archived: false,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByDeviceId: 'seed',
+            syncStatus: 'synced',
+          },
+          'CREATE',
+        );
+        await repository.saveMedicine(
+          {
+            id: 'shared',
+            name: 'Paracetamol',
+            strength: '500mg',
+            form: 'pill',
+            asNeeded: true,
+            archived: false,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            updatedByDeviceId: 'seed',
+            syncStatus: 'synced',
+          },
+          'CREATE',
+        );
+        await repository.assignMedicine('private-to-dad', 'dad');
+        await repository.assignMedicine('shared', 'yoni');
+        await repository.assignMedicine('shared', 'dad');
+      },
+    });
+
+    expect(await screen.findByText('Paracetamol')).toBeInTheDocument();
+    expect(screen.queryByText('Statin')).not.toBeInTheDocument();
   });
 });

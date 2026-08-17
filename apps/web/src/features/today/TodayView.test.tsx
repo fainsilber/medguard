@@ -245,3 +245,86 @@ describe('TodayView', () => {
     expect(screen.queryByRole('button', { name: 'Snooze 15m' })).not.toBeInTheDocument();
   });
 });
+
+describe('TodayView — multi-patient', () => {
+  function makePatient(id: string, displayName: string, sortOrder: number) {
+    return {
+      id,
+      displayName,
+      archived: false,
+      sortOrder,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      updatedByDeviceId: 'seed',
+      syncStatus: 'synced' as const,
+    };
+  }
+
+  async function seedTwoPatientsEachWithADose(repository: MedGuardRepository) {
+    await repository.savePatient(makePatient('yoni', 'Yoni', 0), 'CREATE');
+    await repository.savePatient(makePatient('dad', 'Dad', 1), 'CREATE');
+
+    for (const [patientId, medicineId, scheduleId] of [
+      ['yoni', 'medicine-yoni', 'schedule-yoni'],
+      ['dad', 'medicine-dad', 'schedule-dad'],
+    ] as const) {
+      await repository.saveMedicine(
+        {
+          id: medicineId,
+          name: 'Ondansetron',
+          strength: '4mg',
+          form: 'pill',
+          asNeeded: false,
+          archived: false,
+          updatedAt: '2026-06-01T00:00:00.000Z',
+          updatedByDeviceId: 'seed',
+          syncStatus: 'synced',
+        },
+        'CREATE',
+      );
+      await repository.saveSchedule(
+        {
+          id: scheduleId,
+          medicineId,
+          patientId,
+          frequencyType: 'daily',
+          timesOfDay: ['08:00'],
+          dosageQuantity: 1,
+          startDate: '2026-06-01',
+          active: true,
+          updatedAt: '2026-06-01T00:00:00.000Z',
+          updatedByDeviceId: 'seed',
+          syncStatus: 'synced',
+        },
+        'CREATE',
+      );
+    }
+  }
+
+  it('shows both patients’ doses with a name badge when "All patients" is selected', async () => {
+    await renderWithRepository(<TodayView />, {
+      clock: fixedClock('2026-06-15T08:00:00.000Z'),
+      timeZone: TIME_ZONE,
+      seed: seedTwoPatientsEachWithADose,
+    });
+
+    await screen.findByText('Due now');
+    expect(screen.getAllByText('Ondansetron 4mg')).toHaveLength(2);
+    expect(screen.getByText('Yoni')).toBeInTheDocument();
+    expect(screen.getByText('Dad')).toBeInTheDocument();
+  });
+
+  it('shows only the selected patient’s doses, with no badge', async () => {
+    localStorage.setItem('medguard.selectedPatientId', 'yoni');
+
+    await renderWithRepository(<TodayView />, {
+      clock: fixedClock('2026-06-15T08:00:00.000Z'),
+      timeZone: TIME_ZONE,
+      seed: seedTwoPatientsEachWithADose,
+    });
+
+    await screen.findByText('Due now');
+    expect(screen.getAllByText('Ondansetron 4mg')).toHaveLength(1);
+    expect(screen.queryByText('Yoni')).not.toBeInTheDocument();
+    expect(screen.queryByText('Dad')).not.toBeInTheDocument();
+  });
+});

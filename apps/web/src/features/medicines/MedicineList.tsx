@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import type { Medicine } from '@medguard/shared';
+import { usePatients } from '../../app/PatientProvider.js';
 import { useMedGuardDb, useRepository } from '../../app/RepositoryContext.js';
 import { ScheduleList } from '../schedules/ScheduleList.js';
 import { Badge, Card, buttonClass, primaryButtonClass } from '../../ui/primitives.js';
@@ -14,17 +15,37 @@ import { MedicineForm } from './MedicineForm.js';
 export function MedicineList() {
   const db = useMedGuardDb();
   const repository = useRepository();
+  const { filterPatientId } = usePatients();
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState<Medicine | 'new' | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const medicines = useLiveQuery(
+  // Narrowed through `medicinePatients`, not `Medicine.patientId` (vestigial — see its doc
+  // comment in @medguard/shared) — a shared medicine has to appear for every patient it's
+  // assigned to, and only the join table knows that.
+  const assignedMedicineIds = useLiveQuery(async () => {
+    if (filterPatientId === undefined) return undefined;
+    const rows = await db.medicinePatients
+      .where('patientId')
+      .equals(filterPatientId)
+      .toArray();
+    return new Set(rows.filter((row) => row.active).map((row) => row.medicineId));
+  }, [db, filterPatientId]);
+
+  const allMedicines = useLiveQuery(
     () =>
       showArchived
         ? db.medicines.toArray()
         : db.medicines.filter((medicine) => !medicine.archived).toArray(),
     [db, showArchived],
   );
+
+  const medicines =
+    filterPatientId === undefined || allMedicines === undefined
+      ? allMedicines
+      : assignedMedicineIds === undefined
+        ? undefined
+        : allMedicines.filter((medicine) => assignedMedicineIds.has(medicine.id));
 
   if (editing) {
     return (

@@ -21,6 +21,7 @@ import {
   primaryButtonClass,
 } from '../../ui/primitives.js';
 import { HouseholdOnboarding } from './HouseholdOnboarding.js';
+import { PatientRosterCard } from './PatientRosterCard.js';
 
 const DELETE_CONFIRMATION_PHRASE = 'DELETE';
 
@@ -152,19 +153,22 @@ export function HouseholdScreen() {
 
   if (!session) {
     return (
-      <Card>
-        <h2 className="text-lg font-semibold">Household</h2>
-        <p className="text-sm text-slate-400">
-          This device isn&rsquo;t connected to a household. It still works on its own —
-          everything is stored locally — but doses won&rsquo;t be shared with another
-          caregiver&rsquo;s phone.
-        </p>
-        <HouseholdOnboarding
-          embedded
-          initialDisplayName={getCaregiverName() ?? ''}
-          onDone={() => setSession(getHouseholdSession())}
-        />
-      </Card>
+      <div className="flex flex-col gap-3">
+        <Card>
+          <h2 className="text-lg font-semibold">Household</h2>
+          <p className="text-sm text-slate-400">
+            This device isn&rsquo;t connected to a household. It still works on its own —
+            everything is stored locally — but doses won&rsquo;t be shared with another
+            caregiver&rsquo;s phone.
+          </p>
+          <HouseholdOnboarding
+            embedded
+            initialDisplayName={getCaregiverName() ?? ''}
+            onDone={() => setSession(getHouseholdSession())}
+          />
+        </Card>
+        <PatientRosterCard />
+      </div>
     );
   }
 
@@ -209,6 +213,8 @@ export function HouseholdScreen() {
           )}
         </div>
       </Card>
+
+      <PatientRosterCard />
 
       <Card>
         <h2 className="text-lg font-semibold">Devices</h2>
