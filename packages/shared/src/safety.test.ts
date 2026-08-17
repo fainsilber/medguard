@@ -50,8 +50,13 @@ function doseAt(hoursAgo: number, overrides: Partial<IntakeLog> = {}): IntakeLog
   };
 }
 
-function assess(medicine: Medicine, logs: IntakeLog[], clockTrust: ClockTrust = TRUSTED) {
-  return assessDose({ medicine, logs, clock: fixedClock(NOW), clockTrust });
+function assess(
+  medicine: Medicine,
+  logs: IntakeLog[],
+  clockTrust: ClockTrust = TRUSTED,
+  patientId = 'patient-1',
+) {
+  return assessDose({ medicine, patientId, logs, clock: fixedClock(NOW), clockTrust });
 }
 
 describe('unguarded medicines', () => {
@@ -291,7 +296,12 @@ describe('which logs count', () => {
 
 describe('dosesInRollingWindow', () => {
   it('returns the window oldest first', () => {
-    const window = dosesInRollingWindow([doseAt(1), doseAt(5), doseAt(3)], 'medicine-1', NOW_MS);
+    const window = dosesInRollingWindow(
+      [doseAt(1), doseAt(5), doseAt(3)],
+      'medicine-1',
+      'patient-1',
+      NOW_MS,
+    );
     expect(window.map((log) => log.actualTime)).toEqual([
       toIso(NOW_MS - 5 * MS_PER_HOUR),
       toIso(NOW_MS - 3 * MS_PER_HOUR),
@@ -300,8 +310,67 @@ describe('dosesInRollingWindow', () => {
   });
 
   it('accepts a custom window', () => {
-    const window = dosesInRollingWindow([doseAt(1), doseAt(5)], 'medicine-1', NOW_MS, 2 * MS_PER_HOUR);
+    const window = dosesInRollingWindow(
+      [doseAt(1), doseAt(5)],
+      'medicine-1',
+      'patient-1',
+      NOW_MS,
+      2 * MS_PER_HOUR,
+    );
     expect(window).toHaveLength(1);
+  });
+
+  it('counts only the given patient, for a medicine shared by more than one', () => {
+    const window = dosesInRollingWindow(
+      [doseAt(1, { patientId: 'mom' }), doseAt(2, { patientId: 'dad' })],
+      'medicine-1',
+      'mom',
+      NOW_MS,
+    );
+    expect(window.map((log) => log.patientId)).toEqual(['mom']);
+  });
+});
+
+describe('a medicine shared by more than one patient', () => {
+  it('cooldown: one patient in cooldown does not block the other', () => {
+    const medicine = makeMedicine({ minHoursBetweenDoses: 4 });
+    const logs = [doseAt(1, { id: 'moms-dose', patientId: 'mom' })];
+
+    expect(assess(medicine, logs, TRUSTED, 'mom').state).toBe('cooldown');
+    expect(assess(medicine, logs, TRUSTED, 'dad').state).toBe('safe');
+  });
+
+  it('daily cap: one patient at the cap does not block the other', () => {
+    const medicine = makeMedicine({ maxDailyDoses: 2 });
+    const logs = [
+      doseAt(1, { id: 'mom-1', patientId: 'mom' }),
+      doseAt(2, { id: 'mom-2', patientId: 'mom' }),
+    ];
+
+    expect(assess(medicine, logs, TRUSTED, 'mom').state).toBe('capped');
+    expect(assess(medicine, logs, TRUSTED, 'dad').state).toBe('safe');
+  });
+
+  it("counts each patient's own history toward their own cap, not the combined total", () => {
+    const medicine = makeMedicine({ maxDailyDoses: 2 });
+    const logs = [
+      doseAt(1, { id: 'mom-1', patientId: 'mom' }),
+      doseAt(2, { id: 'dad-1', patientId: 'dad' }),
+    ];
+
+    // One dose each — neither is at a cap of two, even though the medicine has two doses total.
+    expect(assess(medicine, logs, TRUSTED, 'mom').state).toBe('safe');
+    expect(assess(medicine, logs, TRUSTED, 'dad').state).toBe('safe');
+  });
+
+  it('a single-patient household sees identical verdicts to before patient-scoping existed', () => {
+    // Regression case: every log shares one patientId, exactly like a pre-multi-patient household.
+    const medicine = makeMedicine({ minHoursBetweenDoses: 4, maxDailyDoses: 4 });
+    const logs = [doseAt(1), doseAt(5), doseAt(9), doseAt(13)];
+
+    const result = assess(medicine, logs, TRUSTED, 'patient-1');
+    expect(result.state).toBe('capped');
+    expect(result.state === 'capped' && result.dosesInWindow).toBe(4);
   });
 });
 
@@ -350,7 +419,7 @@ describe('safety invariants (property-based)', () => {
         const result = assess(medicine, logs);
 
         if (result.state !== 'safe') return true;
-        return dosesInRollingWindow(logs, medicine.id, NOW_MS).length < maxDailyDoses;
+        return dosesInRollingWindow(logs, medicine.id, 'patient-1', NOW_MS).length < maxDailyDoses;
       }),
     );
   });

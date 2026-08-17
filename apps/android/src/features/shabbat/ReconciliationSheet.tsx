@@ -339,6 +339,7 @@ function RetroactivePrn({
     if (!override) {
       const safety = assessDose({
         medicine,
+        patientId: SINGLE_PATIENT_ID,
         logs,
         clock: clockAt(givenAtMs),
         clockTrust: getLocalClockTrust(),

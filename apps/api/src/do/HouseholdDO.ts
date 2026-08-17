@@ -427,11 +427,15 @@ export class HouseholdDO extends DurableObject<Env> {
     }
 
     const medicine = JSON.parse(medicineRow.payload) as Medicine;
+    const patientId = String(record.patientId);
 
+    // Scoped to this patient as well as this medicine: a medicine shared by several patients has
+    // one cooldown/cap limit, but each patient's doses count against it independently (see
+    // `AssessDoseInput` in `@medguard/shared`'s safety.ts) — Dad's dose must never block Mom's.
     const { results: logRows } = await this.env.DB.prepare(
-      'SELECT payload FROM intake_logs WHERE household_id = ? AND medicine_id = ?',
+      'SELECT payload FROM intake_logs WHERE household_id = ? AND medicine_id = ? AND patient_id = ?',
     )
-      .bind(householdId, medicineId)
+      .bind(householdId, medicineId, patientId)
       .all<{ payload: string }>();
     const parsedLogs = logRows.map((row) => JSON.parse(row.payload) as IntakeLog);
 
@@ -459,7 +463,13 @@ export class HouseholdDO extends DurableObject<Env> {
     const clock: Clock = { nowMs: () => actualTimeMs, nowIso: () => actualTimeIso };
 
     // The server is its own clock — there is no skew to distrust here, only the device's.
-    const safety = assessDose({ medicine, logs, clock, clockTrust: { kind: 'trusted', offsetMs: 0 } });
+    const safety = assessDose({
+      medicine,
+      patientId,
+      logs,
+      clock,
+      clockTrust: { kind: 'trusted', offsetMs: 0 },
+    });
 
     if (safety.state === 'safe') {
       return {};
@@ -471,6 +481,7 @@ export class HouseholdDO extends DurableObject<Env> {
     this.broadcast({
       type: 'safety.warning',
       medicineId,
+      patientId,
       blockedBy: reason,
       attemptedByUserId,
       outcome: hasOverride ? 'overridden' : 'blocked',

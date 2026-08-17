@@ -357,6 +357,7 @@ function RetroactivePrn({ timeZone }: { timeZone: string }) {
     if (!override) {
       const safety = assessDose({
         medicine,
+        patientId: SINGLE_PATIENT_ID,
         logs,
         // The instant the dose was given, not the instant it is being typed in.
         clock: clockAt(givenAtMs),

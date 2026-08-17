@@ -5,6 +5,7 @@ import {
   buildReversalAdjustment,
   closeSchedule,
   formatLocalDate,
+  medicinePatientId,
   reviseSchedule,
 } from '@medguard/shared';
 import type {
@@ -21,6 +22,8 @@ import type {
   LocalDate,
   ManualAdjustmentInput,
   Medicine,
+  MedicinePatient,
+  Patient,
   Schedule,
   ScheduleRevision,
   ShabbatConfig,
@@ -173,22 +176,144 @@ export class MedGuardRepository {
   }
 
   // -------------------------------------------------------------------------
+  // Patients
+  // -------------------------------------------------------------------------
+
+  async savePatient(patient: Patient, action: SyncAction = 'UPDATE'): Promise<void> {
+    const stamped = this.stamp(patient);
+    await this.store.transaction(['patients', 'syncOutbox'], async (tx) => {
+      await tx.put('patients', stamped);
+      await this.enqueue(tx, 'patients', stamped.id, action, stamped);
+    });
+  }
+
+  /**
+   * Archives rather than deletes. Medicines, schedules and intake logs reference a patient
+   * forever, and deleting one would orphan that history (safety invariant 1) the same way
+   * deleting a medicine would.
+   */
+  async archivePatient(patientId: Uuid): Promise<void> {
+    const patient = await this.getPatient(patientId);
+    if (!patient) {
+      throw new Error(`No such patient: ${patientId}`);
+    }
+    await this.savePatient({ ...patient, archived: true });
+  }
+
+  getPatient(patientId: Uuid): Promise<Patient | undefined> {
+    return this.store.transaction(['patients'], (tx) => tx.get<Patient>('patients', patientId));
+  }
+
+  /** Every patient, archived or not — for a "show archived" toggle over `activePatients()`. */
+  allPatients(): Promise<Patient[]> {
+    return this.store.transaction(['patients'], (tx) => tx.getAll<Patient>('patients'));
+  }
+
+  async activePatients(): Promise<Patient[]> {
+    const all = await this.allPatients();
+    return all.filter((patient) => !patient.archived);
+  }
+
+  // -------------------------------------------------------------------------
+  // Medicine ↔ patient assignments
+  // -------------------------------------------------------------------------
+
+  /**
+   * Assigns a medicine to a patient — private if it's the only assignment, shared once there is
+   * more than one. Idempotent: `id` is deterministic (`medicineId:patientId`), so assigning the
+   * same pair again (including from two devices offline at once) converges on one row rather than
+   * duplicating it.
+   */
+  async assignMedicine(medicineId: Uuid, patientId: Uuid): Promise<MedicinePatient> {
+    const existing = await this.store.transaction(['medicinePatients'], (tx) =>
+      tx.get<MedicinePatient>('medicinePatients', medicinePatientId(medicineId, patientId)),
+    );
+    const assignment = this.stamp<MedicinePatient>({
+      id: medicinePatientId(medicineId, patientId),
+      medicineId,
+      patientId,
+      active: true,
+      updatedAt: this.context.clock.nowIso(),
+      updatedByDeviceId: this.context.deviceId,
+      syncStatus: 'pending',
+    });
+
+    await this.store.transaction(['medicinePatients', 'syncOutbox'], async (tx) => {
+      await tx.put('medicinePatients', assignment);
+      await this.enqueue(
+        tx,
+        'medicinePatients',
+        assignment.id,
+        existing ? 'UPDATE' : 'CREATE',
+        assignment,
+      );
+    });
+
+    return assignment;
+  }
+
+  /**
+   * Un-assigns a medicine from a patient. A soft delete — `active: false` — for the same reason a
+   * medicine archives rather than disappears: an intake log logged while the assignment existed
+   * must still be able to resolve it later, even after a caregiver removes it. A no-op if the pair
+   * was never assigned.
+   */
+  async unassignMedicine(medicineId: Uuid, patientId: Uuid): Promise<void> {
+    const existing = await this.store.transaction(['medicinePatients'], (tx) =>
+      tx.get<MedicinePatient>('medicinePatients', medicinePatientId(medicineId, patientId)),
+    );
+    if (!existing || !existing.active) {
+      return;
+    }
+    const stamped = this.stamp<MedicinePatient>({ ...existing, active: false });
+    await this.store.transaction(['medicinePatients', 'syncOutbox'], async (tx) => {
+      await tx.put('medicinePatients', stamped);
+      await this.enqueue(tx, 'medicinePatients', stamped.id, 'UPDATE', stamped);
+    });
+  }
+
+  /** Every active assignment for one medicine — which patients currently take it. */
+  async medicinePatientsFor(medicineId: Uuid): Promise<MedicinePatient[]> {
+    const all = await this.store.transaction(['medicinePatients'], (tx) =>
+      tx.queryIndex<MedicinePatient>('medicinePatients', {
+        kind: 'equals',
+        fields: ['medicineId'],
+        values: [medicineId],
+      }),
+    );
+    return all.filter((assignment) => assignment.active);
+  }
+
+  /** The patients currently assigned to one medicine, resolved from `medicinePatientsFor`. */
+  async patientsForMedicine(medicineId: Uuid): Promise<Patient[]> {
+    const assignments = await this.medicinePatientsFor(medicineId);
+    const patients = await Promise.all(assignments.map((a) => this.getPatient(a.patientId)));
+    return patients.filter((p): p is Patient => p !== undefined);
+  }
+
+  // -------------------------------------------------------------------------
   // Shabbat (Sprint A5)
   // -------------------------------------------------------------------------
 
   /**
-   * The household's Shabbat configuration — coordinates, candle-lighting offset, Havdalah rule,
-   * Israel/diaspora, chime length.
+   * The Shabbat configuration for one patient — coordinates, candle-lighting offset, Havdalah
+   * rule, Israel/diaspora, chime length. One row per patient.
    *
-   * One row per patient, and the app is single-patient in v1, so the first is the answer.
-   * `undefined` means it has never been set, which is not the same as automation being off: the
-   * server publishes no windows without one, and nothing enters Shabbat mode.
+   * `patientId` is optional only for callers not yet updated to pass one, in which case the first
+   * row is returned — the pre-multi-patient behavior, kept so this compiles for every existing
+   * caller rather than breaking them, but not a real answer once a household has more than one
+   * patient's config. `undefined` means Shabbat has never been configured for that patient, which
+   * is not the same as automation being off: the server publishes no windows without one, and
+   * nothing enters Shabbat mode.
    */
-  async getShabbatConfig(): Promise<ShabbatConfig | undefined> {
+  async getShabbatConfig(patientId?: Uuid): Promise<ShabbatConfig | undefined> {
     const all = await this.store.transaction(['shabbatConfig'], (tx) =>
       tx.getAll<ShabbatConfig>('shabbatConfig'),
     );
-    return all[0];
+    if (patientId === undefined) {
+      return all[0];
+    }
+    return all.find((config) => config.patientId === patientId);
   }
 
   async saveShabbatConfig(config: ShabbatConfig, action: SyncAction = 'UPDATE'): Promise<void> {
@@ -200,20 +325,23 @@ export class MedGuardRepository {
   }
 
   /**
-   * Every Shabbat window this device holds.
+   * Every Shabbat window this device holds, optionally narrowed to one patient.
    *
    * Read in full rather than by range: the server publishes a rolling 90 days, which is a few
-   * dozen rows, and every caller — the alarm horizon, the verification screen, the in-mode banner
-   * — wants a different slice of them. Filtering is `packages/shared/src/shabbat.ts`'s job, so
-   * that the phone and the Durable Object apply the same boundary rule to the same records.
+   * dozen rows per patient, and every caller — the alarm horizon, the verification screen, the
+   * in-mode banner — wants a different slice of them. Filtering by time is
+   * `packages/shared/src/shabbat.ts`'s job, so that the phone and the Durable Object apply the
+   * same boundary rule to the same records; filtering by patient happens here because it's a
+   * property of which rows are even relevant, not of the boundary rule itself.
    *
    * There is no `saveShabbatWindow`, deliberately: windows are server-authored (the sync push
    * route rejects a client-written one), and this device only ever receives them through a pull.
    */
-  allShabbatWindows(): Promise<ShabbatWindow[]> {
-    return this.store.transaction(['shabbatWindows'], (tx) =>
+  async allShabbatWindows(patientId?: Uuid): Promise<ShabbatWindow[]> {
+    const all = await this.store.transaction(['shabbatWindows'], (tx) =>
       tx.getAll<ShabbatWindow>('shabbatWindows'),
     );
+    return patientId === undefined ? all : all.filter((window) => window.patientId === patientId);
   }
 
   // -------------------------------------------------------------------------
@@ -251,7 +379,10 @@ export class MedGuardRepository {
     const settings = await this.getHouseholdSettings();
     const today = formatLocalDate(settings?.timeZone ?? 'UTC', this.context.clock.nowMs());
     return schedules.map((schedule) =>
-      closeSchedule(schedule, today, { clock: this.context.clock, deviceId: this.context.deviceId }),
+      closeSchedule(schedule, today, {
+        clock: this.context.clock,
+        deviceId: this.context.deviceId,
+      }),
     );
   }
 
@@ -267,14 +398,37 @@ export class MedGuardRepository {
     await this.saveMedicine({ ...medicine, archived: true });
   }
 
-  async activeMedicines(): Promise<Medicine[]> {
-    const all = await this.allMedicines();
+  async activeMedicines(patientId?: Uuid): Promise<Medicine[]> {
+    const all = await this.allMedicines(patientId);
     return all.filter((medicine) => !medicine.archived);
   }
 
-  /** Every medicine, archived or not — for a "show archived" toggle over `activeMedicines()`. */
-  allMedicines(): Promise<Medicine[]> {
-    return this.store.transaction(['medicines'], (tx) => tx.getAll<Medicine>('medicines'));
+  /**
+   * Every medicine, archived or not — for a "show archived" toggle over `activeMedicines()`.
+   *
+   * Narrowed to one patient via `medicinePatients`, not `Medicine.patientId` — that field is
+   * vestigial (see its doc comment in `@medguard/shared`'s types.ts); a medicine assigned to
+   * several patients, or reassigned since it was created, only resolves correctly through the
+   * join table. Omitting `patientId` returns every medicine in the household, assigned or not.
+   */
+  async allMedicines(patientId?: Uuid): Promise<Medicine[]> {
+    const all = await this.store.transaction(['medicines'], (tx) =>
+      tx.getAll<Medicine>('medicines'),
+    );
+    if (patientId === undefined) {
+      return all;
+    }
+    const assigned = await this.store.transaction(['medicinePatients'], (tx) =>
+      tx.queryIndex<MedicinePatient>('medicinePatients', {
+        kind: 'equals',
+        fields: ['patientId'],
+        values: [patientId],
+      }),
+    );
+    const assignedMedicineIds = new Set(
+      assigned.filter((assignment) => assignment.active).map((assignment) => assignment.medicineId),
+    );
+    return all.filter((medicine) => assignedMedicineIds.has(medicine.id));
   }
 
   getMedicine(medicineId: Uuid): Promise<Medicine | undefined> {
@@ -304,7 +458,9 @@ export class MedGuardRepository {
     changes: Parameters<typeof reviseSchedule>[1],
     effectiveFrom: LocalDate,
   ): Promise<ScheduleRevision> {
-    const existing = await this.store.transaction(['schedules'], (tx) => tx.get<Schedule>('schedules', scheduleId));
+    const existing = await this.store.transaction(['schedules'], (tx) =>
+      tx.get<Schedule>('schedules', scheduleId),
+    );
     if (!existing) {
       throw new Error(`No such schedule: ${scheduleId}`);
     }
@@ -326,7 +482,9 @@ export class MedGuardRepository {
 
   /** Stops a schedule with no replacement. */
   async closeSchedule(scheduleId: Uuid, effectiveFrom: LocalDate): Promise<Schedule> {
-    const existing = await this.store.transaction(['schedules'], (tx) => tx.get<Schedule>('schedules', scheduleId));
+    const existing = await this.store.transaction(['schedules'], (tx) =>
+      tx.get<Schedule>('schedules', scheduleId),
+    );
     if (!existing) {
       throw new Error(`No such schedule: ${scheduleId}`);
     }
@@ -342,12 +500,24 @@ export class MedGuardRepository {
 
   schedulesForMedicine(medicineId: Uuid): Promise<Schedule[]> {
     return this.store.transaction(['schedules'], (tx) =>
-      tx.queryIndex<Schedule>('schedules', { kind: 'equals', fields: ['medicineId'], values: [medicineId] }),
+      tx.queryIndex<Schedule>('schedules', {
+        kind: 'equals',
+        fields: ['medicineId'],
+        values: [medicineId],
+      }),
     );
   }
 
-  allSchedules(): Promise<Schedule[]> {
-    return this.store.transaction(['schedules'], (tx) => tx.getAll<Schedule>('schedules'));
+  /** Every schedule in the household, optionally narrowed to one patient. Unlike `Medicine`,
+   * `Schedule.patientId` is not vestigial — a schedule always belongs to exactly one patient, even
+   * when it's for a medicine several patients share (one schedule per patient, per medicine). */
+  async allSchedules(patientId?: Uuid): Promise<Schedule[]> {
+    const all = await this.store.transaction(['schedules'], (tx) =>
+      tx.getAll<Schedule>('schedules'),
+    );
+    return patientId === undefined
+      ? all
+      : all.filter((schedule) => schedule.patientId === patientId);
   }
 
   // -------------------------------------------------------------------------
@@ -370,15 +540,18 @@ export class MedGuardRepository {
     const adjustment =
       log.status === 'taken' ? buildDoseAdjustment(log, this.adjustmentContext()) : undefined;
 
-    await this.store.transaction(['intakeLogs', 'inventoryAdjustments', 'syncOutbox'], async (tx) => {
-      await tx.put('intakeLogs', log);
-      await this.enqueue(tx, 'intakeLogs', log.id, 'CREATE', log);
+    await this.store.transaction(
+      ['intakeLogs', 'inventoryAdjustments', 'syncOutbox'],
+      async (tx) => {
+        await tx.put('intakeLogs', log);
+        await this.enqueue(tx, 'intakeLogs', log.id, 'CREATE', log);
 
-      if (adjustment) {
-        await tx.put('inventoryAdjustments', adjustment);
-        await this.enqueue(tx, 'inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
-      }
-    });
+        if (adjustment) {
+          await tx.put('inventoryAdjustments', adjustment);
+          await this.enqueue(tx, 'inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
+        }
+      },
+    );
 
     return { log, ...(adjustment ? { adjustment } : {}) };
   }
@@ -419,17 +592,20 @@ export class MedGuardRepository {
         ? buildDoseAdjustment(corrected, this.adjustmentContext())
         : undefined;
 
-    await this.store.transaction(['intakeLogs', 'inventoryAdjustments', 'syncOutbox'], async (tx) => {
-      await tx.put('intakeLogs', corrected);
-      await this.enqueue(tx, 'intakeLogs', corrected.id, 'CREATE', corrected);
+    await this.store.transaction(
+      ['intakeLogs', 'inventoryAdjustments', 'syncOutbox'],
+      async (tx) => {
+        await tx.put('intakeLogs', corrected);
+        await this.enqueue(tx, 'intakeLogs', corrected.id, 'CREATE', corrected);
 
-      for (const entry of [reversal, replacement]) {
-        if (entry) {
-          await tx.put('inventoryAdjustments', entry);
-          await this.enqueue(tx, 'inventoryAdjustments', entry.id, 'CREATE', entry);
+        for (const entry of [reversal, replacement]) {
+          if (entry) {
+            await tx.put('inventoryAdjustments', entry);
+            await this.enqueue(tx, 'inventoryAdjustments', entry.id, 'CREATE', entry);
+          }
         }
-      }
-    });
+      },
+    );
 
     return corrected;
   }
@@ -462,17 +638,20 @@ export class MedGuardRepository {
       return { log, ...(adjustment ? { adjustment } : {}) };
     });
 
-    await this.store.transaction(['intakeLogs', 'inventoryAdjustments', 'syncOutbox'], async (tx) => {
-      for (const { log, adjustment } of written) {
-        await tx.put('intakeLogs', log);
-        await this.enqueue(tx, 'intakeLogs', log.id, 'CREATE', log);
+    await this.store.transaction(
+      ['intakeLogs', 'inventoryAdjustments', 'syncOutbox'],
+      async (tx) => {
+        for (const { log, adjustment } of written) {
+          await tx.put('intakeLogs', log);
+          await this.enqueue(tx, 'intakeLogs', log.id, 'CREATE', log);
 
-        if (adjustment) {
-          await tx.put('inventoryAdjustments', adjustment);
-          await this.enqueue(tx, 'inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
+          if (adjustment) {
+            await tx.put('inventoryAdjustments', adjustment);
+            await this.enqueue(tx, 'inventoryAdjustments', adjustment.id, 'CREATE', adjustment);
+          }
         }
-      }
-    });
+      },
+    );
 
     return written.map((entry) => entry.log);
   }
@@ -507,17 +686,20 @@ export class MedGuardRepository {
           adjustments.some((adjustment) => adjustment.id === entry.entityId)),
     );
 
-    await this.store.transaction(['intakeLogs', 'inventoryAdjustments', 'syncOutbox'], async (tx) => {
-      await tx.delete('intakeLogs', logId);
-      for (const adjustment of adjustments) {
-        await tx.delete('inventoryAdjustments', adjustment.id);
-      }
-      for (const entry of orphanedOutbox) {
-        // `id` is optional on the type only because it is absent before insertion; every row
-        // `pendingSync()` returns has been persisted. Same assertion the sync engine makes.
-        await tx.delete('syncOutbox', entry.id!);
-      }
-    });
+    await this.store.transaction(
+      ['intakeLogs', 'inventoryAdjustments', 'syncOutbox'],
+      async (tx) => {
+        await tx.delete('intakeLogs', logId);
+        for (const adjustment of adjustments) {
+          await tx.delete('inventoryAdjustments', adjustment.id);
+        }
+        for (const entry of orphanedOutbox) {
+          // `id` is optional on the type only because it is absent before insertion; every row
+          // `pendingSync()` returns has been persisted. Same assertion the sync engine makes.
+          await tx.delete('syncOutbox', entry.id!);
+        }
+      },
+    );
   }
 
   /**
@@ -527,7 +709,11 @@ export class MedGuardRepository {
   logsForMedicine(medicineId: Uuid, sinceIso?: string): Promise<IntakeLog[]> {
     return this.store.transaction(['intakeLogs'], (tx) =>
       sinceIso === undefined
-        ? tx.queryIndex<IntakeLog>('intakeLogs', { kind: 'equals', fields: ['medicineId'], values: [medicineId] })
+        ? tx.queryIndex<IntakeLog>('intakeLogs', {
+            kind: 'equals',
+            fields: ['medicineId'],
+            values: [medicineId],
+          })
         : tx.queryIndex<IntakeLog>('intakeLogs', {
             kind: 'range',
             fields: ['medicineId', 'actualTime'],
@@ -547,7 +733,36 @@ export class MedGuardRepository {
    */
   logsForPatient(patientId: Uuid): Promise<IntakeLog[]> {
     return this.store.transaction(['intakeLogs'], (tx) =>
-      tx.queryIndex<IntakeLog>('intakeLogs', { kind: 'equals', fields: ['patientId'], values: [patientId] }),
+      tx.queryIndex<IntakeLog>('intakeLogs', {
+        kind: 'equals',
+        fields: ['patientId'],
+        values: [patientId],
+      }),
+    );
+  }
+
+  /**
+   * The PRN cooldown/cap query: one patient's history of one medicine, using the
+   * `[medicineId+patientId+actualTime]` index so it stays fast as history grows.
+   *
+   * Scoped by both fields because a medicine shared by several patients has one cooldown/cap
+   * *limit*, but each patient's doses are counted against it independently — see `AssessDoseInput`
+   * in `@medguard/shared`'s safety.ts. `logsForMedicine` alone would pool every patient's doses
+   * together, which is exactly the bug this method exists to not have.
+   */
+  logsForPatientAndMedicine(
+    patientId: Uuid,
+    medicineId: Uuid,
+    sinceIso?: string,
+  ): Promise<IntakeLog[]> {
+    return this.store.transaction(['intakeLogs'], (tx) =>
+      tx.queryIndex<IntakeLog>('intakeLogs', {
+        kind: 'range',
+        fields: ['medicineId', 'patientId', 'actualTime'],
+        prefix: [medicineId, patientId],
+        lower: sinceIso ?? '',
+        upper: RANGE_SENTINEL_MAX,
+      }),
     );
   }
 
@@ -669,7 +884,9 @@ export class MedGuardRepository {
   }
 
   allInventoryItems(): Promise<InventoryItem[]> {
-    return this.store.transaction(['inventoryItems'], (tx) => tx.getAll<InventoryItem>('inventoryItems'));
+    return this.store.transaction(['inventoryItems'], (tx) =>
+      tx.getAll<InventoryItem>('inventoryItems'),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -688,22 +905,48 @@ export class MedGuardRepository {
   async restoreBackup(
     bundle: Pick<
       BackupBundle,
-      'medicines' | 'schedules' | 'intakeLogs' | 'inventoryItems' | 'inventoryAdjustments'
+      | 'patients'
+      | 'medicinePatients'
+      | 'medicines'
+      | 'schedules'
+      | 'intakeLogs'
+      | 'inventoryItems'
+      | 'inventoryAdjustments'
     >,
   ): Promise<void> {
     await this.store.transaction(
-      ['medicines', 'schedules', 'intakeLogs', 'inventoryItems', 'inventoryAdjustments', 'syncOutbox'],
+      [
+        'patients',
+        'medicinePatients',
+        'medicines',
+        'schedules',
+        'intakeLogs',
+        'inventoryItems',
+        'inventoryAdjustments',
+        'syncOutbox',
+      ],
       async (tx) => {
         // Cast rather than remapped field-by-field: these arrays were already validated against
         // the exact same zod schemas the domain types are defined from — the only mismatch is
         // TypeScript's `exactOptionalPropertyTypes` being pickier about an explicit `undefined`
         // in an optional field's inferred type than the hand-written interfaces are.
+        await tx.bulkPut('patients', bundle.patients as Patient[]);
+        await tx.bulkPut('medicinePatients', bundle.medicinePatients as MedicinePatient[]);
         await tx.bulkPut('medicines', bundle.medicines as Medicine[]);
         await tx.bulkPut('schedules', bundle.schedules as Schedule[]);
         await tx.bulkPut('intakeLogs', bundle.intakeLogs as IntakeLog[]);
         await tx.bulkPut('inventoryItems', bundle.inventoryItems as InventoryItem[]);
-        await tx.bulkPut('inventoryAdjustments', bundle.inventoryAdjustments as InventoryAdjustment[]);
+        await tx.bulkPut(
+          'inventoryAdjustments',
+          bundle.inventoryAdjustments as InventoryAdjustment[],
+        );
 
+        for (const patient of bundle.patients) {
+          await this.enqueue(tx, 'patients', patient.id, 'CREATE', patient);
+        }
+        for (const assignment of bundle.medicinePatients) {
+          await this.enqueue(tx, 'medicinePatients', assignment.id, 'CREATE', assignment);
+        }
         for (const medicine of bundle.medicines) {
           await this.enqueue(tx, 'medicines', medicine.id, 'CREATE', medicine);
         }
@@ -736,6 +979,8 @@ export class MedGuardRepository {
   async clearAllData(): Promise<void> {
     await this.store.transaction(
       [
+        'patients',
+        'medicinePatients',
         'medicines',
         'schedules',
         'intakeLogs',
@@ -746,6 +991,8 @@ export class MedGuardRepository {
         'syncMeta',
       ],
       async (tx) => {
+        await tx.clear('patients');
+        await tx.clear('medicinePatients');
         await tx.clear('medicines');
         await tx.clear('schedules');
         await tx.clear('intakeLogs');
@@ -757,6 +1004,8 @@ export class MedGuardRepository {
           kind: 'anyOf',
           fields: ['table'],
           values: [
+            'patients',
+            'medicinePatients',
             'medicines',
             'schedules',
             'intakeLogs',

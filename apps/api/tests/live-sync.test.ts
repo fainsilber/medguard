@@ -201,6 +201,55 @@ describe('the double-dose race', () => {
     expect(second.blocked[0]!.availableAtIso).toBe('2026-08-03T18:00:00.000Z');
   });
 
+  it('a medicine shared by two patients blocks one patient without blocking the other, at the same instant', async () => {
+    const MOM = 'aaaaaaaa-0000-4000-8000-000000000010';
+    const DAD = 'bbbbbbbb-0000-4000-8000-000000000020';
+
+    const session = await createHousehold();
+    await push(session, [{ table: 'medicines', record: medicine({ minHoursBetweenDoses: 4 }) }]);
+
+    // Mom takes a dose.
+    await push(session, [
+      {
+        table: 'intakeLogs',
+        record: intakeLog({
+          id: '99999999-0000-4000-8000-000000000001',
+          patientId: MOM,
+          actualTime: '2026-08-03T14:00:00.000Z',
+        }),
+      },
+    ]);
+
+    // Mom, five seconds later, is still in cooldown — the authoritative re-check must agree with
+    // what the client would already show.
+    const momAgain = await push(session, [
+      {
+        table: 'intakeLogs',
+        record: intakeLog({
+          id: '99999999-0000-4000-8000-000000000002',
+          patientId: MOM,
+          actualTime: '2026-08-03T14:00:05.000Z',
+        }),
+      },
+    ]);
+    expect(momAgain.blocked).toHaveLength(1);
+    expect(momAgain.blocked[0]).toMatchObject({ reason: 'cooldown' });
+
+    // Dad, on the very same shared medicine, has never taken a dose — he must be permitted.
+    const dadFirst = await push(session, [
+      {
+        table: 'intakeLogs',
+        record: intakeLog({
+          id: '99999999-0000-4000-8000-000000000003',
+          patientId: DAD,
+          actualTime: '2026-08-03T14:00:06.000Z',
+        }),
+      },
+    ]);
+    expect(dadFirst.blocked).toEqual([]);
+    expect(outcomeFor(dadFirst, '99999999-0000-4000-8000-000000000003')).toBe('applied');
+  });
+
   it('accepts an explicit override even while blocked, and records it', async () => {
     const session = await createHousehold();
     await push(session, [{ table: 'medicines', record: medicine({ minHoursBetweenDoses: 4 }) }]);
@@ -383,6 +432,7 @@ describe('live channel', () => {
       expect(observer.messages).toContainEqual({
         type: 'safety.warning',
         medicineId: MEDICINE_ID,
+        patientId: SINGLE_PATIENT_ID,
         blockedBy: 'cooldown',
         attemptedByUserId: 'user-mom',
         outcome: 'blocked',

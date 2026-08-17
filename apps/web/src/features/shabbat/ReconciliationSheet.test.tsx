@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
-import { computeQuantity } from '@medguard/shared';
+import { SINGLE_PATIENT_ID, computeQuantity } from '@medguard/shared';
 import { fixedClock } from '@medguard/shared/testing';
 import type { Medicine, Schedule, ShabbatWindow } from '@medguard/shared';
 import type { MedGuardRepository, Store } from '@medguard/store';
@@ -28,7 +28,7 @@ afterEach(() => {
 function makeWindow(): ShabbatWindow {
   return {
     id: `shabbat:${WINDOW_START}`,
-    patientId: 'patient-1',
+    patientId: SINGLE_PATIENT_ID,
     kind: 'shabbat',
     label: 'Shabbat',
     startsAt: WINDOW_START,
@@ -43,7 +43,7 @@ function makeWindow(): ShabbatWindow {
 function makeMedicine(overrides: Partial<Medicine> = {}): Medicine {
   return {
     id: 'medicine-1',
-    patientId: 'patient-1',
+    patientId: SINGLE_PATIENT_ID,
     name: 'Ondansetron',
     strength: '4mg',
     form: 'pill',
@@ -61,7 +61,7 @@ function makeSchedule(): Schedule {
   return {
     id: 'schedule-1',
     medicineId: 'medicine-1',
-    patientId: 'patient-1',
+    patientId: SINGLE_PATIENT_ID,
     frequencyType: 'daily',
     timesOfDay: ['09:00', '21:00'],
     dosageQuantity: 2,
@@ -136,7 +136,7 @@ describe('ReconciliationSheet', () => {
         await seedHousehold(seedRepository, store);
         await seedRepository.recordDose({
           id: 'pending-1',
-          patientId: 'patient-1',
+          patientId: SINGLE_PATIENT_ID,
           medicineId: 'medicine-1',
           scheduleId: 'schedule-1',
           type: 'scheduled',
@@ -216,7 +216,9 @@ describe('ReconciliationSheet', () => {
       },
     });
 
-    expect(await screen.findByText(/Every dose from Shabbat has been accounted for/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Every dose from Shabbat has been accounted for/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -271,7 +273,7 @@ describe('retroactive PRN entry', () => {
         await putWindow(store);
         await seedRepository.recordDose({
           id: 'earlier',
-          patientId: 'patient-1',
+          patientId: SINGLE_PATIENT_ID,
           medicineId: 'medicine-prn',
           type: 'prn',
           status: 'taken',

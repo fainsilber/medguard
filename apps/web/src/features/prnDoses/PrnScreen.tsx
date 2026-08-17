@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
+import { SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { ClockTrust } from '@medguard/shared';
 import { getApiBaseUrl } from '../../api/config.js';
 import { useClockTrust } from '../../clock/useClockTrust.js';
@@ -52,6 +53,9 @@ export function PrnScreen({ clockTrust }: { clockTrust?: ClockTrust }) {
         <PrnCard
           key={medicine.id}
           medicine={medicine}
+          // TODO(multi-patient phase 2): one card per patient this medicine is assigned to,
+          // via `medicinePatients`, rather than the pre-multi-patient owner field.
+          patientId={medicine.patientId ?? SINGLE_PATIENT_ID}
           logs={logs.filter((log) => log.medicineId === medicine.id)}
           timeZone={householdSettings.timeZone}
           clockTrust={effectiveTrust}

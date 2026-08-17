@@ -44,16 +44,22 @@ const RETAIN_PAST_MS = 30 * MS_PER_DAY;
  */
 const SERVER_DEVICE_ID = 'server';
 
-async function readConfig(
-  db: D1Database,
-  householdId: string,
-): Promise<ShabbatConfig | undefined> {
-  const row = await db
-    .prepare('SELECT payload FROM shabbat_config WHERE household_id = ? ORDER BY seq DESC LIMIT 1')
+/**
+ * Every patient's Shabbat config in the household, most recently written first.
+ *
+ * One patient can have at most one config row (client-side, `saveShabbatConfig` is an LWW update
+ * keyed by `id`), but a multi-patient household has one row per patient who has ever set one up —
+ * each with their own coordinates, since a household can legitimately span more than one location
+ * (a parent commuting, a patient in care elsewhere). Every config gets its own windows, published
+ * under its own `patientId`.
+ */
+async function readConfigs(db: D1Database, householdId: string): Promise<ShabbatConfig[]> {
+  const { results } = await db
+    .prepare('SELECT payload FROM shabbat_config WHERE household_id = ? ORDER BY seq DESC')
     .bind(householdId)
-    .first<{ payload: string }>();
+    .all<{ payload: string }>();
 
-  return row ? (JSON.parse(row.payload) as ShabbatConfig) : undefined;
+  return results.map((row) => JSON.parse(row.payload) as ShabbatConfig);
 }
 
 async function readTimeZone(db: D1Database, householdId: string): Promise<string | undefined> {
@@ -79,47 +85,54 @@ export async function furthestPublishedMs(
 }
 
 /**
- * Recomputes and publishes the household's windows for the next `PUBLISH_HORIZON_MS`.
+ * Recomputes and publishes windows for every patient with a `ShabbatConfig`, for the next
+ * `PUBLISH_HORIZON_MS`.
  *
- * Does nothing without a `ShabbatConfig` (nothing to compute from) or without household settings
- * (no timezone, and every candle-lighting time is displayed and reasoned about in the household's
- * own zone). Both are the same fail-closed rule the alarm chain already follows: publish nothing
- * rather than publish something computed from a guess.
+ * Does nothing without at least one `ShabbatConfig` (nothing to compute from) or without household
+ * settings (no timezone, and every candle-lighting time is displayed and reasoned about in the
+ * household's own zone). Both are the same fail-closed rule the alarm chain already follows:
+ * publish nothing rather than publish something computed from a guess.
  *
- * Returns the number of windows written, so callers and tests can tell "published nothing because
- * there was nothing to publish" from "published nothing because it had already been done".
+ * Returns the number of windows written across every patient, so callers and tests can tell
+ * "published nothing because there was nothing to publish" from "published nothing because it had
+ * already been done".
  */
 export async function publishWindows(
   db: D1Database,
   householdId: string,
   nowMs: number,
 ): Promise<number> {
-  const [config, timeZone] = await Promise.all([
-    readConfig(db, householdId),
+  const [configs, timeZone] = await Promise.all([
+    readConfigs(db, householdId),
     readTimeZone(db, householdId),
   ]);
 
-  if (!config || !timeZone) {
+  if (configs.length === 0 || !timeZone) {
     return 0;
   }
 
-  const windows = computeWindows(config, timeZone, {
-    fromMs: nowMs,
-    toMs: nowMs + PUBLISH_HORIZON_MS,
-  });
-
   const generatedAt = toIso(nowMs);
+  let written = 0;
 
-  for (const window of windows) {
-    const record: ShabbatWindow = {
-      ...window,
-      patientId: config.patientId,
-      generatedAt,
-      updatedAt: generatedAt,
-      updatedByDeviceId: SERVER_DEVICE_ID,
-      syncStatus: 'synced',
-    };
-    await applyRecord(db, householdId, 'shabbatWindows', record as unknown as Record<string, unknown>);
+  for (const config of configs) {
+    const windows = computeWindows(config, timeZone, {
+      fromMs: nowMs,
+      toMs: nowMs + PUBLISH_HORIZON_MS,
+    });
+
+    for (const window of windows) {
+      const record: ShabbatWindow = {
+        ...window,
+        patientId: config.patientId,
+        generatedAt,
+        updatedAt: generatedAt,
+        updatedByDeviceId: SERVER_DEVICE_ID,
+        syncStatus: 'synced',
+      };
+      await applyRecord(db, householdId, 'shabbatWindows', record as unknown as Record<string, unknown>);
+    }
+
+    written += windows.length;
   }
 
   // Windows well past are dropped rather than kept forever: a device pulling from scratch should
@@ -130,7 +143,7 @@ export async function publishWindows(
     .bind(householdId, toIso(nowMs - RETAIN_PAST_MS))
     .run();
 
-  return windows.length;
+  return written;
 }
 
 /**

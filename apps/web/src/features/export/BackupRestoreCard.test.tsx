@@ -123,7 +123,7 @@ describe('BackupRestoreCard', () => {
 
     const bundle = JSON.parse(await readBlobAsText(capturedBlob!));
     expect(bundle).toMatchObject({
-      version: 1,
+      version: 2,
       exportedAt: '2026-08-03T12:00:00.000Z',
       medicines: [expect.objectContaining({ id: 'medicine-1' })],
       schedules: [expect.objectContaining({ id: 'schedule-1' })],
@@ -153,6 +153,8 @@ describe('BackupRestoreCard', () => {
 
     const bundle = buildBackupBundle(
       {
+        patients: [],
+        medicinePatients: [],
         medicines: [
           {
             id: '11111111-1111-4111-8111-111111111111',
@@ -191,6 +193,8 @@ describe('BackupRestoreCard', () => {
 
     const bundle = buildBackupBundle(
       {
+        patients: [],
+        medicinePatients: [],
         medicines: [
           {
             id: '11111111-1111-4111-8111-111111111111',
@@ -229,6 +233,8 @@ describe('BackupRestoreCard', () => {
 
     const bundle = buildBackupBundle(
       {
+        patients: [],
+        medicinePatients: [],
         medicines: [],
         schedules: [],
         intakeLogs: [],

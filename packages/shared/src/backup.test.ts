@@ -6,7 +6,16 @@ import {
   summarizeBackup,
 } from './backup.js';
 import { fixedClock } from './testing.js';
-import type { IntakeLog, InventoryAdjustment, InventoryItem, Medicine, Schedule } from './types.js';
+import { SINGLE_PATIENT_ID } from './types.js';
+import type {
+  IntakeLog,
+  InventoryAdjustment,
+  InventoryItem,
+  Medicine,
+  MedicinePatient,
+  Patient,
+  Schedule,
+} from './types.js';
 
 const NOW = '2026-08-03T12:00:00.000Z';
 const MEDICINE_ID = '11111111-1111-4111-8111-111111111111';
@@ -16,6 +25,32 @@ const LOG_ID = '33333333-3333-4333-8333-333333333333';
 const LOG_ID_2 = '44444444-4444-4444-8444-444444444444';
 const ITEM_ID = '55555555-5555-4555-8555-555555555555';
 const ADJUSTMENT_ID = '66666666-6666-4666-8666-666666666666';
+
+function patient(overrides: Partial<Patient> = {}): Patient {
+  return {
+    id: PATIENT_ID,
+    displayName: 'Yoni',
+    archived: false,
+    sortOrder: 0,
+    updatedAt: NOW,
+    updatedByDeviceId: 'device-1',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
+function medicinePatient(overrides: Partial<MedicinePatient> = {}): MedicinePatient {
+  return {
+    id: `${MEDICINE_ID}:${PATIENT_ID}`,
+    medicineId: MEDICINE_ID,
+    patientId: PATIENT_ID,
+    active: true,
+    updatedAt: NOW,
+    updatedByDeviceId: 'device-1',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
 
 function medicine(overrides: Partial<Medicine> = {}): Medicine {
   return {
@@ -94,11 +129,23 @@ function inventoryAdjustment(overrides: Partial<InventoryAdjustment> = {}): Inve
 }
 
 const FULL_SOURCE = {
+  patients: [patient()],
+  medicinePatients: [medicinePatient()],
   medicines: [medicine()],
   schedules: [schedule()],
   intakeLogs: [intakeLog(), intakeLog({ id: LOG_ID_2, supersedesId: LOG_ID })],
   inventoryItems: [inventoryItem()],
   inventoryAdjustments: [inventoryAdjustment()],
+};
+
+const EMPTY_SOURCE = {
+  patients: [],
+  medicinePatients: [],
+  medicines: [],
+  schedules: [],
+  intakeLogs: [],
+  inventoryItems: [],
+  inventoryAdjustments: [],
 };
 
 describe('buildBackupBundle', () => {
@@ -118,6 +165,8 @@ describe('buildBackupBundle', () => {
     // The superseded log must survive the round trip — safety invariant 1. A backup that quietly
     // dropped it would rewrite history the moment it was restored.
     expect(bundle.intakeLogs.map((log) => log.id)).toEqual([LOG_ID, LOG_ID_2]);
+    expect(bundle.patients).toHaveLength(1);
+    expect(bundle.medicinePatients).toHaveLength(1);
     expect(bundle.medicines).toHaveLength(1);
     expect(bundle.schedules).toHaveLength(1);
     expect(bundle.inventoryItems).toHaveLength(1);
@@ -125,16 +174,7 @@ describe('buildBackupBundle', () => {
   });
 
   it('builds an empty-but-valid bundle from an empty household', () => {
-    const bundle = buildBackupBundle(
-      {
-        medicines: [],
-        schedules: [],
-        intakeLogs: [],
-        inventoryItems: [],
-        inventoryAdjustments: [],
-      },
-      fixedClock(NOW),
-    );
+    const bundle = buildBackupBundle(EMPTY_SOURCE, fixedClock(NOW));
     expect(parseBackupBundle(bundle)).toMatchObject({ ok: true });
   });
 });
@@ -146,7 +186,10 @@ describe('parseBackupBundle', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      bundle: { medicines: [expect.objectContaining({ id: MEDICINE_ID })] },
+      bundle: {
+        patients: [expect.objectContaining({ id: PATIENT_ID })],
+        medicines: [expect.objectContaining({ id: MEDICINE_ID })],
+      },
     });
   });
 
@@ -184,12 +227,85 @@ describe('parseBackupBundle', () => {
     const { version: _version, ...withoutVersion } = bundle;
     expect(parseBackupBundle(withoutVersion).ok).toBe(false);
   });
+
+  describe('upgrading a version-1 (pre-multi-patient) bundle', () => {
+    const legacyMedicine = {
+      id: MEDICINE_ID,
+      patientId: PATIENT_ID,
+      name: 'Ondansetron',
+      strength: '4mg',
+      form: 'pill' as const,
+      asNeeded: true,
+      archived: false,
+      updatedAt: NOW,
+      updatedByDeviceId: 'device-1',
+      syncStatus: 'synced' as const,
+    };
+
+    const legacyBundle = {
+      version: 1,
+      exportedAt: NOW,
+      medicines: [legacyMedicine],
+      schedules: [schedule()],
+      intakeLogs: [intakeLog()],
+      inventoryItems: [inventoryItem()],
+      inventoryAdjustments: [inventoryAdjustment()],
+    };
+
+    it('synthesizes one patient and one medicine assignment from each medicine’s legacy patientId', () => {
+      const result = parseBackupBundle(legacyBundle);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.bundle.version).toBe(BACKUP_FORMAT_VERSION);
+      expect(result.bundle.patients).toEqual([
+        expect.objectContaining({ id: PATIENT_ID, displayName: 'Patient', archived: false }),
+      ]);
+      expect(result.bundle.medicinePatients).toEqual([
+        expect.objectContaining({
+          id: `${MEDICINE_ID}:${PATIENT_ID}`,
+          medicineId: MEDICINE_ID,
+          patientId: PATIENT_ID,
+          active: true,
+        }),
+      ]);
+      // Everything else passes through untouched.
+      expect(result.bundle.medicines).toEqual([legacyMedicine]);
+    });
+
+    it('falls back to SINGLE_PATIENT_ID for a legacy medicine with no patientId at all', () => {
+      const { patientId: _patientId, ...withoutPatientId } = legacyMedicine;
+      const result = parseBackupBundle({ ...legacyBundle, medicines: [withoutPatientId] });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.bundle.patients).toEqual([
+        expect.objectContaining({ id: SINGLE_PATIENT_ID, displayName: 'Patient' }),
+      ]);
+    });
+
+    it('still rejects a version-1 bundle whose records fail their own schema', () => {
+      const result = parseBackupBundle({ ...legacyBundle, medicines: [{ ...legacyMedicine, name: '' }] });
+      expect(result.ok).toBe(false);
+    });
+
+    it('produces a bundle that round-trips through the current schema', () => {
+      const upgraded = parseBackupBundle(legacyBundle);
+      expect(upgraded.ok).toBe(true);
+      if (!upgraded.ok) return;
+
+      const reparsed = parseBackupBundle(JSON.parse(JSON.stringify(upgraded.bundle)));
+      expect(reparsed.ok).toBe(true);
+    });
+  });
 });
 
 describe('summarizeBackup', () => {
   it('counts every record type for a caregiver to sanity-check before importing', () => {
     const bundle = buildBackupBundle(FULL_SOURCE, fixedClock(NOW));
     expect(summarizeBackup(bundle)).toEqual({
+      patients: 1,
       medicines: 1,
       schedules: 1,
       intakeLogs: 2,

@@ -22,6 +22,8 @@ class TestDB extends Dexie {
     super(name);
     this.version(1).stores({
       householdSettings: 'id',
+      patients: 'id, archived, sortOrder',
+      medicinePatients: 'id, medicineId, patientId, active',
       medicines: 'id, patientId, name, archived, syncStatus, updatedAt',
       schedules: 'id, medicineId, patientId, active, regimenGroupId, syncStatus, updatedAt',
       intakeLogs:
@@ -99,9 +101,9 @@ describe('transactional integrity — the reason this layer exists', () => {
 
     vi.spyOn(db.table('schedules'), 'bulkPut').mockRejectedValue(new Error('disk failure'));
 
-    await expect(repository.reviseSchedule('schedule-1', { dosageQuantity: 2 }, '2026-06-15')).rejects.toThrow(
-      'disk failure',
-    );
+    await expect(
+      repository.reviseSchedule('schedule-1', { dosageQuantity: 2 }, '2026-06-15'),
+    ).rejects.toThrow('disk failure');
 
     // A partial write would leave the household with no live schedule, or with two.
     expect(await db.table('schedules').count()).toBe(1);
@@ -110,12 +112,16 @@ describe('transactional integrity — the reason this layer exists', () => {
 
   it('writes nothing at all when one table fails partway through restoreBackup', async () => {
     const { db, repository } = freshRepository();
-    vi.spyOn(db.table('inventoryAdjustments'), 'bulkPut').mockRejectedValue(new Error('disk failure'));
+    vi.spyOn(db.table('inventoryAdjustments'), 'bulkPut').mockRejectedValue(
+      new Error('disk failure'),
+    );
 
     await expect(repository.restoreBackup(makeBundle())).rejects.toThrow('disk failure');
 
     // A partially-applied backup — some tables restored, others not — would leave the household
     // in a state matching neither the backup nor what was there before.
+    expect(await db.table('patients').count()).toBe(0);
+    expect(await db.table('medicinePatients').count()).toBe(0);
     expect(await db.table('medicines').count()).toBe(0);
     expect(await db.table('schedules').count()).toBe(0);
     expect(await db.table('intakeLogs').count()).toBe(0);
@@ -125,7 +131,9 @@ describe('transactional integrity — the reason this layer exists', () => {
   it('clears nothing at all if any table fails to clear', async () => {
     const { db, repository } = freshRepository();
     await repository.restoreBackup(makeBundle());
-    vi.spyOn(db.table('inventoryAdjustments'), 'clear').mockRejectedValue(new Error('disk failure'));
+    vi.spyOn(db.table('inventoryAdjustments'), 'clear').mockRejectedValue(
+      new Error('disk failure'),
+    );
 
     await expect(repository.clearAllData()).rejects.toThrow('disk failure');
 

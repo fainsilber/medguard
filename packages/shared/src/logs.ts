@@ -26,10 +26,20 @@ export function effectiveLogs(logs: readonly IntakeLog[]): IntakeLog[] {
   return logs.filter((log) => !superseded.has(log.id));
 }
 
-/** Effective logs for one medicine that record a dose actually administered. */
-export function administeredDoses(logs: readonly IntakeLog[], medicineId: Uuid): IntakeLog[] {
+/**
+ * Effective logs for one medicine, taken by one patient, that record a dose actually administered.
+ *
+ * Scoped by `patientId` as well as `medicineId` because a shared medicine (one `Medicine` row
+ * several patients take) has one cooldown/cap *limit*, but each patient's doses are counted
+ * against it independently — Dad taking his dose must not put Mom in cooldown for hers.
+ */
+export function administeredDoses(
+  logs: readonly IntakeLog[],
+  medicineId: Uuid,
+  patientId: Uuid,
+): IntakeLog[] {
   return effectiveLogs(logs).filter(
-    (log) => log.medicineId === medicineId && log.status === 'taken',
+    (log) => log.medicineId === medicineId && log.patientId === patientId && log.status === 'taken',
   );
 }
 
@@ -39,7 +49,7 @@ export function sortByActualTimeDesc(logs: readonly IntakeLog[]): IntakeLog[] {
 }
 
 /**
- * The most recently administered dose of a medicine, or undefined if there is none.
+ * The most recently administered dose of a medicine by one patient, or undefined if there is none.
  *
  * "Most recent" is by `actualTime` — when the dose was given — not by insertion order, because a
  * dose given during Shabbat may be logged hours later during reconciliation (PRD §3).
@@ -47,6 +57,7 @@ export function sortByActualTimeDesc(logs: readonly IntakeLog[]): IntakeLog[] {
 export function lastAdministeredDose(
   logs: readonly IntakeLog[],
   medicineId: Uuid,
+  patientId: Uuid,
 ): IntakeLog | undefined {
-  return sortByActualTimeDesc(administeredDoses(logs, medicineId))[0];
+  return sortByActualTimeDesc(administeredDoses(logs, medicineId, patientId))[0];
 }

@@ -149,6 +149,57 @@ describe('publishWindows', () => {
     expect(['shabbat', 'yom_tov', 'combined']).toContain(first.kind);
   });
 
+  it('publishes windows for every patient with a config, not just the most recently written one', async () => {
+    const MOM = 'aaaaaaaa-0000-4000-8000-000000000001';
+    const DAD = 'bbbbbbbb-0000-4000-8000-000000000002';
+
+    const session = await createHousehold();
+    await push(session, [
+      { table: 'householdSettings', record: settings() },
+      {
+        table: 'shabbatConfig',
+        record: shabbatConfig({
+          id: '11111111-1111-4111-8111-111111111111',
+          patientId: MOM,
+        }),
+      },
+      {
+        table: 'shabbatConfig',
+        record: shabbatConfig({
+          id: '22222222-2222-4222-8222-222222222222',
+          patientId: DAD,
+          // A different location, so each patient's windows are independently verifiable rather
+          // than coincidentally identical.
+          longitude: 34.7818,
+        }),
+      },
+    ]);
+
+    await publishWindows(env.DB, session.householdId, NOW_MS);
+
+    const { results: momWindows } = await env.DB.prepare(
+      'SELECT payload FROM shabbat_windows WHERE household_id = ? AND patient_id = ?',
+    )
+      .bind(session.householdId, MOM)
+      .all<{ payload: string }>();
+    const { results: dadWindows } = await env.DB.prepare(
+      'SELECT payload FROM shabbat_windows WHERE household_id = ? AND patient_id = ?',
+    )
+      .bind(session.householdId, DAD)
+      .all<{ payload: string }>();
+
+    // The row that used to win `ORDER BY seq DESC LIMIT 1` (Dad's, written second) must not be
+    // the only one published — both patients get their own full horizon.
+    expect(momWindows.length).toBeGreaterThan(10);
+    expect(dadWindows.length).toBeGreaterThan(10);
+    expect(momWindows.length).toBe(dadWindows.length);
+
+    const momFirst = JSON.parse(momWindows[0]!.payload) as { startsAt: string };
+    const dadFirst = JSON.parse(dadWindows[0]!.payload) as { startsAt: string };
+    // Different longitudes computed genuinely independent times — not the same config re-tagged.
+    expect(momFirst.startsAt).not.toBe(dadFirst.startsAt);
+  });
+
   it('is idempotent — republishing the same calendar adds nothing', async () => {
     const session = await createHousehold();
     await push(session, [

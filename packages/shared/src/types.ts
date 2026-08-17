@@ -20,14 +20,12 @@ export type LocalTime = string;
 export type SyncStatus = 'synced' | 'pending';
 
 /**
- * The one patient every record belongs to. The schema carries `patientId` on every entity so
- * multi-patient support is a UI change later rather than a migration, but the UI ships single-
- * patient in v1 (see sprint plan assumptions) — everything just uses this constant for now.
- *
- * A real (if arbitrary) UUID rather than a human-readable placeholder like `"patient-1"`,
- * because `patientId` fields are validated as UUIDs — using a non-UUID placeholder now would
- * mean every local record silently fails that validation the moment Sprint 3 starts enforcing
- * it at the sync boundary.
+ * The patient id every pre-multi-patient household record was minted against. Multi-patient
+ * households now have a real `patients` table (below), but this constant lives on as the id the
+ * server backfill assigns to a household's first, auto-created patient — so a household that
+ * synced before multi-patient shipped resolves to the same patient id it always had, and a device
+ * mid-upgrade never disagrees with the server about which patient a not-yet-renamed record
+ * belongs to.
  */
 export const SINGLE_PATIENT_ID: Uuid = '00000000-0000-4000-8000-000000000001';
 
@@ -62,6 +60,56 @@ export interface HouseholdSettings extends Syncable {
 }
 
 // ---------------------------------------------------------------------------
+// Patients
+// ---------------------------------------------------------------------------
+
+/**
+ * One member of the household whose medicines are tracked — a child, a sibling, a parent.
+ *
+ * Every household that ever recorded a medicine has at least one patient: the server backfill
+ * (migration `0005_patients.sql`) creates one named "Patient" with id `SINGLE_PATIENT_ID` for any
+ * household with existing medicines, so caregivers upgrading from a single-patient household land
+ * on a rename rather than a re-entry.
+ */
+export interface Patient extends Syncable {
+  id: Uuid;
+  /** e.g. "Yoni", "Mom" — the only piece of a person's name this app ever stores. */
+  displayName: string;
+  /**
+   * Archived, never deleted: intake logs and medicines reference a patient forever, and a deleted
+   * patient would orphan that history (safety invariant 1) the same way a deleted medicine would.
+   */
+  archived: boolean;
+  /** Manual ordering for the patient switcher, so the list isn't alphabetically arbitrary. */
+  sortOrder: number;
+}
+
+/**
+ * One patient's entitlement to take one medicine. A medicine with no rows here belongs to nobody
+ * yet; one row makes it private to that patient; several rows make it shared.
+ *
+ * `id` is deterministic (`${medicineId}:${patientId}`, see `medicinePatientId()`) rather than a
+ * random UUID, so two devices assigning the same pair while offline converge on one row instead of
+ * duplicating it — the same trick `ShabbatWindow.id` uses to make republishing idempotent.
+ */
+export interface MedicinePatient extends Syncable {
+  id: string;
+  medicineId: Uuid;
+  patientId: Uuid;
+  /**
+   * Unassignment is a soft delete, for the same reason medicines archive rather than disappear:
+   * an intake log logged while a medicine was assigned to a patient must still resolve that
+   * assignment when read back later, even after a caregiver removes it.
+   */
+  active: boolean;
+}
+
+/** The deterministic id for a `MedicinePatient` row — see the doc comment on the type. */
+export function medicinePatientId(medicineId: Uuid, patientId: Uuid): string {
+  return `${medicineId}:${patientId}`;
+}
+
+// ---------------------------------------------------------------------------
 // Medicines
 // ---------------------------------------------------------------------------
 
@@ -69,7 +117,14 @@ export type MedicineForm = 'pill' | 'liquid' | 'injection' | 'topical' | 'other'
 
 export interface Medicine extends Syncable {
   id: Uuid;
-  patientId: Uuid;
+  /**
+   * Vestigial as of multi-patient support: who takes a medicine is now expressed by
+   * `MedicinePatient` rows, which support one, several, or (implicitly, via an "all patients"
+   * assignment) every patient. Optional so records written before that change keep validating;
+   * new code should not read or write it. Kept rather than removed because the server's D1 column
+   * is `NOT NULL` and SQLite cannot relax that in place without a table rebuild.
+   */
+  patientId?: Uuid;
   name: string;
   /** Free text as printed on the label, e.g. "50mg". Never parsed — the app does not do dose math. */
   strength: string;
@@ -80,9 +135,14 @@ export interface Medicine extends Syncable {
    * just stopped isn't suddenly "as needed" until a caregiver says so.
    */
   asNeeded: boolean;
-  /** Minimum interval between doses. Only meaningful when `asNeeded` is true. */
+  /**
+   * Minimum interval between doses. Only meaningful when `asNeeded` is true. Applies to whoever
+   * takes the medicine — a shared medicine has one cooldown, not one per patient (see
+   * `AssessDoseInput` in `safety.ts` for how per-patient *counting* still works within that shared
+   * limit).
+   */
   minHoursBetweenDoses?: number;
-  /** Rolling-24h dose cap. Only meaningful when `asNeeded` is true. */
+  /** Rolling-24h dose cap. Only meaningful when `asNeeded` is true. Same shared-limit note as above. */
   maxDailyDoses?: number;
   instructions?: string;
   /**
@@ -341,6 +401,8 @@ export interface ShabbatWindow extends Syncable {
 // ---------------------------------------------------------------------------
 
 export type SyncableTable =
+  | 'patients'
+  | 'medicinePatients'
   | 'medicines'
   | 'schedules'
   | 'intakeLogs'

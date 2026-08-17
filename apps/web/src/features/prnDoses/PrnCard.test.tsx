@@ -48,10 +48,13 @@ function doseLog(overrides: Partial<IntakeLog> = {}): IntakeLog {
 describe('PrnCard', () => {
   it('shows Give dose when safe and records a PRN dose on click without throwing', async () => {
     const user = userEvent.setup();
-    await renderWithRepository(<PrnCard medicine={medicine()} logs={[]} timeZone={TIME_ZONE} />, {
-      clock: fixedClock('2026-06-15T12:00:00.000Z'),
-      timeZone: TIME_ZONE,
-    });
+    await renderWithRepository(
+      <PrnCard medicine={medicine()} patientId="patient-1" logs={[]} timeZone={TIME_ZONE} />,
+      {
+        clock: fixedClock('2026-06-15T12:00:00.000Z'),
+        timeZone: TIME_ZONE,
+      },
+    );
 
     expect(screen.getByText('🟢 Safe to take')).toBeInTheDocument();
     const giveButton = screen.getByRole('button', { name: 'Give dose' });
@@ -65,10 +68,13 @@ describe('PrnCard', () => {
 
   it('lets a caregiver pick a different time than now when giving a dose', async () => {
     const user = userEvent.setup();
-    await renderWithRepository(<PrnCard medicine={medicine()} logs={[]} timeZone={TIME_ZONE} />, {
-      clock: fixedClock('2026-06-15T12:00:00.000Z'),
-      timeZone: TIME_ZONE,
-    });
+    await renderWithRepository(
+      <PrnCard medicine={medicine()} patientId="patient-1" logs={[]} timeZone={TIME_ZONE} />,
+      {
+        clock: fixedClock('2026-06-15T12:00:00.000Z'),
+        timeZone: TIME_ZONE,
+      },
+    );
 
     await user.click(screen.getByRole('button', { name: 'Different time…' }));
     expect(screen.getByLabelText('Time given')).toHaveValue('12:00');
@@ -85,7 +91,14 @@ describe('PrnCard', () => {
     await renderWithRepository(
       <PrnCard
         medicine={medicine()}
-        logs={[doseLog({ actualTime: '2026-06-15T11:30:00.000Z', loggedByUserId: 'Mom', quantityTaken: 2 })]}
+        patientId="patient-1"
+        logs={[
+          doseLog({
+            actualTime: '2026-06-15T11:30:00.000Z',
+            loggedByUserId: 'Mom',
+            quantityTaken: 2,
+          }),
+        ]}
         timeZone={TIME_ZONE}
       />,
       { clock: fixedClock('2026-06-15T12:00:00.000Z'), timeZone: TIME_ZONE },
@@ -98,6 +111,7 @@ describe('PrnCard', () => {
     await renderWithRepository(
       <PrnCard
         medicine={medicine({ minHoursBetweenDoses: 4 })}
+        patientId="patient-1"
         logs={[doseLog({ actualTime: '2026-06-15T08:00:00.000Z' })]}
         timeZone={TIME_ZONE}
       />,
@@ -115,14 +129,14 @@ describe('PrnCard', () => {
     const logs = [doseLog({ actualTime: '2026-06-15T08:00:00.000Z' })];
 
     const beforeBoundary = await renderWithRepository(
-      <PrnCard medicine={guardedMedicine} logs={logs} timeZone={TIME_ZONE} />,
+      <PrnCard medicine={guardedMedicine} patientId="patient-1" logs={logs} timeZone={TIME_ZONE} />,
       { clock: fixedClock('2026-06-15T11:59:59.999Z'), timeZone: TIME_ZONE },
     );
     expect(await screen.findByText('🔴 Locked')).toBeInTheDocument();
     beforeBoundary.unmount();
 
     await renderWithRepository(
-      <PrnCard medicine={guardedMedicine} logs={logs} timeZone={TIME_ZONE} />,
+      <PrnCard medicine={guardedMedicine} patientId="patient-1" logs={logs} timeZone={TIME_ZONE} />,
       { clock: fixedClock('2026-06-15T12:00:00.000Z'), timeZone: TIME_ZONE },
     );
     expect(await screen.findByText('🟢 Safe to take')).toBeInTheDocument();
@@ -135,7 +149,7 @@ describe('PrnCard', () => {
     const logs = [doseLog({ actualTime: '2026-06-15T08:00:00.000Z' })];
 
     const withinWindow = await renderWithRepository(
-      <PrnCard medicine={cappedMedicine} logs={logs} timeZone={TIME_ZONE} />,
+      <PrnCard medicine={cappedMedicine} patientId="patient-1" logs={logs} timeZone={TIME_ZONE} />,
       { clock: fixedClock('2026-06-16T07:59:00.000Z'), timeZone: TIME_ZONE },
     );
     expect(await screen.findByText('⚫ Daily limit reached')).toBeInTheDocument();
@@ -143,7 +157,7 @@ describe('PrnCard', () => {
     withinWindow.unmount();
 
     await renderWithRepository(
-      <PrnCard medicine={cappedMedicine} logs={logs} timeZone={TIME_ZONE} />,
+      <PrnCard medicine={cappedMedicine} patientId="patient-1" logs={logs} timeZone={TIME_ZONE} />,
       { clock: fixedClock('2026-06-16T08:01:00.000Z'), timeZone: TIME_ZONE },
     );
     expect(await screen.findByText('🟢 Safe to take')).toBeInTheDocument();
@@ -153,6 +167,7 @@ describe('PrnCard', () => {
     await renderWithRepository(
       <PrnCard
         medicine={medicine({ minHoursBetweenDoses: 4 })}
+        patientId="patient-1"
         logs={[doseLog({ actualTime: '2026-06-15T08:00:00.000Z' })]}
         timeZone={TIME_ZONE}
         clockTrust={{ kind: 'unverified' }}
@@ -170,6 +185,7 @@ describe('PrnCard', () => {
     await renderWithRepository(
       <PrnCard
         medicine={medicine({ minHoursBetweenDoses: 4 })}
+        patientId="patient-1"
         logs={[doseLog({ actualTime: '2026-06-15T08:00:00.000Z' })]}
         timeZone={TIME_ZONE}
       />,
@@ -188,7 +204,9 @@ describe('PrnCard', () => {
     expect(
       screen.getByText('Are you sure? This will be permanently recorded as an override.'),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Give anyway (override)' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Give anyway (override)' }),
+    ).not.toBeInTheDocument();
 
     const confirmButton = screen.getByRole('button', { name: 'Yes, give the dose' });
     await user.click(confirmButton);
@@ -203,6 +221,7 @@ describe('PrnCard', () => {
     await renderWithRepository(
       <PrnCard
         medicine={medicine({ minHoursBetweenDoses: 4 })}
+        patientId="patient-1"
         logs={[doseLog({ actualTime: '2026-06-15T08:00:00.000Z' })]}
         timeZone={TIME_ZONE}
       />,
@@ -211,12 +230,16 @@ describe('PrnCard', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Give anyway (override)' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(await screen.findByRole('button', { name: 'Give anyway (override)' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Give anyway (override)' }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Give anyway (override)' }));
     await user.type(screen.getByRole('textbox'), 'reason');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(await screen.findByRole('button', { name: 'Give anyway (override)' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Give anyway (override)' }),
+    ).toBeInTheDocument();
   });
 });

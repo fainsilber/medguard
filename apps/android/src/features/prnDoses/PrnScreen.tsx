@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { ScrollView, Text } from 'react-native';
+import { SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { ClockTrust, IntakeLog, Medicine } from '@medguard/shared';
 import { useRepository } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
@@ -75,6 +76,9 @@ export function PrnScreen({ clockTrust }: { clockTrust?: ClockTrust }): React.JS
           <PrnCard
             key={medicine.id}
             medicine={medicine}
+            // TODO(multi-patient phase 3): one card per patient this medicine is assigned to,
+            // via `medicinePatientsFor`, rather than the pre-multi-patient owner field.
+            patientId={medicine.patientId ?? SINGLE_PATIENT_ID}
             logs={data.logsByMedicine.get(medicine.id) ?? []}
             timeZone={householdSettings.timeZone}
             {...(clockTrust ? { clockTrust } : {})}
