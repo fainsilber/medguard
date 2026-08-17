@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 
 /**
@@ -49,9 +50,14 @@ export const styles = StyleSheet.create({
  * scrolling list — needs this: this app is Android-only (`app.config.ts`'s `platforms`), and
  * Android does not reliably resize or pan content around the keyboard on its own once edge-to-edge
  * display is in play (the default since Expo SDK 53), so without it the keyboard simply overlaps
- * whatever was focused. `behavior="height"` (not `"padding"`) is the one that actually works on
- * Android — `"padding"` measures the view's on-screen position, which is unreliable across nested
- * navigators here.
+ * whatever was focused.
+ *
+ * Uses a plain View with keyboard-event-driven `paddingBottom` instead of `KeyboardAvoidingView`:
+ * `KeyboardAvoidingView` (both `"height"` and `"padding"` behaviors) is unreliable across nested
+ * native stacks in edge-to-edge mode — it fails to constrain the ScrollView viewport, leaving the
+ * keyboard overlapping the bottom of the form with no way to reach the Save button. Listening to
+ * `keyboardDidShow`/`keyboardDidHide` and shrinking the container by the keyboard height is
+ * simpler and works reliably regardless of nesting depth.
  */
 export function KeyboardAvoidingScreen({
   children,
@@ -60,11 +66,29 @@ export function KeyboardAvoidingScreen({
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
 }): React.JSX.Element {
+  const keyboardHeight = useKeyboardHeight();
   return (
-    <KeyboardAvoidingView style={[styles.screen, style]} behavior="height">
+    <View style={[styles.screen, style, keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : null]}>
       {children}
-    </KeyboardAvoidingView>
+    </View>
   );
+}
+
+function useKeyboardHeight(): number {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      setHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      setHeight(0);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return height;
 }
 
 export function Card({
