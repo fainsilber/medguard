@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "main": "index.ts",
+  "//test": "The root's `npm test`/`npm run test:coverage` call `test:jest` here, not `test` — this workspace's own `test` (vitest run && jest) exists for running the whole app's suite standalone, but the vitest half is the same `android` project the root vitest.config.ts already runs. Adding `--workspaces` to a root script would silently double-run those 76+ tests.",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",

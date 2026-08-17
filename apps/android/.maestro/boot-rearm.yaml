@@ -1,0 +1,29 @@
+appId: il.co.fainsilber.med
+---
+# Half of manual QA item 5 (docs/android-client-plan.md / docs/medguard-sprint-plan.md): does an
+# armed alarm survive a reboot? This flow only does the app-side setup — arm one real alarm via
+# Diagnostics' "Locked-phone dry run" card, which goes through the exact same
+# scheduleDoseAlarm() -> AlarmScheduler.schedule() -> ArmedAlarmStore.put() path a real dose alarm
+# uses (DiagnosticsScreen.tsx's onScheduleLockedPhoneAlarm). The actual reboot simulation — a
+# BOOT_COMPLETED broadcast to BootReceiver, which is android:exported="true" with a real intent
+# filter and so reachable from the shell UID with no adb root needed — and the assertion that it
+# re-armed, both happen in the companion ../e2e/boot-rearm.sh, which runs this flow first.
+#
+# Does NOT simulate an actual device reboot (AlarmManager entries are only really cleared by one);
+# it proves BootReceiver's own re-arm logic runs cleanly and writes a fresh AlarmManager entry,
+# which is the part nothing else in this repo covers today. See docs/testing.md for what a green
+# run here does and doesn't prove.
+
+- launchApp
+
+- runFlow: ../e2e/maestro-subflows/ensure-onboarded.yaml
+
+- tapOn: "More screens"
+- tapOn: "Diagnostics"
+- scrollUntilVisible:
+    element:
+      text: "Arm alarm in 15s"
+    direction: DOWN
+
+- tapOn: "Arm alarm in 15s"
+- assertVisible: "Cancel"

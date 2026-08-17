@@ -15,6 +15,11 @@ android {
   lintOptions {
     abortOnError false
   }
+  testOptions {
+    // Robolectric reads AndroidManifest.xml-derived resources (notification channel strings,
+    // for one) to give its shadow framework a real Context to run against.
+    unitTests.includeAndroidResources = true
+  }
 }
 
 dependencies {
@@ -43,4 +48,14 @@ dependencies {
   // sound stops, what silences it early) is a plain Kotlin class precisely so it can be proven
   // here rather than only on a phone. Run by `.github/workflows/android-apk.yml` after prebuild.
   testImplementation 'junit:junit:4.13.2'
+
+  // Everything else under src/test/ — PendingActionStore, ArmedAlarmStore, AlarmScheduler,
+  // BootReceiver, NotificationActionReceiver, AlarmReceiver, AlarmPayload, MedGuardChannels,
+  // PushTokenStore — touches a real Android Context, SharedPreferences, AlarmManager, or
+  // NotificationManager, none of which the plain JVM classpath ChimeSessionTest runs on can
+  // provide. `org.json.JSONObject`/`JSONArray` specifically are a throwing stub on that same
+  // plain classpath ("Method X in org.json.Y not mocked") — Robolectric's shadow is what makes
+  // them work at all, which is why it's mandatory here, not merely convenient.
+  testImplementation 'org.robolectric:robolectric:4.13'
+  testImplementation 'androidx.test:core:1.6.1'
 }

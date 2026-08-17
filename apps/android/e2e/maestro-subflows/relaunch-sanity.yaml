@@ -1,0 +1,8 @@
+# Run standalone (not via runFlow) by ../e2e/alarm-action.sh after force-stopping the app and
+# broadcasting a notification action at it directly — confirms the app comes back up cleanly after
+# MedGuardHeadlessService ran in its absence, rather than asserting anything about the dose itself
+# (that assertion happens over adb in the shell script; see its header comment for why).
+appId: il.co.fainsilber.med
+---
+- launchApp
+- assertVisible: "MedGuard"

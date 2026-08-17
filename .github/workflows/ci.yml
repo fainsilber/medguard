@@ -15,7 +15,10 @@ jobs:
   verify:
     name: Lint, typecheck, test, e2e
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Jest coverage adds real time over a plain test run, and the three newest Playwright specs
+    # (prn-safety, dose-correction, push-delivery) push the e2e step longer too — 20 was already
+    # not generous before either landed.
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4
@@ -36,15 +39,57 @@ jobs:
 
       # Runs the shared domain tests, the Dexie tests under fake-indexeddb, the React
       # component tests, and the Worker/D1/Durable Object tests in the real workerd runtime.
-      # No Cloudflare account or credentials required.
-      - name: Test with coverage
-        run: npm run test:coverage
+      # No Cloudflare account or credentials required. Kept as its own step (not folded into
+      # `npm run test:coverage`, which also runs the step below) so a failure here is
+      # attributable to this layer specifically, not just "the coverage step failed".
+      - name: Vitest (shared, store, web, api, android) with coverage
+        run: npm run test:vitest -- --coverage
 
       # RN screen tests, outside the Vitest projects list — jest-expo's preset provides the
       # native-module mocks the actual RN renderer needs, which jsdom/node can't (docs/android-
-      # client-plan.md, test strategy table).
-      - name: Android RN component tests
-        run: npm run test:jest --workspace=@medguard/android
+      # client-plan.md, test strategy table). Two separate coverage gates over two disjoint file
+      # sets (vitest.config.ts's narrowed apps/android/src exclusion and this config's own
+      # collectCoverageFrom are complements of each other — see jest.config.js's comment).
+      - name: Android Jest (RN components) with coverage
+        run: npm run test:jest --workspace=@medguard/android -- --coverage
+
+      # Both coverage steps write coverage-summary.json (vitest.config.ts / jest.config.js's
+      # json-summary reporter); this turns the two aggregate numbers into a run-summary table
+      # without re-running anything. `if: always()` so a failed test run still shows what
+      # coverage (if any) was collected before it failed, rather than nothing at all.
+      - name: Coverage summary
+        if: always()
+        run: |
+          node - <<'JS' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require('fs');
+
+          function row(label, path) {
+            if (!fs.existsSync(path)) {
+              return `| ${label} | _no report_ | | | |\n`;
+            }
+            const { total } = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const pct = (key) => `${total[key].pct}%`;
+            return `| ${label} | ${pct('statements')} | ${pct('branches')} | ${pct('functions')} | ${pct('lines')} |\n`;
+          }
+
+          let out = '### Coverage\n\n';
+          out += '| Suite | Statements | Branches | Functions | Lines |\n';
+          out += '| --- | --- | --- | --- | --- |\n';
+          out += row('Vitest (shared, store, web, api, android)', 'coverage/coverage-summary.json');
+          out += row('Jest (Android RN)', 'apps/android/coverage/coverage-summary.json');
+          process.stdout.write(out);
+          JS
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage/
+            apps/android/coverage/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Install Playwright browser
         run: npx playwright install chromium --with-deps

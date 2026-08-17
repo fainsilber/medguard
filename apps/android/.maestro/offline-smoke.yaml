@@ -1,0 +1,86 @@
+appId: il.co.fainsilber.med
+---
+# The RN mirror of apps/web/e2e/offline-smoke.spec.ts's happy path — standalone onboarding, add a
+# medicine, track its stock, log a dose, confirm the stock ledger moved — proven against a real
+# installed build rather than a component render. Deliberately scoped to the as-needed/PRN lane
+# rather than a scheduled "due now" dose: a scheduled occurrence needs a due time computed relative
+# to whenever this happens to run, which Maestro's YAML has no clean way to express, and the PRN
+# lane exercises the same recordDose()/inventory-adjustment path (packages/store/src/repository.ts)
+# without it. See docs/testing.md for how to run this against a real emulator or device.
+#
+# What this does NOT prove: anything scheduled/alarm-related (see boot-rearm.yaml and
+# alarm-notification-action.yaml for that), or sync (no household is created here).
+
+- launchApp:
+    clearState: true
+
+- runFlow: ../e2e/maestro-subflows/ensure-onboarded.yaml
+
+# Today is the default landing route (AppNavigator's initialRouteName).
+- assertVisible: "MedGuard"
+
+# The header's Medicines shortcut (App.tsx), not the hamburger menu.
+- tapOn: "Medicines list"
+- tapOn: "+ Add medicine"
+
+# Name has no placeholder text by design (see MedicineForm.tsx's comment on this field), so it
+# needs the testID added for this flow rather than a text match.
+- tapOn:
+    id: "medicine-name-input"
+- inputText: "Ondansetron"
+- tapOn:
+    id: "medicine-strength-input"
+- inputText: "4mg"
+- hideKeyboard
+# Below the fold on a small emulator screen — Name, Strength, the five Form chips, and this row
+# are more than 640px of portrait height fits at once (confirmed the hard way in CI: `tapOn`
+# doesn't auto-scroll, and "Element not found" is what an off-screen element looks like, not a
+# text-matching problem).
+- scrollUntilVisible:
+    element:
+      text: "As needed — no fixed times, given when it's needed"
+    direction: DOWN
+- tapOn: "As needed — no fixed times, given when it's needed"
+# Selecting "As needed" reveals two more fields (Min hours between doses, Max doses/day —
+# MedicineForm.tsx's conditional block), pushing Save further down and off-screen again on this
+# emulator's 320x640 skin. Confirmed the hard way in CI, same as the scroll above.
+- scrollUntilVisible:
+    element:
+      text: "Save"
+    direction: DOWN
+- tapOn: "Save"
+
+# MedicineList renders name and strength inside one compound Text node
+# ({medicine.name} <Text>{medicine.strength}</Text>), which the accessibility tree exposes as one
+# flattened string ("Ondansetron 4mg") — Maestro's text selectors match the *whole* node against
+# the regex, so a bare "Ondansetron" (implicitly anchored) never matched it. Confirmed the hard
+# way in CI: the Save tap itself succeeded, only this assertion failed, for 18s of retries.
+- assertVisible: "Ondansetron.*"
+
+# Stock tracking lives on the Inventory screen, reached through the hamburger menu (App.tsx's
+# MENU_ITEMS) rather than the bottom Today/As-needed switcher.
+- tapOn: "More screens"
+- tapOn: "Inventory"
+- tapOn: "Track stock"
+# "Starting count" labels both the static field label and the TextInput's accessibilityLabel
+# (InventoryCard.tsx's SetupForm) — index 1 is the actual input, index 0 is the inert label text.
+- tapOn:
+    text: "Starting count"
+    index: 1
+- inputText: "10"
+- hideKeyboard
+- tapOn: "Start tracking stock"
+- assertVisible: "10 pills remaining"
+
+# Log a PRN dose and confirm recordDose()'s paired inventory adjustment actually landed — the
+# assertion this whole flow exists for, not just "the form submitted".
+- tapOn: "As needed"
+# Same compound-Text situation as MedicineList above — PrnCard's title is
+# {medicine.name} <Text>{medicine.strength}</Text> too.
+- assertVisible: "Ondansetron.*"
+- assertVisible: "Safe to take"
+- tapOn: "Give dose"
+
+- tapOn: "More screens"
+- tapOn: "Inventory"
+- assertVisible: "9 pills remaining"

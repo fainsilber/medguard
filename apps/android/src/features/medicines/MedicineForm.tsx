@@ -95,7 +95,17 @@ export function MedicineForm({
 
         <View>
           <Text style={sharedStyles.label}>Name</Text>
-          <TextInput style={sharedStyles.input} value={name} onChangeText={setName} autoFocus placeholderTextColor="#64748b" />
+          <TextInput
+            style={sharedStyles.input}
+            value={name}
+            onChangeText={setName}
+            autoFocus
+            placeholderTextColor="#64748b"
+            // Blank by default with no placeholder text for Maestro to match against, unlike
+            // every other field on this form — see docs/testing.md for why this is one of the
+            // handful of fields with a testID, used by apps/android/.maestro/offline-smoke.yaml.
+            testID="medicine-name-input"
+          />
         </View>
 
         <View>
@@ -106,6 +116,7 @@ export function MedicineForm({
             placeholderTextColor="#64748b"
             value={strength}
             onChangeText={setStrength}
+            testID="medicine-strength-input"
           />
         </View>
 

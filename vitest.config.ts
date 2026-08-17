@@ -30,7 +30,10 @@ export default defineConfig({
       // exactly the code that must not be. istanbul instruments at transform time and works
       // in all three environments.
       provider: 'istanbul',
-      reporter: ['text', 'html', 'lcov'],
+      // text-summary/json-summary feed ci.yml's $GITHUB_STEP_SUMMARY coverage step — cheap to
+      // generate, and it's the one reporter format short enough to paste straight into a PR run
+      // summary without truncation.
+      reporter: ['text', 'text-summary', 'json-summary', 'html', 'lcov'],
       include: ['packages/shared/src/**/*.ts', 'packages/store/src/**/*.ts', 'apps/*/src/**/*.{ts,tsx}'],
       exclude: [
         '**/*.test.{ts,tsx}',
@@ -46,16 +49,32 @@ export default defineConfig({
         // Sprint A2 (docs/android-client-plan.md, test-strategy table): RN screens/components
         // run under Jest + @testing-library/react-native, a separate tool this Vitest+istanbul
         // run has no visibility into — Jest exercising a file does not register here, so every
-        // apps/android/src file only reachable through a rendered component (which is nearly
-        // all of them: features/**, app/**, sync/**, identity/**, ui/**, the expo-sqlite driver,
-        // …) would otherwise show a false 0% and sink the global threshold despite having real
-        // Jest coverage (apps/android/*/**/*.test.tsx). `apps/android/src/**/*.test.ts` — pure
-        // logic with no RN import — stays covered here as before (icuSpike, offlineFlow); this
-        // exclusion only removes what Jest, not nothing, already proves. Composition roots
-        // (App.tsx, index.ts, runtime/**) fall under the same exclusion for the same reason A0
-        // gave them one: no logic of their own, proven on-device / by the Jest suite, not by
-        // unit coverage.
-        'apps/android/src/**',
+        // apps/android/src file only reachable through a rendered component would otherwise show
+        // a false 0% and sink the global threshold despite having real Jest coverage
+        // (apps/android/*/**/*.test.tsx, gated by apps/android/jest.config.js's own
+        // coverageThreshold). This exclusion only removes what Jest, not nothing, already proves
+        // — it must name exactly the RN/native-touching surface, not the whole app: `alarms/*.ts`
+        // (materializeHorizon, diffAlarms, AlarmEngine, alarmHealth — the code that decides
+        // whether a phone rings) and `store/expoSqliteDriver.ts` are pure/port-injected, import
+        // nothing native, and already run — and are covered — under this same Vitest project
+        // (apps/android/vitest.config.ts's `include: ['src/**/*.test.ts']`). Excluding them here
+        // would leave the app's most safety-critical code with no coverage floor at all.
+        'apps/android/src/**/*.tsx',
+        'apps/android/src/api/**',
+        'apps/android/src/app/**',
+        'apps/android/src/clock/**',
+        'apps/android/src/features/**',
+        'apps/android/src/identity/**',
+        'apps/android/src/logging/**',
+        'apps/android/src/runtime/**',
+        'apps/android/src/store/useLiveQuery.ts',
+        'apps/android/src/sync/**',
+        'apps/android/src/testUtils/**',
+        'apps/android/src/ui/**',
+        'apps/android/src/version.ts',
+        // headlessTask.ts imports expo-sqlite and the native alarm module, so it's covered by
+        // apps/android/src/alarms/headlessTask.test.tsx under Jest, not here.
+        'apps/android/src/alarms/headlessTask.ts',
         'apps/android/index.ts',
         'apps/android/App.tsx',
         // Barrel re-exports and the conformance-suite/fixture harness itself — no logic of their
@@ -108,6 +127,20 @@ export default defineConfig({
         // double-applying) the rest of this list protects.
         'packages/store/src/repository.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
         'packages/store/src/tableDispatch.ts': { lines: 100, functions: 100, branches: 100, statements: 100 },
+
+        // The Android alarm-materialization path — the code that decides whether a phone rings,
+        // now that the exclusion above no longer hides it. Thresholds are set at the measured
+        // baseline (2026-08-16), not guessed at 100, so this doesn't land red on an unrelated PR.
+        // Ratchet rule: raise as coverage improves, never lower to make a build pass.
+        'apps/android/src/alarms/AlarmEngine.ts': { lines: 100, functions: 100, branches: 83, statements: 100 },
+        'apps/android/src/alarms/alarmHealth.ts': { lines: 100, functions: 100, branches: 95, statements: 100 },
+        'apps/android/src/alarms/alarmReconciler.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
+        'apps/android/src/alarms/horizon.ts': { lines: 100, functions: 100, branches: 93, statements: 100 },
       },
     },
   },

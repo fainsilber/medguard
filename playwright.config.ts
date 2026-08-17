@@ -30,6 +30,15 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',
+    // Without this, Playwright's headless "chromium" project launches `chrome-headless-shell` —
+    // a separate, stripped-down build it downloads alongside full Chromium for speed. It doesn't
+    // deliver on the Notifications/Push/ServiceWorker CDP surface the same way: push-delivery.spec.ts's
+    // `ServiceWorker.deliverPushMessage` calls succeed (no error) but `showNotification()` never
+    // actually renders anything under it, which timed out that spec's `getNotifications()` polling
+    // for the full 30s on every retry in CI — silent under the shell, and only surfaced once this
+    // was actually run against a real browser. `channel: 'chromium'` selects the full build, which
+    // `npx playwright install chromium` already downloads regardless (no extra CI install step).
+    channel: 'chromium',
   },
 
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
