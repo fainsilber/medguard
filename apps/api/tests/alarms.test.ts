@@ -215,7 +215,10 @@ afterEach(() => {
 });
 
 /** A household with one daily schedule whose next dose is `minutesFromNow` away. */
-async function householdWithDose(minutesFromNow: number): Promise<{
+async function householdWithDose(
+  minutesFromNow: number,
+  settingsOverrides: Record<string, unknown> = {},
+): Promise<{
   session: Session;
   stub: DurableObjectStub<HouseholdDO>;
   dueAtMs: number;
@@ -226,7 +229,7 @@ async function householdWithDose(minutesFromNow: number): Promise<{
 
   await registerPush(session);
   await push(session, [
-    { table: 'householdSettings', record: settings() },
+    { table: 'householdSettings', record: settings(settingsOverrides) },
     { table: 'medicines', record: medicine() },
     { table: 'schedules', record: schedule(dueAtMs) },
   ]);
@@ -466,6 +469,36 @@ describe('snooze', () => {
     const { blocked } = await push(session, [record]);
 
     expect(blocked).toEqual([]);
+  });
+
+  it('honors a household-configured snooze limit instead of the fixed default', async () => {
+    const { session, dueAtMs, occurrenceId } = await householdWithDose(30, { maxSnoozeCount: 1 });
+
+    const { blocked: firstBlocked } = await push(session, [
+      snoozeRecord(
+        occurrenceId,
+        dueAtMs + MS_PER_MINUTE,
+        1,
+        'aaaaaaaa-0001-4aaa-8aaa-aaaaaaaaaaaa',
+      ),
+    ]);
+    expect(firstBlocked).toEqual([]);
+
+    const { blocked: secondBlocked } = await push(session, [
+      snoozeRecord(
+        occurrenceId,
+        dueAtMs + 2 * MS_PER_MINUTE,
+        2,
+        'aaaaaaaa-0002-4aaa-8aaa-aaaaaaaaaaaa',
+      ),
+    ]);
+    expect(secondBlocked).toEqual([
+      {
+        table: 'doseSnoozes',
+        id: 'aaaaaaaa-0002-4aaa-8aaa-aaaaaaaaaaaa',
+        reason: 'snooze_limit_reached',
+      },
+    ]);
   });
 
   it('cannot defer a dose past the point where it is marked missed', async () => {

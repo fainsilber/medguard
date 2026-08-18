@@ -1,6 +1,14 @@
-import { chimeDurationSecondsFor, resolveLocal, toIso } from '@medguard/shared';
+import {
+  MAX_SNOOZE_COUNT,
+  MAX_SNOOZE_LIMIT,
+  MIN_SNOOZE_LIMIT,
+  chimeDurationSecondsFor,
+  resolveLocal,
+  resolveMaxSnoozeCount,
+  toIso,
+} from '@medguard/shared';
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 
 import {
   cancelDoseAlarm,
@@ -9,6 +17,7 @@ import {
 } from '../../../modules/medguard-alarms/src';
 import { AlarmSetupChecklist } from '../../alarms/AlarmSetupChecklist.js';
 import { useRepository } from '../../app/RepositoryContext.js';
+import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
 import {
   clearAppLog,
   exportAppLogText,
@@ -25,7 +34,7 @@ import { APP_VERSION, BUILD_TIME, GIT_SHA, NATIVE_BUILD_VERSION } from '../../ve
 const JERUSALEM = 'Asia/Jerusalem';
 
 /**
- * The Android Diagnostics tab. Deliberately **not** a port of web's `probe/ProbePage.tsx` — that
+ * The Android Settings tab. Deliberately **not** a port of web's `probe/ProbePage.tsx` — that
  * screen tests Service Worker / Web Push reliability, none of which applies to a native app using
  * FCM (Sprint A4). This tab instead repurposes Sprint A0's `SpikeScreen` (the still-relevant
  * Hermes ICU check and alarm-permission/test-chime tooling — the native alarm layer needs the
@@ -34,14 +43,42 @@ const JERUSALEM = 'Asia/Jerusalem';
  * outbox count, and the in-memory app log (`logging/appLog.ts`), exportable via the share sheet
  * for a bug report instead of a screenshot.
  */
-export function DiagnosticsScreen(): React.JSX.Element {
+export function SettingsScreen(): React.JSX.Element {
   const repository = useRepository();
   const { status } = useSyncStatus();
   const pendingCount = useLiveQuery(() => repository.pendingSyncCount(), ['syncOutbox']);
   const shabbatConfig = useLiveQuery(() => repository.getShabbatConfig(), ['shabbatConfig']);
+  const householdSettings = useHouseholdSettings();
 
   const [armedOccurrenceKey, setArmedOccurrenceKey] = useState<string | null>(null);
   const [status_, setStatusMessage] = useState('');
+
+  // Draft rather than writing on every keystroke, same reasoning as the Shabbat screen's form: a
+  // half-typed value is never synced to another caregiver's phone mid-edit.
+  const [snoozeDraft, setSnoozeDraft] = useState<string | null>(null);
+  const [savingSnoozeLimit, setSavingSnoozeLimit] = useState(false);
+  const resolvedMaxSnoozeCount = resolveMaxSnoozeCount(householdSettings?.maxSnoozeCount);
+  const snoozeLimitValue = snoozeDraft ?? String(resolvedMaxSnoozeCount);
+
+  const onSaveSnoozeLimit = useCallback(() => {
+    if (!householdSettings) return;
+    const parsed = Number(snoozeLimitValue);
+    if (!Number.isInteger(parsed) || parsed < MIN_SNOOZE_LIMIT || parsed > MAX_SNOOZE_LIMIT) {
+      setStatusMessage(`Enter a whole number between ${MIN_SNOOZE_LIMIT} and ${MAX_SNOOZE_LIMIT}.`);
+      return;
+    }
+    setSavingSnoozeLimit(true);
+    repository
+      .saveHouseholdSettings({ ...householdSettings, maxSnoozeCount: parsed })
+      .then(() => {
+        setSnoozeDraft(null);
+        setStatusMessage(`Snooze limit saved — ${parsed} before escalation.`);
+      })
+      .catch((err) => {
+        setStatusMessage(err instanceof Error ? err.message : 'Could not save the snooze limit.');
+      })
+      .finally(() => setSavingSnoozeLimit(false));
+  }, [householdSettings, repository, snoozeLimitValue]);
 
   const jerusalemDoseCheck = resolveLocal(JERUSALEM, '2026-01-15', '08:00');
   const jerusalemDoseIso =
@@ -104,7 +141,7 @@ export function DiagnosticsScreen(): React.JSX.Element {
 
   return (
     <ScrollView style={ui.screen} contentContainerStyle={ui.content}>
-      <Text style={ui.title}>Diagnostics</Text>
+      <Text style={ui.title}>Settings</Text>
       <Text style={ui.subtitle}>
         Device- and sync-level checks, not a port of the web app&rsquo;s push-testing screen — see
         the code comment in this file for why.
@@ -141,6 +178,41 @@ export function DiagnosticsScreen(): React.JSX.Element {
       <Card>
         <Text style={sectionTitle}>Alarm permissions</Text>
         <AlarmSetupChecklist />
+      </Card>
+
+      <Card>
+        <Text style={sectionTitle}>Alerts</Text>
+
+        <Text style={ui.label}>Snoozes allowed before escalation</Text>
+        <View style={ui.row}>
+          <TextInput
+            style={[ui.input, { width: 64, textAlign: 'center' }]}
+            keyboardType="number-pad"
+            maxLength={1}
+            value={snoozeLimitValue}
+            onChangeText={(text) => setSnoozeDraft(text.replace(/\D/g, ''))}
+          />
+          <Button
+            label={savingSnoozeLimit ? 'Saving…' : 'Save'}
+            onPress={onSaveSnoozeLimit}
+            disabled={savingSnoozeLimit || !householdSettings}
+          />
+        </View>
+        <Text style={ui.helpText}>
+          A dose can be snoozed this many times ({MIN_SNOOZE_LIMIT}–{MAX_SNOOZE_LIMIT}) before it
+          escalates to the rest of the household instead. Default {MAX_SNOOZE_COUNT}.
+        </Text>
+
+        <Text style={[ui.label, { marginTop: 10 }]}>Sound alert length</Text>
+        <Row
+          label="Weekday"
+          value={`${chimeDurationSecondsFor({ inShabbat: false, shabbatConfig })}s`}
+        />
+        <Row
+          label="Shabbat / Yom Tov"
+          value={`${chimeDurationSecondsFor({ inShabbat: true, shabbatConfig })}s`}
+        />
+        <Text style={ui.helpText}>Edited on the Shabbat &amp; Yom Tov tab, per patient.</Text>
       </Card>
 
       <Card>

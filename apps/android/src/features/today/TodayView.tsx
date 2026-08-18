@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import {
-  MAX_SNOOZE_COUNT,
   MS_PER_DAY,
   addLocalDays,
   classifyOccurrence,
@@ -13,6 +12,7 @@ import {
   fromIso,
   occurrenceKey,
   resolveLocal,
+  resolveMaxSnoozeCount,
   toIso,
 } from '@medguard/shared';
 import type { Occurrence, OccurrenceStatus } from '@medguard/shared';
@@ -107,6 +107,7 @@ export function TodayView(): React.JSX.Element {
   const nowMs = clock.nowMs();
   const timeZone = householdSettings?.timeZone;
   const today = timeZone ? formatLocalDate(timeZone, nowMs) : undefined;
+  const maxSnoozeCount = resolveMaxSnoozeCount(householdSettings?.maxSnoozeCount);
 
   // Bounded by `nowMs` alone, deliberately not by `today`/`timeZone`: those load asynchronously
   // from `householdSettings`, and `useLiveQuery` only re-runs its query on a table write, never
@@ -133,11 +134,11 @@ export function TodayView(): React.JSX.Element {
     return expandSchedules(schedules, range, timeZone).map((occurrence) => {
       const key = occurrenceKey(occurrence);
       const log = findLogForOccurrence(logs, occurrence);
-      const snoozeState = deriveSnoozeState(snoozes, key);
+      const snoozeState = deriveSnoozeState(snoozes, key, maxSnoozeCount);
       const status = classifyOccurrence(occurrence.dueAt, nowMs, log?.status, snoozeState.untilMs);
       return { occurrence, log, status, key, snoozeState };
     });
-  }, [schedules, logs, timeZone, today, nowMs, snoozes]);
+  }, [schedules, logs, timeZone, today, nowMs, snoozes, maxSnoozeCount]);
 
   const medicineNames = useMemo(() => {
     if (!medicines) return undefined;
@@ -327,7 +328,7 @@ export function TodayView(): React.JSX.Element {
                             <Text
                               style={{ fontSize: 12, color: colors.textMuted, alignSelf: 'center' }}
                             >
-                              Snoozed {snoozeState.count}/{MAX_SNOOZE_COUNT}
+                              Snoozed {snoozeState.count}/{maxSnoozeCount}
                             </Text>
                           ) : null}
                         </View>

@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import { fixedClock, sequentialIds } from './testing.js';
-import { DEFAULT_ESCALATION_MINUTES, DEFAULT_SNOOZE_MINUTES } from './settings.js';
-import { MAX_SNOOZE_COUNT, buildDoseSnooze, deriveSnoozeState } from './snooze.js';
+import {
+  DEFAULT_ESCALATION_MINUTES,
+  DEFAULT_SNOOZE_MINUTES,
+  MAX_SNOOZE_LIMIT,
+  MIN_SNOOZE_LIMIT,
+} from './settings.js';
+import {
+  MAX_SNOOZE_COUNT,
+  buildDoseSnooze,
+  deriveSnoozeState,
+  resolveMaxSnoozeCount,
+} from './snooze.js';
 import type { DoseSnooze } from './types.js';
 
 const OCCURRENCE = '11111111-1111-4111-8111-111111111111:2026-06-15T08:00:00.000Z';
@@ -69,7 +79,11 @@ describe('deriveSnoozeState', () => {
 
   it('counts snoozes and refuses a fourth', () => {
     const snoozes = Array.from({ length: MAX_SNOOZE_COUNT }, (_, index) =>
-      makeSnooze({ id: `s${index}`, count: index + 1, createdAt: `2026-06-15T08:0${index}:00.000Z` }),
+      makeSnooze({
+        id: `s${index}`,
+        count: index + 1,
+        createdAt: `2026-06-15T08:0${index}:00.000Z`,
+      }),
     );
 
     const state = deriveSnoozeState(snoozes, OCCURRENCE);
@@ -80,10 +94,39 @@ describe('deriveSnoozeState', () => {
 
   it('still allows a snooze one below the bound', () => {
     const snoozes = Array.from({ length: MAX_SNOOZE_COUNT - 1 }, (_, index) =>
-      makeSnooze({ id: `s${index}`, count: index + 1, createdAt: `2026-06-15T08:0${index}:00.000Z` }),
+      makeSnooze({
+        id: `s${index}`,
+        count: index + 1,
+        createdAt: `2026-06-15T08:0${index}:00.000Z`,
+      }),
     );
 
     expect(deriveSnoozeState(snoozes, OCCURRENCE).canSnooze).toBe(true);
+  });
+
+  it('honors an explicit household bound instead of the default', () => {
+    const snoozes = [makeSnooze()];
+
+    expect(deriveSnoozeState(snoozes, OCCURRENCE, 1).canSnooze).toBe(false);
+    expect(deriveSnoozeState(snoozes, OCCURRENCE, 2).canSnooze).toBe(true);
+  });
+});
+
+describe('resolveMaxSnoozeCount', () => {
+  it('falls back to the default when the household has never set one', () => {
+    expect(resolveMaxSnoozeCount(undefined)).toBe(MAX_SNOOZE_COUNT);
+  });
+
+  it('passes an in-range value through unchanged', () => {
+    expect(resolveMaxSnoozeCount(2)).toBe(2);
+  });
+
+  it('clamps a value below the floor, from a corrupted or pre-bound record', () => {
+    expect(resolveMaxSnoozeCount(0)).toBe(MIN_SNOOZE_LIMIT);
+  });
+
+  it('clamps a value above the ceiling, from a stale or patched client', () => {
+    expect(resolveMaxSnoozeCount(99)).toBe(MAX_SNOOZE_LIMIT);
   });
 });
 

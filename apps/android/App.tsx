@@ -37,7 +37,7 @@ import { colors } from './src/ui/primitives';
  */
 const MENU_ITEMS: ReadonlyArray<{ route: keyof RootStackParamList; label: string; icon: string }> =
   [
-    { route: 'Diagnostics', label: 'Diagnostics', icon: '🛠️' },
+    { route: 'Settings', label: 'Settings', icon: '🛠️' },
     { route: 'Shabbat', label: 'Shabbat', icon: '🕯️' },
     { route: 'Log', label: 'Log', icon: '📤' },
     { route: 'Inventory', label: 'Inventory', icon: '📦' },

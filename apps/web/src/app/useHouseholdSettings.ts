@@ -1,6 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect } from 'react';
-import { DEFAULT_ESCALATION_MINUTES, DEFAULT_SNOOZE_MINUTES } from '@medguard/shared';
+import {
+  DEFAULT_ESCALATION_MINUTES,
+  DEFAULT_SNOOZE_MINUTES,
+  MAX_SNOOZE_COUNT,
+} from '@medguard/shared';
 import type { HouseholdSettings } from '@medguard/shared';
 import { useMedGuardDb, useRepository } from './RepositoryContext.js';
 
@@ -44,6 +48,7 @@ export function useHouseholdSettings(): HouseholdSettings | undefined {
           timeZone: detectTimeZone(),
           escalationAfterMinutes: DEFAULT_ESCALATION_MINUTES,
           snoozeMinutes: DEFAULT_SNOOZE_MINUTES,
+          maxSnoozeCount: MAX_SNOOZE_COUNT,
           // Overwritten by the repository's own stamp; placeholders satisfy the type.
           updatedAt: '',
           updatedByDeviceId: '',

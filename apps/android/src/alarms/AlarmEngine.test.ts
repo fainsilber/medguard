@@ -464,7 +464,7 @@ describe('applyPendingActions — a lock-screen tap becomes a dose', () => {
   });
 
   it('refuses to snooze against a key that isn’t a real occurrenceKey, and still acks the tap', async () => {
-    // Regression: Diagnostics' "Arm alarm in 15s" test button (A0) arms with a bare
+    // Regression: Settings' "Arm alarm in 15s" test button (A0) arms with a bare
     // device-generated UUID, deliberately not a real occurrenceKey, since it's a mechanism demo,
     // not meant to be acted on. A caregiver tapping Snooze on that notification used to write a
     // DoseSnooze with that UUID as `occurrenceId` straight through — passing the outer sync

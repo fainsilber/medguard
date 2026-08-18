@@ -93,6 +93,19 @@ describe('householdSettingsSchema', () => {
       false,
     );
   });
+
+  it('accepts a record with no maxSnoozeCount — every household synced before it existed', () => {
+    expect(householdSettingsSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('accepts an in-range maxSnoozeCount', () => {
+    expect(householdSettingsSchema.safeParse({ ...valid, maxSnoozeCount: 5 }).success).toBe(true);
+  });
+
+  it('rejects a maxSnoozeCount outside the bound a settings screen enforces', () => {
+    expect(householdSettingsSchema.safeParse({ ...valid, maxSnoozeCount: 0 }).success).toBe(false);
+    expect(householdSettingsSchema.safeParse({ ...valid, maxSnoozeCount: 99 }).success).toBe(false);
+  });
 });
 
 describe('medicineSchema', () => {

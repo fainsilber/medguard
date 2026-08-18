@@ -12,7 +12,7 @@ code-complete and awaiting the same real-device pass. A0's locked-phone exit gat
 household join and sync. Continued real-device use since A0 found and fixed several bugs:
 revoked-device data retention, the on-screen keyboard overlapping focused text fields (every
 form/text-input screen now wraps in a shared `KeyboardAvoidingScreen`), and the app gained a
-"Build" card on Diagnostics showing the git SHA and build timestamp baked in at `expo prebuild`
+"Build" card on Settings showing the git SHA and build timestamp baked in at `expo prebuild`
 time (mirrors `apps/web/src/version.ts`; see root `CLAUDE.md`'s build-identity convention).
 
 **This sandbox has no Android SDK, emulator, or physical device (confirmed: no `adb` on `$PATH`)**, so
@@ -187,8 +187,8 @@ wording `describeAlarmStatus` composes for the native `sync_status_v1` ongoing n
 caregiver sees one consistent explanation on the phone and in the shade. `AlarmSetupChecklist.tsx`
 is the AD7 guided checklist — the four grantable permissions plus an explicit, honest paragraph
 that Xiaomi/Huawei/Oppo/Samsung autostart managers have no API to request through at all — shared
-between the banner (only appears when something's actually wrong) and Diagnostics (always visible),
-replacing what used to be Diagnostics' own inline copy of the same four rows.
+between the banner (only appears when something's actually wrong) and Settings (always visible),
+replacing what used to be Settings' own inline copy of the same four rows.
 
 **Tests:** `packages/shared/src/snooze.test.ts` and additions to `schedule.test.ts` (100% branch,
 same gate as `safety.ts`/`schedule.ts` — a snooze bug either leaves an alarm armed after dismissal
@@ -231,7 +231,7 @@ notification itself rather than from `TodayView`.
 ### A3 real-device findings (2026-08-09)
 
 First on-device install of the A3 build (`77b9db0`) found two real bugs in the same session, both
-via Diagnostics' "Arm alarm in 15s" test button — the A0 mechanism demo that arms with a bare
+via Settings' "Arm alarm in 15s" test button — the A0 mechanism demo that arms with a bare
 device-generated UUID as its `occurrenceKey`, deliberately not a real one, since the button exists
 to prove the chime fires, not to be acted on with Taken/Snooze.
 
@@ -274,7 +274,7 @@ something to change unilaterally alongside an unrelated fix.
 ### Sprint A2 — feature parity
 
 Per `docs/android-client-plan.md`: "every screen — Today ..., Medicines and nested Schedules ...,
-As-needed ..., Inventory, Export ..., Household ..., Diagnostics. Plus the sync status indicator and
+As-needed ..., Inventory, Export ..., Household ..., Settings. Plus the sync status indicator and
 the safety warning banner." All of it now exists under `src/features/`, wired into a real
 `@react-navigation` shell (`src/app/AppNavigator.tsx`) behind `CaregiverGate` → `SyncProvider`
 (`App.tsx`), replacing Sprint A0's bare `<SpikeScreen/>` render.
@@ -292,10 +292,10 @@ the safety warning banner." All of it now exists under `src/features/`, wired in
   `packages/store/src/repository.ts` gained two small, conformance-tested reads
   (`logsForPatient`, `allMedicines`) that Today and Medicines' "show archived" toggle needed and
   didn't have a Dexie-bypassing equivalent for.
-- **Diagnostics is deliberately not a port of web's `probe/ProbePage.tsx`.** That screen tests
+- **Settings is deliberately not a port of web's `probe/ProbePage.tsx`.** That screen tests
   Service Worker / Web Push reliability — none of it applies to a native app on FCM (Sprint A4).
-  Android's Diagnostics tab instead absorbed Sprint A0's `SpikeScreen` (Hermes ICU check, alarm
-  permissions, test chime/alarm — moved to `src/features/diagnostics/DiagnosticsScreen.tsx`) and
+  Android's Settings tab instead absorbed Sprint A0's `SpikeScreen` (Hermes ICU check, alarm
+  permissions, test chime/alarm — moved to `src/features/settings/SettingsScreen.tsx`) and
   added live sync status, the pending-outbox count, and an app-log viewer
   (`src/logging/appLog.ts`) with a share-sheet export.
 - **No time/date-picker library was added.** Every wall-clock field (schedule times,
@@ -321,7 +321,7 @@ CPU core at 100% and grew to 10GB RSS before being caught running a component te
 tracking whether a transaction's `tx` argument actually called a write method
 (`put`/`bulkPut`/`append`/`update`/`delete`/`clear`); only those notify now.
 `packages/store/src/notifyingStore.test.ts` is the regression test, and
-`DiagnosticsScreen.smoke.test.tsx`'s docstring records the incident.
+`SettingsScreen.smoke.test.tsx`'s docstring records the incident.
 
 **What's verified, precisely, and what isn't:**
 
@@ -354,7 +354,7 @@ tracking whether a transaction's `tx` argument actually called a write method
 | --- | --- | --- |
 | Alarm-volume audio through ringer-silent | Code confirms the mechanism | `DoseAlarmService.startChime()` builds `AudioAttributes.USAGE_ALARM` + `CONTENT_TYPE_SONIFICATION` and plays on `MediaPlayer`, which routes to the alarm stream regardless of ringer mode — this is the one Android API contract that makes "sounds through silent" true, not something to infer from a device test alone. |
 | Screen stays off, zero touches | Code confirms the mechanism | Nothing in `modules/medguard-alarms/android/**` acquires a `PowerManager.WakeLock`, sets `FLAG_TURN_SCREEN_ON`/`FLAG_KEEP_SCREEN_ON`/`setShowWhenLocked`, or calls `setTurnScreenOn` (grepped, zero matches). The ordinary dose path never builds a `PendingIntent.getActivity` at all — only escalation does, gated by `canUseFullScreenIntent()`. |
-| Full configured length | Code confirms the mechanism | `chimeDurationSeconds` (60s weekday / 30s Shabbat, resolved by `chimeDurationSecondsFor()`; `DiagnosticsScreen.tsx` reads the same configured value rather than a literal) drives the delayed stop callback — the chime plays until it fires, not until some shorter internal timeout. |
+| Full configured length | Code confirms the mechanism | `chimeDurationSeconds` (60s weekday / 30s Shabbat, resolved by `chimeDurationSecondsFor()`; `SettingsScreen.tsx` reads the same configured value rather than a literal) drives the delayed stop callback — the chime plays until it fires, not until some shorter internal timeout. |
 | Auto-stop, no lingering audio | **Unit-tested** (`ChimeSessionTest`) plus code review | `ChimeSession` decides when the shared sound ends; the delayed `stopEverything()` stops and releases the one player, then `stopForeground(STOP_FOREGROUND_DETACH)`/`stopSelf()` — no user action is on that path. This row was previously code-review-only and is where the multi-alarm bug below hid. The **notification** deliberately does not disappear with it — see below. |
 
 Each row is a claim about what the code does, verified by reading it, not a claim about what fired
@@ -424,7 +424,7 @@ apps/android/
 │   ├── AlarmEngine.ts                #   the one impure orchestrator: reconcile() / applyPendingActions() / snooze()
 │   ├── AlarmProvider.tsx             #   React wiring — mount point, AppState/store/event listeners
 │   ├── AlarmHealthBanner.tsx         #   safety invariant 6, in-app
-│   └── AlarmSetupChecklist.tsx       #   AD7's guided checklist, shared with Diagnostics
+│   └── AlarmSetupChecklist.tsx       #   AD7's guided checklist, shared with Settings
 ├── src/runtime/deviceRuntime.ts      # the only ambient-time/id edge in this app
 ├── src/store/expoSqliteDriver.ts     # Sprint A1: the expo-sqlite half of @medguard/store's SqlDriver
 ├── src/store/offlineFlow.test.ts     # Sprint A1's exit-gate flow, proven against the shared SQLite Store
@@ -433,7 +433,7 @@ apps/android/
 ├── src/app/AppNavigator.tsx          # Sprint A2: the only file that knows about routes/params
 ├── src/identity/CaregiverGate.tsx    # the app's entry gate — nothing renders until a caregiver is named
 ├── src/identity/, src/api/, src/sync/  # session/device-id storage, the household+sync HTTP client, SyncProvider
-├── src/features/today/, medicines/, schedules/, prnDoses/, inventory/, export/, household/, logs/, diagnostics/
+├── src/features/today/, medicines/, schedules/, prnDoses/, inventory/, export/, household/, logs/, settings/
 │                                      # Sprint A2's screens — one folder per web feature, same names
 ├── src/ui/primitives.tsx             # shared RN styling (Card/Badge/Button/colors), the Tailwind-classes equivalent
 ├── src/testUtils/                    # renderWithRepository + expo-sqlite/secure-store/crypto Jest doubles,
@@ -448,8 +448,8 @@ apps/android/
 
 ## The A0 exit gate
 
-Open the app and go to the **Diagnostics** tab (Sprint A0's `SpikeScreen` content moved here in
-A2 — see "Sprint A2 — feature parity" above for why the rest of Diagnostics isn't a port of web's
+Open the app and go to the **Settings** tab (Sprint A0's `SpikeScreen` content moved here in
+A2 — see "Sprint A2 — feature parity" above for why the rest of Settings isn't a port of web's
 push-testing screen):
 
 1. **AD1 — Hermes ICU.** The screen resolves `Asia/Jerusalem 2026-01-15 08:00` through
@@ -517,7 +517,7 @@ running the command.
 
 Once the app is installed and Metro connects:
 
-1. On the Diagnostics tab, check **AD1 — Hermes ICU**: "Matches expected fixture" should say `yes`. If
+1. On the Settings tab, check **AD1 — Hermes ICU**: "Matches expected fixture" should say `yes`. If
    it says `NO`, stop — this is AD1's failure mode (Hermes without full ICU silently resolving
    every zone to UTC) and nothing past this point can be trusted until it's fixed.
 2. Check **"Exact alarms armed"**. On a sideloaded/debug build this should already read `yes` on
@@ -547,9 +547,9 @@ Once the app is installed and Metro connects:
    - waking the phone afterward shows (or shows the history of) the `MedGuard — test dose`
      notification with Taken/Snooze actions
 7. **Reboot survival:** `BootReceiver` only matters for alarms armed at reboot time, and the
-   Diagnostics tab hardcodes a 15-second delay, so to test this meaningfully, temporarily change
+   Settings tab hardcodes a 15-second delay, so to test this meaningfully, temporarily change
    `15_000` to something like `5 * 60_000` in
-   `src/features/diagnostics/DiagnosticsScreen.tsx`'s `onScheduleLockedPhoneAlarm`, reload the app
+   `src/features/settings/SettingsScreen.tsx`'s `onScheduleLockedPhoneAlarm`, reload the app
    (`r` in the Metro terminal), arm it, then reboot the phone before it fires. Confirm the chime
    still fires on schedule after the reboot completes — this is the "household reboots the phone
    and silently stops getting alarms" failure the plan calls "the worst failure this app can have."
@@ -638,7 +638,7 @@ be triggered.
 ### Sync and household join (real-device findings, 2026-08-07)
 
 A caregiver installed the fixed build (above) and joined a household by code. The app log's own
-share-sheet export (`DiagnosticsScreen`'s "Share log", now named `medguard-app-log-<timestamp>.txt`
+share-sheet export (`SettingsScreen`'s "Share log", now named `medguard-app-log-<timestamp>.txt`
 instead of whatever generic name Android's plain-text share invented) showed sync failing on every
 attempt with `NativeDatabase.execAsync` rejections — `cannot start a transaction within a
 transaction` / `cannot rollback - no transaction is active`. Playing the test chime worked
@@ -655,7 +655,7 @@ way). Two distinct causes, found and fixed across two rounds against real device
 - **That alone didn't fix it — a second device log still showed the same error from a single,
   non-overlapping sync run.** Real cause: `NotifyingStore` fires every subscribed `useLiveQuery`
   refetch synchronously, but fire-and-forget, right after a write's transaction settles.
-  `SyncProvider` and `DiagnosticsScreen` both watch `syncOutbox` — the exact table `drainOutbox()`
+  `SyncProvider` and `SettingsScreen` both watch `syncOutbox` — the exact table `drainOutbox()`
   writes on every synced entry — so that refetch's own `store.transaction()` call races the sync
   engine's *next* write on `expo-sqlite`'s single, unqueued native connection. Fixed at the driver
   level: `ExpoSqliteDriver.withTransaction()` (`src/store/expoSqliteDriver.ts`) now queues every
@@ -806,9 +806,9 @@ Two same-day fixes from continued real-device use, unrelated to each other:
   build timestamp into Expo's `extra` at `expo prebuild` time (works for the plain-Gradle CI build
   in `.github/workflows/android-apk.yml`, which has no EAS remote-version tracking). `src/version.ts`
   reads both via `expo-constants`, plus the real installed `nativeBuildVersion` via
-  `expo-application`, and all three now show on a "Build" card in Diagnostics — mirrors
+  `expo-application`, and all three now show on a "Build" card in Settings — mirrors
   `apps/web/src/version.ts`/`ProbePage.tsx`'s pattern. Neither has been watched on a real device from
-  this sandbox; typecheck, lint and the existing Jest suite (updated for the new Diagnostics card)
+  this sandbox; typecheck, lint and the existing Jest suite (updated for the new Settings card)
   are green.
 
 This sandbox has no Android SDK, no emulator, and no physical device, so none of the following
@@ -899,7 +899,7 @@ ahead, per the plan's sprint breakdown:
 Two gaps that used to be listed here — no runtime `POST_NOTIFICATIONS` prompt, no in-app DND-bypass
 control — are closed: `MedGuardAlarmsModule` now exposes `hasNotificationPermission()` /
 `requestNotificationPermission()` (the real `ActivityCompat`-backed prompt via `expo-modules-core`'s
-`Permissions` interface, the same mechanism every Expo permission module uses), and the Diagnostics
+`Permissions` interface, the same mechanism every Expo permission module uses), and the Settings
 screen surfaces both that and the pre-existing `hasNotificationPolicyAccess()` /
 `requestNotificationPolicyAccess()` as buttons alongside exact-alarms and battery exemption. Neither
 has been exercised on a real device yet (see "What hasn't been verified"), so treat them as

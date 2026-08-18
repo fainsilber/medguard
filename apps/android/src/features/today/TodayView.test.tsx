@@ -73,7 +73,7 @@ const WAIT_OPTIONS = { timeout: 5000 };
 describe('TodayView', () => {
   it('renders and shows the empty state with nothing scheduled', async () => {
     // TodayView's Snooze button reads through useAlarmHealth(), which needs an AlarmProvider
-    // ancestor — the same requirement DiagnosticsScreen.smoke.test.tsx has for SyncProvider.
+    // ancestor — the same requirement SettingsScreen.smoke.test.tsx has for SyncProvider.
     const { getByText, queryByText } = renderTodayView('today-view-smoke.db');
 
     await waitFor(() => expect(queryByText('Today')).toBeTruthy(), WAIT_OPTIONS);

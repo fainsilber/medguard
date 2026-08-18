@@ -55,7 +55,7 @@ describe('migrations', () => {
       .bind('schema_version')
       .first<{ value: string }>();
 
-    expect(row?.value).toBe('5');
+    expect(row?.value).toBe('6');
   });
 
   it.each(HOUSEHOLD_SCOPED_TABLES)(
@@ -221,7 +221,9 @@ describe('patient backfill (0005_patients.sql)', () => {
       syncStatus: 'synced',
     });
 
-    const assignment = await env.DB.prepare('SELECT * FROM medicine_patients WHERE household_id = ?')
+    const assignment = await env.DB.prepare(
+      'SELECT * FROM medicine_patients WHERE household_id = ?',
+    )
       .bind('h-backfill-1')
       .first<{ medicine_id: string; patient_id: string; payload: string }>();
     expect(assignment?.medicine_id).toBe('m-backfill-1');
@@ -263,7 +265,9 @@ describe('patient backfill (0005_patients.sql)', () => {
     await runPatientBackfill();
     await runPatientBackfill();
 
-    const patients = await env.DB.prepare('SELECT COUNT(*) AS n FROM patients WHERE household_id = ?')
+    const patients = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM patients WHERE household_id = ?',
+    )
       .bind('h-backfill-3')
       .first<{ n: number }>();
     const assignments = await env.DB.prepare(
@@ -283,7 +287,9 @@ describe('patient backfill (0005_patients.sql)', () => {
 
     await runPatientBackfill();
 
-    const patients = await env.DB.prepare('SELECT COUNT(*) AS n FROM patients WHERE household_id = ?')
+    const patients = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM patients WHERE household_id = ?',
+    )
       .bind('h-backfill-4')
       .first<{ n: number }>();
     expect(patients?.n).toBe(0);

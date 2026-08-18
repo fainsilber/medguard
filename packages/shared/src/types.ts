@@ -57,6 +57,13 @@ export interface HouseholdSettings extends Syncable {
   escalationAfterMinutes: number;
   /** Minutes a snooze defers a dose by. */
   snoozeMinutes: number;
+  /**
+   * How many times a caregiver may snooze one scheduled dose before the escalation window takes
+   * over rather than the snooze button. Optional because every household created before this
+   * setting existed has a stored record without it — `resolveMaxSnoozeCount()` (`snooze.ts`)
+   * supplies the default (`MAX_SNOOZE_COUNT`, 3) and clamps into `MIN_SNOOZE_LIMIT..MAX_SNOOZE_LIMIT`.
+   */
+  maxSnoozeCount?: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
-  MAX_SNOOZE_COUNT,
   assessDose,
   blockReasonFor,
   fromIso,
+  resolveMaxSnoozeCount,
   systemClock,
 } from '@medguard/shared';
 import type {
@@ -340,12 +340,30 @@ export class HouseholdDO extends DurableObject<Env> {
     occurrenceId: string,
     snoozeId: string,
   ): Promise<boolean> {
+    const [countRow, limit] = await Promise.all([
+      this.env.DB.prepare(
+        'SELECT COUNT(*) AS n FROM dose_snoozes WHERE household_id = ? AND occurrence_id = ? AND id != ?',
+      )
+        .bind(householdId, occurrenceId, snoozeId)
+        .first<{ n: number }>(),
+      this.maxSnoozeCountFor(householdId),
+    ]);
+    return (countRow?.n ?? 0) >= limit;
+  }
+
+  /**
+   * The household's configured snooze limit — `resolveMaxSnoozeCount()` applied to the
+   * household's own record, the same fallback and clamp the client applies, so a stale or
+   * corrupted setting can never widen (or, via a bad synced record, silently shrink to zero) how
+   * many times a dose may be deferred here.
+   */
+  private async maxSnoozeCountFor(householdId: string): Promise<number> {
     const row = await this.env.DB.prepare(
-      'SELECT COUNT(*) AS n FROM dose_snoozes WHERE household_id = ? AND occurrence_id = ? AND id != ?',
+      'SELECT max_snooze_count FROM household_settings WHERE household_id = ?',
     )
-      .bind(householdId, occurrenceId, snoozeId)
-      .first<{ n: number }>();
-    return (row?.n ?? 0) >= MAX_SNOOZE_COUNT;
+      .bind(householdId)
+      .first<{ max_snooze_count: number | null }>();
+    return resolveMaxSnoozeCount(row?.max_snooze_count ?? undefined);
   }
 
   /**

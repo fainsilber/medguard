@@ -78,7 +78,12 @@ export {
 export type { CollectReconciliationInput, ReconciliationItem } from './shabbatReconciliation.js';
 
 // Snooze (delta AD5): bounded, append-only deferral of a scheduled dose
-export { MAX_SNOOZE_COUNT, buildDoseSnooze, deriveSnoozeState } from './snooze.js';
+export {
+  MAX_SNOOZE_COUNT,
+  buildDoseSnooze,
+  deriveSnoozeState,
+  resolveMaxSnoozeCount,
+} from './snooze.js';
 export type { SnoozeContext, SnoozeState } from './snooze.js';
 
 // Household setting defaults, shared so two clients cannot bootstrap different safety windows
@@ -90,7 +95,9 @@ export {
   DEFAULT_SNOOZE_MINUTES,
   DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
   MAX_CHIME_DURATION_SECONDS,
+  MAX_SNOOZE_LIMIT,
   MIN_CHIME_DURATION_SECONDS,
+  MIN_SNOOZE_LIMIT,
   MISSED_AFTER_MINUTES,
 } from './settings.js';
 

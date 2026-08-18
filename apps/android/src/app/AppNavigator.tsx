@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatLocalDate } from '@medguard/shared';
 import type { Medicine, Schedule } from '@medguard/shared';
-import { DiagnosticsScreen } from '../features/diagnostics/DiagnosticsScreen.js';
+import { SettingsScreen } from '../features/settings/SettingsScreen.js';
 import { ExportScreen } from '../features/export/ExportScreen.js';
 import { HouseholdScreen } from '../features/household/HouseholdScreen.js';
 import { InventoryScreen } from '../features/inventory/InventoryScreen.js';
@@ -39,7 +39,7 @@ import { useHouseholdSettings } from './useHouseholdSettings.js';
  *
  * `BottomNavBar` (Today / As needed) is rendered here as a sibling of `RootStack.Navigator`,
  * not nested inside it, so it stays visible on every root screen — Medicines, Inventory, Log, Shabbat,
- * Household and Diagnostics included, not just the two tabs it switches between. Those are the two
+ * Household and Settings included, not just the two tabs it switches between. Those are the two
  * things a caregiver reaches for constantly, so they get a permanent, full-width, always-visible
  * switcher no matter where navigation currently is, the same way the header above never goes away.
  * It drives navigation through `navigationRef` (owned by `App.tsx`, passed down as a prop) rather
@@ -164,7 +164,7 @@ export type RootStackParamList = {
   Log: undefined;
   Shabbat: undefined;
   Household: undefined;
-  Diagnostics: undefined;
+  Settings: undefined;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -288,7 +288,7 @@ export function AppNavigator({
         <RootStack.Screen name="Log" component={ExportScreen} />
         <RootStack.Screen name="Shabbat" component={ShabbatScreen} />
         <RootStack.Screen name="Household" component={HouseholdScreen} />
-        <RootStack.Screen name="Diagnostics" component={DiagnosticsScreen} />
+        <RootStack.Screen name="Settings" component={SettingsScreen} />
       </RootStack.Navigator>
       <BottomNavBar navigationRef={navigationRef} activeRoute={activeRoute} />
     </>

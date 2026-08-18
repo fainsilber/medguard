@@ -3,7 +3,7 @@ import type { LogEntry, LogLevel } from '@medguard/shared';
 import { deviceClock } from '../runtime/deviceRuntime.js';
 
 /**
- * The app-wide log, surfaced on the Diagnostics screen — the Android equivalent of
+ * The app-wide log, surfaced on the Settings screen — the Android equivalent of
  * `apps/web/src/logging/appLog.ts`.
  *
  * Unlike web's version, this file is not exempt from the no-ambient-time rule (`eslint.config.js`
@@ -62,7 +62,7 @@ export function exportAppLogText(): string {
   return formatLogEntriesAsText(buffer.entries());
 }
 
-/** Lets the Diagnostics screen re-render as new entries arrive, without polling. */
+/** Lets the Settings screen re-render as new entries arrive, without polling. */
 export function onAppLogChange(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

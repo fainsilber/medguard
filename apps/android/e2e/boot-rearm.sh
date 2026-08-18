@@ -17,7 +17,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 APP_ID="il.co.fainsilber.med"
 RECEIVER="$APP_ID/com.medguard.alarms.BootReceiver"
 
-echo "== Arming a real AlarmManager alarm via Diagnostics =="
+echo "== Arming a real AlarmManager alarm via Settings =="
 maestro test .maestro/boot-rearm.yaml
 
 echo "== Simulating a reboot: broadcasting BOOT_COMPLETED at $RECEIVER =="
