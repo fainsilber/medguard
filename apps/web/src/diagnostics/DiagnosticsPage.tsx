@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import {
+  MAX_SNOOZE_COUNT,
+  MAX_SNOOZE_LIMIT,
+  MIN_SNOOZE_LIMIT,
+  resolveMaxSnoozeCount,
+} from '@medguard/shared';
 import { getApiBaseUrl, setApiBaseUrl } from '../api/config.js';
 import { getHouseholdSession } from '../api/session.js';
+import { useRepository } from '../app/RepositoryContext.js';
+import { useHouseholdSettings } from '../app/useHouseholdSettings.js';
 import { APP_VERSION, BUILD_TIME } from '../version.js';
 import { fetchVapidPublicKey, registerPushSubscription, unregisterPush } from '../push/pushApi.js';
 import { subscribeToPush, unsubscribeFromPush } from '../push/pushClient.js';
@@ -68,6 +76,33 @@ export function DiagnosticsPage() {
   const [storageChecking, setStorageChecking] = useState(false);
   const [pushState, setPushState] = useState<PushState>({ kind: 'unknown' });
   const [busy, setBusy] = useState(false);
+
+  const repository = useRepository();
+  const householdSettings = useHouseholdSettings();
+  const resolvedMaxSnoozeCount = resolveMaxSnoozeCount(householdSettings?.maxSnoozeCount);
+  const [snoozeDraft, setSnoozeDraft] = useState<string | null>(null);
+  const [snoozeStatus, setSnoozeStatus] = useState<string | null>(null);
+  const [savingSnoozeLimit, setSavingSnoozeLimit] = useState(false);
+  const snoozeLimitValue = snoozeDraft ?? String(resolvedMaxSnoozeCount);
+
+  const handleSaveSnoozeLimit = useCallback(async () => {
+    if (!householdSettings) return;
+    const parsed = Number(snoozeLimitValue);
+    if (!Number.isInteger(parsed) || parsed < MIN_SNOOZE_LIMIT || parsed > MAX_SNOOZE_LIMIT) {
+      setSnoozeStatus(`Enter a whole number between ${MIN_SNOOZE_LIMIT} and ${MAX_SNOOZE_LIMIT}.`);
+      return;
+    }
+    setSavingSnoozeLimit(true);
+    try {
+      await repository.saveHouseholdSettings({ ...householdSettings, maxSnoozeCount: parsed });
+      setSnoozeDraft(null);
+      setSnoozeStatus(`Saved — ${parsed} snoozes before escalation.`);
+    } catch (cause) {
+      setSnoozeStatus(cause instanceof Error ? cause.message : 'Could not save the snooze limit.');
+    } finally {
+      setSavingSnoozeLimit(false);
+    }
+  }, [householdSettings, repository, snoozeLimitValue]);
 
   const refreshEnvironment = useCallback(() => {
     setEnvironment(snapshotEnvironment(window));
@@ -168,7 +203,10 @@ export function DiagnosticsPage() {
             <Badge ok={environment.pushManagerSupported} label="Push Manager supported" />
             <Badge ok={environment.notificationSupported} label="Notifications supported" />
             <div>Notification permission: {environment.notificationPermission}</div>
-            <Badge ok={environment.installedStandalone} label="Installed to home screen / standalone" />
+            <Badge
+              ok={environment.installedStandalone}
+              label="Installed to home screen / standalone"
+            />
             {environment.needsHomeScreenInstall && (
               <p className="text-locked">
                 iOS refuses Web Push until this is added to the home screen. Share → Add to Home
@@ -185,8 +223,7 @@ export function DiagnosticsPage() {
       <Section title="2. Dose alerts">
         <p className="text-sm text-slate-400">
           Alerts are sent by the server when a scheduled dose is due, and again to everyone in the
-          household if nobody confirms it in time. This device has to be registered to receive
-          them.
+          household if nobody confirms it in time. This device has to be registered to receive them.
         </p>
 
         <label className="flex flex-col gap-1 text-sm">
@@ -240,14 +277,49 @@ export function DiagnosticsPage() {
         )}
         {pushState.kind === 'no_household' && (
           <p className="text-sm text-slate-400">
-            This device is not connected to a household yet — join one from the Household tab
-            first.
+            This device is not connected to a household yet — join one from the Household tab first.
           </p>
         )}
         {pushState.kind === 'error' && <p className="text-locked text-sm">{pushState.message}</p>}
       </Section>
 
-      <Section title="3. Storage persistence">
+      <Section title="3. Alerts">
+        <p className="text-sm text-slate-400">
+          How many times a scheduled dose may be snoozed before it escalates to the rest of the
+          household instead of the snooze button.
+        </p>
+        <label className="flex flex-col gap-1 text-sm">
+          Snoozes allowed before escalation
+          <input
+            className={inputClass}
+            style={{ width: '4rem' }}
+            type="number"
+            min={MIN_SNOOZE_LIMIT}
+            max={MAX_SNOOZE_LIMIT}
+            value={snoozeLimitValue}
+            onChange={(event) => setSnoozeDraft(event.target.value)}
+          />
+        </label>
+        <p className="text-xs text-slate-500">
+          {MIN_SNOOZE_LIMIT}–{MAX_SNOOZE_LIMIT} snoozes. Default {MAX_SNOOZE_COUNT}.
+        </p>
+        <button
+          type="button"
+          className={buttonClass}
+          onClick={() => void handleSaveSnoozeLimit()}
+          disabled={savingSnoozeLimit || !householdSettings}
+        >
+          {savingSnoozeLimit ? 'Saving…' : 'Save'}
+        </button>
+        {snoozeStatus && <p className="text-sm text-slate-400">{snoozeStatus}</p>}
+
+        <p className="text-sm text-slate-400">
+          Sound alert length (how long a dose alert rings) is set per patient on the Shabbat &amp;
+          Yom Tov tab — weekday and Shabbat lengths are configured separately there.
+        </p>
+      </Section>
+
+      <Section title="4. Storage persistence">
         <p className="text-sm text-slate-400">
           Does the OS evict IndexedDB under storage pressure? Requests persistent storage and
           reports whether it was granted.
@@ -271,7 +343,7 @@ export function DiagnosticsPage() {
         )}
       </Section>
 
-      <Section title="4. App logs">
+      <Section title="5. App logs">
         <AppLogSection />
       </Section>
     </main>

@@ -82,3 +82,19 @@ export const DEFAULT_SHABBAT_CHIME_DURATION_SECONDS = 30;
  */
 export const MIN_CHIME_DURATION_SECONDS = 5;
 export const MAX_CHIME_DURATION_SECONDS = 180;
+
+/**
+ * Bounds on `HouseholdSettings.maxSnoozeCount` — how many times a caregiver may defer one
+ * scheduled dose before the escalation window takes over rather than the snooze button. Mirrors
+ * `MIN/MAX_CHIME_DURATION_SECONDS`: a settings screen enforces these, but a synced record from an
+ * older client or a corrupted payload might not, so `resolveMaxSnoozeCount()` (`snooze.ts`) clamps
+ * into this range again before anything relies on it.
+ *
+ * The ceiling is deliberately tight. `MAX_SNOOZE_COUNT` (`snooze.ts`, the default) times
+ * `DEFAULT_SNOOZE_MINUTES` is signed off to match the width of AD6's escalation window (60
+ * minutes) exactly — letting a household raise the count much further would let a dose be
+ * deferred well past the point where `MISSED_AFTER_MINUTES` is supposed to be a safe upper bound
+ * on every legitimate deferral.
+ */
+export const MIN_SNOOZE_LIMIT = 1;
+export const MAX_SNOOZE_LIMIT = 6;

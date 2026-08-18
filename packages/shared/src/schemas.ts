@@ -1,7 +1,12 @@
 import { z } from 'zod';
 
 import { parseOccurrenceKey } from './schedule.js';
-import { MAX_CHIME_DURATION_SECONDS, MIN_CHIME_DURATION_SECONDS } from './settings.js';
+import {
+  MAX_CHIME_DURATION_SECONDS,
+  MAX_SNOOZE_LIMIT,
+  MIN_CHIME_DURATION_SECONDS,
+  MIN_SNOOZE_LIMIT,
+} from './settings.js';
 
 /**
  * Runtime validation for everything that crosses a trust boundary: user input, IndexedDB reads
@@ -73,6 +78,10 @@ export const householdSettingsSchema = z.object({
     }, 'Not a recognised IANA time zone'),
   escalationAfterMinutes: z.number().int().positive(),
   snoozeMinutes: z.number().int().positive(),
+  // Optional: households created before this setting existed have a stored record without it,
+  // and rejecting their record here would stop those devices syncing rather than degrade
+  // gracefully. `resolveMaxSnoozeCount()` fills the default in.
+  maxSnoozeCount: z.number().int().min(MIN_SNOOZE_LIMIT).max(MAX_SNOOZE_LIMIT).optional(),
   ...syncableFields,
 });
 

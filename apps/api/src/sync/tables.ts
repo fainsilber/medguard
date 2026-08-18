@@ -66,6 +66,7 @@ export const TABLES: Record<SyncableTable, TableConfig> = {
       time_zone: r.timeZone,
       escalation_after_mins: r.escalationAfterMinutes,
       snooze_mins: r.snoozeMinutes,
+      max_snooze_count: optionalNumber(r.maxSnoozeCount),
     }),
   },
 

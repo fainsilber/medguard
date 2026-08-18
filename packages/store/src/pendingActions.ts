@@ -8,6 +8,7 @@ import {
   fromIso,
   occurrenceKey,
   parseOccurrenceKey,
+  resolveMaxSnoozeCount,
   toIso,
 } from '@medguard/shared';
 import type { Clock, DoseSnooze, IdGenerator, IntakeLog, Occurrence } from '@medguard/shared';
@@ -215,7 +216,7 @@ export class PendingActionApplier {
     }
 
     const existing = await repository.snoozesForOccurrence(key);
-    const state = deriveSnoozeState(existing, key);
+    const state = deriveSnoozeState(existing, key, resolveMaxSnoozeCount(settings.maxSnoozeCount));
     if (!state.canSnooze) {
       // The bound is reached. Deliberately silent rather than an error: the occurrence simply
       // stays overdue and keeps ringing, which is the fail-closed direction for a missed dose.

@@ -1,5 +1,6 @@
 import { toIso } from './clock.js';
 import type { Clock, EpochMs, IdGenerator } from './clock.js';
+import { MAX_SNOOZE_LIMIT, MIN_SNOOZE_LIMIT } from './settings.js';
 import { MS_PER_MINUTE } from './timezone.js';
 import type { DeviceId, DoseSnooze, UserId } from './types.js';
 
@@ -19,8 +20,25 @@ import type { DeviceId, DoseSnooze, UserId } from './types.js';
  * `snoozeMinutes` (default 20) is a 60-minute total deferral, which is the width of AD6's
  * escalation window — a caregiver can defer through the whole window but cannot defer past the
  * point where the dose becomes missed.
+ *
+ * Also the default and fallback for `HouseholdSettings.maxSnoozeCount` (added later, and
+ * optional for the same reason `weekdayChimeDurationSeconds` is: every household created before
+ * the setting existed has a stored record without it). Read it through `resolveMaxSnoozeCount()`
+ * rather than directly — that is what applies the default and the `MIN/MAX_SNOOZE_LIMIT` clamp.
  */
 export const MAX_SNOOZE_COUNT = 3;
+
+/**
+ * Resolves a household's configured snooze limit, defaulting and clamping the same way
+ * `chimeDurationSecondsFor()` does for alert length: a settings screen is validated, but a synced
+ * record from an older client or a corrupted payload is not.
+ */
+export function resolveMaxSnoozeCount(maxSnoozeCount: number | undefined): number {
+  if (maxSnoozeCount === undefined || !Number.isFinite(maxSnoozeCount)) {
+    return MAX_SNOOZE_COUNT;
+  }
+  return Math.min(MAX_SNOOZE_LIMIT, Math.max(MIN_SNOOZE_LIMIT, Math.round(maxSnoozeCount)));
+}
 
 export interface SnoozeState {
   /** How many snoozes have been granted for this occurrence. */
@@ -45,6 +63,7 @@ export interface SnoozeState {
 export function deriveSnoozeState(
   snoozes: readonly DoseSnooze[],
   occurrenceId: string,
+  maxSnoozeCount: number = MAX_SNOOZE_COUNT,
 ): SnoozeState {
   const relevant = snoozes.filter((snooze) => snooze.occurrenceId === occurrenceId);
 
@@ -62,7 +81,7 @@ export function deriveSnoozeState(
   return {
     count: relevant.length,
     untilMs: Date.parse(latest.createdAt) + latest.minutes * MS_PER_MINUTE,
-    canSnooze: relevant.length < MAX_SNOOZE_COUNT,
+    canSnooze: relevant.length < maxSnoozeCount,
   };
 }
 
