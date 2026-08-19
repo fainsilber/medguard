@@ -80,7 +80,20 @@ const config: ExpoConfig = {
       backgroundColor: '#0a0e17',
     },
   },
-  plugins: ['./plugins/withMedGuardAlarms'],
+  plugins: [
+    './plugins/withMedGuardAlarms',
+    [
+      'expo-splash-screen',
+      {
+        // Same Star of Life mark as the app/adaptive icon, isolated onto a transparent
+        // background so it sits on `backgroundColor` without the icon's square edges showing.
+        image: './assets/splash-icon.png',
+        imageWidth: 200,
+        resizeMode: 'contain',
+        backgroundColor: '#0a0e17',
+      },
+    ],
+  ],
   extra: {
     // Overridden per-build (dev/staging/prod) via EAS build profiles in eas.json. Left `undefined`
     // when unset (e.g. the plain-Gradle CI build, which sets no env vars at all) rather than
