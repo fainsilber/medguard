@@ -294,10 +294,14 @@ describe('publishWindowsIfStale', () => {
       { table: 'shabbatConfig', record: shabbatConfig() },
     ]);
 
-    // The config write publishes through the Durable Object on the real clock, not `NOW_MS`.
-    // Seed a known horizon from the fixture first, or this assertion drifts from "the horizon
-    // ran short" into "today happens to be at least 60 days past the fixture" and eventually
-    // fails with a clean but irrelevant `0`.
+    // The config write publishes through the Durable Object on the real system clock, not
+    // `NOW_MS`, seeding windows out to the real "today" + 90 days. That horizon only grows more
+    // stale-proof as real time moves further past the fixture, so clear it before publishing from
+    // `NOW_MS`, or the assertion below is anchored to whichever day the suite happens to run on
+    // rather than to the fixture, and starts failing once "today" drifts far enough past it.
+    await env.DB.prepare('DELETE FROM shabbat_windows WHERE household_id = ?')
+      .bind(session.householdId)
+      .run();
     await publishWindows(env.DB, session.householdId, NOW_MS);
 
     // Two months later: the household has not touched its settings, and nobody has opened the
