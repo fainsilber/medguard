@@ -526,6 +526,33 @@ npm run eas:submit:production --workspace=@medguard/android
 npm run eas:release:production --workspace=@medguard/android
 ```
 
+#### One-time bootstrap for Play Store submission (`auto_submit`/`eas submit`)
+
+`eas.json`'s `submit.production` is wired to a service account key file
+(`play-store-service-account.json`, gitignored, re-included via `.easignore` the same way as
+`google-services.json`). None of this can be created from this sandbox — it needs a Google Play
+Console account with the app already registered:
+
+1. In [Google Play Console](https://play.google.com/console), create the app listing for
+  `il.co.fainsilber.med` (App content, store listing, etc.) and **upload one release manually**
+  (Internal testing track is enough). The Play Developer API used by `eas submit` cannot create an
+  app's *first* release — there has to be at least one existing release/version code before
+  automated submission works.
+2. In [Google Cloud Console](https://console.cloud.google.com/) for the same project, enable the
+  **Google Play Android Developer API** and create a service account (IAM & Admin → Service
+  Accounts), then generate a JSON key for it.
+3. Back in Play Console → **Setup → API access**, link that Cloud project if not already linked,
+  and grant the service account access to this app with at least the "Release to production, exclude
+  devices, and use Play App Signing" / release-management permission.
+4. Add the entire JSON key file contents as a repository secret named
+  `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`.
+5. Run the `Android Release (EAS)` workflow with `profile: production` and `auto_submit: true`, or
+  run `npm run eas:submit:production --workspace=@medguard/android` locally once you have a build to
+  submit.
+
+`eas.json` currently targets the `internal` Play track by default — bump `submit.production.android.track`
+to `production` once you're ready for a public release.
+
 ### Option B — local build via Android Studio / the SDK command-line tools
 
 Prerequisites: a machine with Android Studio (SDK + platform-tools) or at minimum
