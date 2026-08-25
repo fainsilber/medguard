@@ -471,10 +471,11 @@ SDK/Android Studio *and* a machine at hand simultaneously — pick whichever you
 
 ### Option A — EAS Build (no Android SDK needed on your machine at all)
 
-Builds remotely on Expo's servers and hands back a QR code / download link for a plain APK —
-useful from a laptop with nothing but Node installed, or when you're away from your usual dev
-machine. `apps/android/eas.json`'s `internal` profile is already configured for this
-(`"buildType": "apk"`, `"distribution": "internal"`).
+Builds remotely on Expo's servers and hands back a QR code / download link for a managed-signed
+APK once the one-time credential bootstrap below has been done — useful from a laptop with nothing
+but Node installed, or when you're away from your usual dev machine. `apps/android/eas.json`'s
+`internal` profile is configured for that installable APK (`"buildType": "apk"`,
+`"distribution": "internal"`); the `production` profile builds the Play-ready signed AAB.
 
 ```bash
 git clone <repo> && cd medguard   # main already has A0-A2 and the CI APK workflow
@@ -493,6 +494,37 @@ from that source the first time). **This cannot be run from inside a Claude Code
 machine with unrestricted internet access. **Option C below is the sandbox-compatible equivalent**
 — it can be triggered and monitored entirely through the GitHub API/MCP tools, no local machine or
 Expo account needed.
+
+#### One-time bootstrap for EAS-managed signing
+
+This repo now carries the config and CI wiring for an EAS-managed release, but the first
+authenticated run still has to happen from a real machine with Expo/Play access — this sandbox
+cannot create or upload credentials to Expo's servers.
+
+1. `cd apps/android && eas login`
+2. If Expo says the project is not linked yet, run `eas project:init` and accept the existing
+  `owner`/`slug` from `app.config.ts`.
+3. Run `eas build --platform android --profile internal` once and let EAS generate/store the
+  Android keystore when prompted. After that, the `internal` profile produces a managed-signed APK
+  instead of the debug-signed Gradle artifact Option C builds.
+4. Run `eas build --platform android --profile production` for a signed AAB, or
+  `eas build --platform android --profile production --auto-submit` once Play submission
+  credentials have been configured on the Expo side.
+5. For CI, add a repository secret `EXPO_TOKEN`. `.github/workflows/android-eas-release.yml` uses
+  it to run the same managed-signed build remotely. `GOOGLE_SERVICES_JSON` stays optional and is
+  handled the same way as in `.github/workflows/android-apk.yml`, with one EAS-specific extra:
+  `apps/android/.easignore` deliberately re-includes the generated `google-services.json`, because
+  remote EAS builds upload a filtered project archive rather than reading the runner's filesystem
+  directly.
+
+Convenience commands now exist in this workspace too:
+
+```bash
+npm run eas:build:internal --workspace=@medguard/android
+npm run eas:build:production --workspace=@medguard/android
+npm run eas:submit:production --workspace=@medguard/android
+npm run eas:release:production --workspace=@medguard/android
+```
 
 ### Option B — local build via Android Studio / the SDK command-line tools
 
@@ -581,7 +613,9 @@ Builds on a GitHub-hosted runner via a plain `expo prebuild` + Gradle build (`.g
 `workflow_dispatch` only) — no Expo/EAS account, no secrets, nothing installed locally beyond a
 browser. Good default when you just want an APK to sideload and don't need EAS's remote build farm
 or OTA updates, and the only option that works from inside a Claude Code sandbox session (Option A
-is blocked there — see above).
+is blocked there — see above). If you want a managed-signed release build instead of the
+debug-signed Gradle artifact this workflow produces, use `.github/workflows/android-eas-release.yml`
+from a repo with `EXPO_TOKEN` configured.
 
 1. In the repo on GitHub, go to **Actions → Build Android APK → Run workflow**, and run it on the
    branch you want. (From a Claude Code session with GitHub MCP tools, trigger it directly via

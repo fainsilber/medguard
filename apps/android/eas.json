@@ -10,17 +10,13 @@
       "android": {
         "buildType": "apk"
       },
-      "env": {
-        "MEDGUARD_API_BASE_URL": "https://medguard-api-dev.example.workers.dev"
-      }
+      "channel": "development"
     },
     "internal": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "MEDGUARD_API_BASE_URL": "https://medguard-api.example.workers.dev"
       },
       "channel": "internal-testing"
     },
@@ -28,9 +24,6 @@
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
-      },
-      "env": {
-        "MEDGUARD_API_BASE_URL": "https://medguard-api.example.workers.dev"
       },
       "channel": "production"
     }
