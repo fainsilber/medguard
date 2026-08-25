@@ -480,6 +480,9 @@ but Node installed, or when you're away from your usual dev machine. `apps/andro
 ```bash
 git clone <repo> && cd medguard   # main already has A0-A2 and the CI APK workflow
 npm install -g eas-cli
+npm install             # workspace deps — from the repo root, not apps/android; without this,
+                         # eas/expo can't resolve app.config.ts's local plugins and fails with
+                         # "Failed to resolve plugin for module ... Do you have node modules installed?"
 cd apps/android
 eas login              # free Expo account — https://expo.dev/signup if you don't have one
 eas build --platform android --profile internal
@@ -501,7 +504,9 @@ This repo now carries the config and CI wiring for an EAS-managed release, but t
 authenticated run still has to happen from a real machine with Expo/Play access — this sandbox
 cannot create or upload credentials to Expo's servers.
 
-1. `cd apps/android && eas login`
+1. `npm install` from the repo root (not `apps/android`) if you haven't already — `eas`/`expo`
+  need the workspace's `node_modules` to resolve `app.config.ts`'s local plugins. Then
+  `cd apps/android && eas login`.
 2. If Expo says the project is not linked yet, run `eas project:init` and accept the existing
   `owner`/`slug` from `app.config.ts`.
 3. Run `eas build --platform android --profile internal` once and let EAS generate/store the
