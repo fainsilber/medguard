@@ -480,6 +480,7 @@ exports a Vitest-based conformance suite that fails to `require()` under Jest's 
 | `ci.yml` | `deploy-api` | Cloudflare deploy | Push to `main` only, after `verify` passes |
 | `android-apk.yml` | `build-apk` | Prebuild, Gradle/Robolectric, `assembleRelease` | Every push to `main` and every PR |
 | `android-apk.yml` | `maestro` | Maestro flows + adb driver scripts on an emulator | `workflow_dispatch` or a PR carrying the `run-e2e-android` label only — **not** wired to `push` or a schedule yet (see that workflow's own comment on why) |
+| `android-eas-release.yml` | `eas-release` | EAS-managed signed Android build, optional auto-submit to Play | `workflow_dispatch` only; requires `EXPO_TOKEN` and previously-bootstrapped Expo credentials |
 
 Artifacts: `ci.yml` uploads `coverage-reports` (7 days, always) and `playwright-report` (7 days, on
 failure only — traces are large and only useful when something's actually red). `android-apk.yml`
@@ -490,4 +491,7 @@ broke the first real run of the `maestro` job below with "Artifact not found for
 medguard-release-apk": `maestro` `needs: build-apk` and downloads this exact artifact, and
 `workflow_dispatch` is the only way to trigger `maestro` at all, so gating the upload behind an
 easy-to-forget checkbox meant the one event type that actually needed the artifact was also the one
+that silently had none. `android-eas-release.yml` does not upload a GitHub artifact — the signed
+build lives on Expo's servers, and the workflow's job is to kick off and wait for that remote build
+or build+submit run.
 most likely to not have it.

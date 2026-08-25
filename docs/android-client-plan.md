@@ -35,8 +35,11 @@ native connection has no built-in queue, so the sync engine's own writes and `us
 fire-and-forget refetches could race for it and throw "cannot start a transaction within a
 transaction"; both concurrency sources are now fixed at the `SyncEngine`/`ExpoSqliteDriver` level
 (see `apps/android/README.md`'s "Sync and household join"), still needing a fresh on-device confirm
-of its own. This is a Gradle build, not EAS build/submit — the Play Console / EAS-submit half of A6
-is still fully unstarted. **2026-08-09:** two more same-day fixes from continued real-device use —
+of its own. This is still the fast, no-secrets Gradle validation path, not the Play release path —
+the EAS-managed build/submit half of A6 is now repo-configured (`apps/android/eas.json`,
+`.github/workflows/android-eas-release.yml`, and the Android workspace EAS scripts) but cannot be
+exercised from this sandbox because Expo/Play authentication and credential upload happen outside
+it. **2026-08-09:** two more same-day fixes from continued real-device use —
 no screen used `KeyboardAvoidingView`, so the on-screen keyboard could overlap a focused text field
 and the button below it instead of the layout resizing around it (fixed with a shared
 `KeyboardAvoidingScreen` wrapper applied to every form/text-input screen); and the app had no way to
@@ -722,7 +725,8 @@ Shabbat mode with zero touches and no escalation emitted (**not yet run** — ne
 CI — ~~`.github/workflows/ci.yml`~~ done differently: a separate `.github/workflows/android-apk.yml`
 (plain Gradle build, no EAS, `workflow_dispatch` only, landed 2026-08-07 — see status note above);
 EAS build/submit specifically (for Play Store release, as opposed to a sideloadable debug APK) is
-still unstarted; accessibility and font-scaling pass (Android's system font scale needs deliberate
+now wired in-repo via `apps/android/eas.json` and `.github/workflows/android-eas-release.yml`, but
+still awaiting its first authenticated Expo/Play run; accessibility and font-scaling pass (Android's system font scale needs deliberate
 `allowFontScaling` handling in React Native, and the 3 AM ergonomics requirement makes it
 non-optional); performance with 12 months of logs; `docs/runbook.md` additions for Android-specific
 failure modes.

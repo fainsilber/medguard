@@ -1,0 +1,83 @@
+name: Android Release (EAS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: EAS build profile to run
+        required: true
+        type: choice
+        default: production
+        options:
+          - internal
+          - production
+      auto_submit:
+        description: Auto-submit to Play after the build finishes (production profile only)
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.profile }}
+  cancel-in-progress: false
+
+jobs:
+  eas-release:
+    name: EAS managed Android release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Require Expo token
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::Missing EXPO_TOKEN secret. Create a personal access token with EAS access and add it to the repository secrets."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write Firebase config if configured
+        working-directory: apps/android
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json
+            echo "google-services.json written: this EAS build includes the FCM push backstop."
+          else
+            echo "No GOOGLE_SERVICES_JSON secret: building without FCM (local alarms only)."
+          fi
+
+      - name: Build or release with EAS
+        working-directory: apps/android
+        run: |
+          set -euo pipefail
+
+          profile='${{ inputs.profile }}'
+          auto_submit='${{ inputs.auto_submit }}'
+
+          if [ "$auto_submit" = 'true' ] && [ "$profile" != 'production' ]; then
+            echo '::error::auto_submit is only supported for the production profile.'
+            exit 1
+          fi
+
+          cmd=(npx --yes eas-cli@latest build --platform android --profile "$profile" --non-interactive --wait)
+          if [ "$auto_submit" = 'true' ]; then
+            cmd+=(--auto-submit)
+          fi
+
+          printf 'Running:'
+          printf ' %q' "${cmd[@]}"
+          printf '\n'
+
+          "${cmd[@]}"
