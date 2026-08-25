@@ -7,7 +7,7 @@ on:
         description: EAS build profile to run
         required: true
         type: choice
-        default: production
+        default: internal
         options:
           - internal
           - production

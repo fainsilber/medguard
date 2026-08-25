@@ -512,7 +512,10 @@ cannot create or upload credentials to Expo's servers.
   credentials have been configured on the Expo side.
 5. For CI, add a repository secret `EXPO_TOKEN`. `.github/workflows/android-eas-release.yml` uses
   it to run the same managed-signed build remotely. `GOOGLE_SERVICES_JSON` stays optional and is
-  handled the same way as in `.github/workflows/android-apk.yml`.
+  handled the same way as in `.github/workflows/android-apk.yml`, with one EAS-specific extra:
+  `apps/android/.easignore` deliberately re-includes the generated `google-services.json`, because
+  remote EAS builds upload a filtered project archive rather than reading the runner's filesystem
+  directly.
 
 Convenience commands now exist in this workspace too:
 
