@@ -54,9 +54,9 @@ const googleServicesFile = resolveGoogleServicesFile();
  */
 const config: ExpoConfig = {
   name: 'MedGuard',
-  slug: 'medguard',
+  slug: 'med',
   scheme: 'medguard',
-  owner: 'medguard',
+  owner: 'fainsilber.co.il',
   version: '2.0.1',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
@@ -104,6 +104,9 @@ const config: ExpoConfig = {
     apiBaseUrl: process.env.MEDGUARD_API_BASE_URL,
     gitSha: gitShortSha(),
     buildTimestamp: new Date().toISOString(),
+    eas: {
+      projectId: '6c286d6d-38b3-4eb5-b87d-ceb533854120',
+    },
   },
 };
 

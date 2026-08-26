@@ -480,6 +480,9 @@ but Node installed, or when you're away from your usual dev machine. `apps/andro
 ```bash
 git clone <repo> && cd medguard   # main already has A0-A2 and the CI APK workflow
 npm install -g eas-cli
+npm install             # workspace deps — from the repo root, not apps/android; without this,
+                         # eas/expo can't resolve app.config.ts's local plugins and fails with
+                         # "Failed to resolve plugin for module ... Do you have node modules installed?"
 cd apps/android
 eas login              # free Expo account — https://expo.dev/signup if you don't have one
 eas build --platform android --profile internal
@@ -501,7 +504,9 @@ This repo now carries the config and CI wiring for an EAS-managed release, but t
 authenticated run still has to happen from a real machine with Expo/Play access — this sandbox
 cannot create or upload credentials to Expo's servers.
 
-1. `cd apps/android && eas login`
+1. `npm install` from the repo root (not `apps/android`) if you haven't already — `eas`/`expo`
+  need the workspace's `node_modules` to resolve `app.config.ts`'s local plugins. Then
+  `cd apps/android && eas login`.
 2. If Expo says the project is not linked yet, run `eas project:init` and accept the existing
   `owner`/`slug` from `app.config.ts`.
 3. Run `eas build --platform android --profile internal` once and let EAS generate/store the
@@ -525,6 +530,33 @@ npm run eas:build:production --workspace=@medguard/android
 npm run eas:submit:production --workspace=@medguard/android
 npm run eas:release:production --workspace=@medguard/android
 ```
+
+#### One-time bootstrap for Play Store submission (`auto_submit`/`eas submit`)
+
+`eas.json`'s `submit.production` is wired to a service account key file
+(`play-store-service-account.json`, gitignored, re-included via `.easignore` the same way as
+`google-services.json`). None of this can be created from this sandbox — it needs a Google Play
+Console account with the app already registered:
+
+1. In [Google Play Console](https://play.google.com/console), create the app listing for
+  `il.co.fainsilber.med` (App content, store listing, etc.) and **upload one release manually**
+  (Internal testing track is enough). The Play Developer API used by `eas submit` cannot create an
+  app's *first* release — there has to be at least one existing release/version code before
+  automated submission works.
+2. In [Google Cloud Console](https://console.cloud.google.com/) for the same project, enable the
+  **Google Play Android Developer API** and create a service account (IAM & Admin → Service
+  Accounts), then generate a JSON key for it.
+3. Back in Play Console → **Setup → API access**, link that Cloud project if not already linked,
+  and grant the service account access to this app with at least the "Release to production, exclude
+  devices, and use Play App Signing" / release-management permission.
+4. Add the entire JSON key file contents as a repository secret named
+  `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`.
+5. Run the `Android Release (EAS)` workflow with `profile: production` and `auto_submit: true`, or
+  run `npm run eas:submit:production --workspace=@medguard/android` locally once you have a build to
+  submit.
+
+`eas.json` currently targets the `internal` Play track by default — bump `submit.production.android.track`
+to `production` once you're ready for a public release.
 
 ### Option B — local build via Android Studio / the SDK command-line tools
 

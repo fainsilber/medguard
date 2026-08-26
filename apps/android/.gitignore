@@ -17,5 +17,10 @@ node_modules/
 # its absence is a supported state — `plugins/withMedGuardAlarms.ts` wires Firebase in only when
 # this file exists, so a build without it still produces a working APK with local alarms.
 google-services.json
+
+# Google Play Console service account key used by `eas submit` (see eas.json's `submit.production`).
+# Written by .github/workflows/android-eas-release.yml from the GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
+# secret — never commit the real key.
+play-store-service-account.json
 *.orig.*
 .env*.local

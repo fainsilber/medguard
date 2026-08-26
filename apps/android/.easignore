@@ -1,6 +1,8 @@
 # EAS uses this file instead of `.gitignore` when it builds remotely. Keep the same exclusions the
-# workspace uses locally, but deliberately include `google-services.json` so the workflow-created
-# file from `GOOGLE_SERVICES_JSON` actually reaches Expo's upload archive.
+# workspace uses locally, but deliberately include `google-services.json` and
+# `play-store-service-account.json` so the workflow-created files reach Expo's upload archive —
+# remote EAS builds/submits upload a filtered project archive rather than reading the runner's
+# filesystem directly.
 
 # Continuous native generation — expo prebuild writes this and it must never be committed
 # (docs/android-client-plan.md, "Framework and workspace").
@@ -21,5 +23,6 @@ node_modules/
 # its absence is a supported state — `plugins/withMedGuardAlarms.ts` wires Firebase in only when
 # this file exists, so a build without it still produces a working APK with local alarms.
 !google-services.json
+!play-store-service-account.json
 *.orig.*
 .env*.local
