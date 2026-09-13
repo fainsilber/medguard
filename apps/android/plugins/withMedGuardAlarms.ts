@@ -116,6 +116,15 @@ const withAlarmManifestEntries: ConfigPlugin = (config) =>
         },
       } as never,
       {
+        // The Shabbat chime's only self-stop path (see DoseAlarmService.ACTION_CHECK_DEADLINE) —
+        // AlarmManager-scheduled, same as AlarmReceiver above, rather than an in-process timer.
+        $: {
+          'android:name': 'com.medguard.alarms.ChimeDeadlineReceiver',
+          'android:enabled': 'true' as unknown as boolean,
+          'android:exported': 'false' as unknown as boolean,
+        },
+      } as never,
+      {
         $: {
           'android:name': 'com.medguard.alarms.BootReceiver',
           'android:enabled': 'true' as unknown as boolean,
