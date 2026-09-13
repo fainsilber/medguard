@@ -75,6 +75,25 @@ class MedGuardAlarmsModule : Module() {
         }
     }
 
+    /** Converts a `NativeAlarmLogStore` entry into the plain Map/List/primitive tree the bridge can serialize. */
+    private fun jsonToMap(entry: org.json.JSONObject): Map<String, Any?> {
+        val result = mutableMapOf<String, Any?>()
+        val keys = entry.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            result[key] = jsonToAny(entry.get(key))
+        }
+        return result
+    }
+
+    private fun jsonToAny(value: Any): Any? =
+        when (value) {
+            is org.json.JSONObject -> jsonToMap(value)
+            is org.json.JSONArray -> (0 until value.length()).map { jsonToAny(value.get(it)) }
+            org.json.JSONObject.NULL -> null
+            else -> value
+        }
+
     private fun payloadOf(input: ScheduleDoseAlarmRecord) =
         AlarmPayload(
             occurrenceKey = input.occurrenceKey,
@@ -306,6 +325,19 @@ class MedGuardAlarmsModule : Module() {
 
             AsyncFunction("ackPendingActions") { ids: List<String> ->
                 PendingActionStore.ack(context, ids)
+            }
+
+            // `DoseAlarmService`'s own lifecycle — ring/stop decisions, the self-stop timer, the
+            // player's success/failure, and whether `onDestroy` ever saw a chime still active —
+            // none of which the JS-side `appLog` can see, since that service can run and stop a
+            // chime with no JS runtime alive to log anything at all. `SettingsScreen`'s Share Log
+            // merges these in alongside the JS log rather than exporting them separately.
+            AsyncFunction("readNativeAlarmLog") {
+                NativeAlarmLogStore.readAll(context).map { entry -> jsonToMap(entry) }
+            }
+
+            AsyncFunction("clearNativeAlarmLog") {
+                NativeAlarmLogStore.clear(context)
             }
 
             // `src/clock/localClockGuard.ts`'s tamper-detection reference: milliseconds since

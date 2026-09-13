@@ -66,6 +66,18 @@ export interface PushTokenEvent {
   token: string;
 }
 
+/**
+ * One entry from `NativeAlarmLogStore` — what `DoseAlarmService` did, recorded independently of
+ * whether a JS runtime existed to see it. `atMs` is epoch milliseconds, not an ISO string, because
+ * it comes straight from Kotlin's `System.currentTimeMillis()`.
+ */
+export interface NativeAlarmLogEntry {
+  atMs: number;
+  level: 'debug' | 'info' | 'warn' | 'error';
+  message: string;
+  data?: Record<string, unknown>;
+}
+
 export interface MedGuardAlarmsModuleEvents {
   onPendingAction(event: PendingActionEvent): void;
   onPushToken(event: PushTokenEvent): void;

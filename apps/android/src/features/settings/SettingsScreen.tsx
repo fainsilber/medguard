@@ -3,27 +3,26 @@ import {
   MAX_SNOOZE_LIMIT,
   MIN_SNOOZE_LIMIT,
   chimeDurationSecondsFor,
+  formatLogEntriesAsText,
   resolveLocal,
   resolveMaxSnoozeCount,
   toIso,
 } from '@medguard/shared';
+import type { LogEntry } from '@medguard/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 
 import {
   cancelDoseAlarm,
+  clearNativeAlarmLog,
   playTestChime,
+  readNativeAlarmLog,
   scheduleDoseAlarm,
 } from '../../../modules/medguard-alarms/src';
 import { AlarmSetupChecklist } from '../../alarms/AlarmSetupChecklist.js';
 import { useRepository } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
-import {
-  clearAppLog,
-  exportAppLogText,
-  getAppLogEntries,
-  onAppLogChange,
-} from '../../logging/appLog.js';
+import { clearAppLog, getAppLogEntries, onAppLogChange } from '../../logging/appLog.js';
 import { shareTextFile } from '../export/shareTextFile.js';
 import { deviceClock, deviceIdGenerator } from '../../runtime/deviceRuntime.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
@@ -130,13 +129,37 @@ export function SettingsScreen(): React.JSX.Element {
     // real file first, the same way the CSV/backup exports already do via `shareTextFile`, lets
     // this name it explicitly — with the timestamp the moment it was shared, not when it's opened.
     const timestamp = deviceClock.nowIso().replace(/[:.]/g, '-');
-    void shareTextFile(
-      exportAppLogText() || 'MedGuard app log is empty.',
-      `medguard-app-log-${timestamp}.txt`,
-      'text/plain',
-    ).catch((err) => {
-      setStatusMessage(err instanceof Error ? err.message : 'Could not share the log file.');
-    });
+    void readNativeAlarmLog()
+      .catch(() => [])
+      .then((nativeEntries) => {
+        // `DoseAlarmService` runs, rings, and stops chimes with no JS runtime alive to see any of
+        // it, so its own durable log is merged in here rather than left as a separate export —
+        // otherwise the one export a caregiver can actually produce still misses the half of this
+        // system that isn't JS.
+        const nativeAsLogEntries: LogEntry[] = nativeEntries.map((entry) => ({
+          timestamp: new Date(entry.atMs).toISOString(),
+          level: entry.level,
+          scope: 'native-alarms',
+          message: entry.message,
+          data: entry.data,
+        }));
+        const combined = [...getAppLogEntries(), ...nativeAsLogEntries].sort((a, b) =>
+          a.timestamp.localeCompare(b.timestamp),
+        );
+        return shareTextFile(
+          formatLogEntriesAsText(combined) || 'MedGuard app log is empty.',
+          `medguard-app-log-${timestamp}.txt`,
+          'text/plain',
+        );
+      })
+      .catch((err) => {
+        setStatusMessage(err instanceof Error ? err.message : 'Could not share the log file.');
+      });
+  }, []);
+
+  const onClearLog = useCallback(() => {
+    clearAppLog();
+    void clearNativeAlarmLog();
   }, []);
 
   return (
@@ -244,7 +267,7 @@ export function SettingsScreen(): React.JSX.Element {
         <Row label="Entries this session" value={String(logEntryCount)} />
         <View style={ui.row}>
           <Button label="Share log" onPress={onShareLog} />
-          <Button label="Clear" onPress={clearAppLog} variant="danger" />
+          <Button label="Clear" onPress={onClearLog} variant="danger" />
         </View>
       </Card>
 

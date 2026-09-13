@@ -27,6 +27,8 @@ export const hasNotificationPolicyAccess = jest.fn().mockResolvedValue(true);
 export const requestNotificationPolicyAccess = jest.fn().mockResolvedValue(undefined);
 export const readPendingActions = jest.fn().mockResolvedValue([]);
 export const ackPendingActions = jest.fn().mockResolvedValue(undefined);
+export const readNativeAlarmLog = jest.fn().mockResolvedValue([]);
+export const clearNativeAlarmLog = jest.fn().mockResolvedValue(undefined);
 // A fixed default is enough: `localClockGuard.ts`'s drift math only compares this against its own
 // anchor from a prior call, both taken microseconds apart within a single fast test run, so a
 // static value (like every other mock in this file) stays well inside tolerance without reaching

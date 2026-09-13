@@ -1,5 +1,6 @@
-import { waitFor } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { AlarmProvider } from '../../alarms/AlarmProvider.js';
+import { clearNativeAlarmLog, readNativeAlarmLog } from '../../../modules/medguard-alarms/src';
 import { SyncProvider } from '../../sync/SyncProvider.js';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import { SettingsScreen } from './SettingsScreen.js';
@@ -39,5 +40,14 @@ describe('SettingsScreen', () => {
     expect(getByText('AD1 — Hermes ICU')).toBeTruthy();
     expect(getByText('Sync status')).toBeTruthy();
     expect(getByText('App log')).toBeTruthy();
+
+    // Share log merges DoseAlarmService's own durable log (readNativeAlarmLog) into the export —
+    // added because that service can ring and stop a chime with no JS runtime alive to log
+    // anything, which the plain JS appLog had no way to see.
+    fireEvent.press(getByText('Share log'));
+    await waitFor(() => expect(readNativeAlarmLog).toHaveBeenCalled());
+
+    fireEvent.press(getByText('Clear'));
+    expect(clearNativeAlarmLog).toHaveBeenCalled();
   });
 });
