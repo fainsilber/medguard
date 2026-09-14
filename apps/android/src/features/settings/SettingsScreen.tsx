@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 
 import {
+  armDoseAlarms,
   cancelDoseAlarm,
   clearNativeAlarmLog,
   playTestChime,
@@ -151,6 +152,50 @@ export function SettingsScreen(): React.JSX.Element {
       setStatusMessage('Shabbat test alarm cancelled.');
     });
   }, [armedShabbatOccurrenceKey]);
+
+  const [armedOverlapKeys, setArmedOverlapKeys] = useState<string[] | null>(null);
+
+  // Two occurrences at the *same* triggerAtMs, via armDoseAlarms — the batch form the reconcile
+  // pass uses, so both land in one Kotlin call and fire as two AlarmReceiver deliveries into the
+  // same already-running DoseAlarmService instance, back to back. That double onStartCommand is
+  // exactly the shape of the historical bug (docs/android-client-plan.md, "the bug behind a
+  // Shabbat of continuous alerts"): a household's two medicines due at once used to reassign the
+  // one MediaPlayer field and orphan whichever was already looping. Confirms one sound plus two
+  // separate notifications now, not two overlapping sounds.
+  const onScheduleOverlapAlarms = useCallback(() => {
+    const keyA = deviceIdGenerator.next();
+    const keyB = deviceIdGenerator.next();
+    const triggerAtMs = deviceClock.nowMs() + 10_000;
+    setStatusMessage('Arming two dose alarms for the same instant, 10s out. Lock the phone now.');
+    armDoseAlarms([
+      {
+        occurrenceKey: keyA,
+        triggerAtMs,
+        channelId: 'dose_standard_v1',
+        title: 'MedGuard — test dose A',
+        body: 'Overlap dry run: alarm A.',
+        chimeDurationSeconds: chimeSeconds,
+        escalation: false,
+      },
+      {
+        occurrenceKey: keyB,
+        triggerAtMs,
+        channelId: 'dose_standard_v1',
+        title: 'MedGuard — test dose B',
+        body: 'Overlap dry run: alarm B.',
+        chimeDurationSeconds: chimeSeconds,
+        escalation: false,
+      },
+    ]).then(() => setArmedOverlapKeys([keyA, keyB]));
+  }, [chimeSeconds]);
+
+  const onCancelOverlapAlarms = useCallback(() => {
+    if (!armedOverlapKeys) return;
+    Promise.all(armedOverlapKeys.map((key) => cancelDoseAlarm(key))).then(() => {
+      setArmedOverlapKeys(null);
+      setStatusMessage('Overlap test alarms cancelled.');
+    });
+  }, [armedOverlapKeys]);
 
   const [logEntryCount, setLogEntryCount] = useState(() => getAppLogEntries().length);
   useEffect(() => onAppLogChange(() => setLogEntryCount(getAppLogEntries().length)), []);
@@ -309,6 +354,22 @@ export function SettingsScreen(): React.JSX.Element {
         />
         {armedShabbatOccurrenceKey ? (
           <Button label="Cancel" onPress={onCancelShabbatAlarm} variant="danger" />
+        ) : null}
+      </Card>
+
+      <Card>
+        <Text style={sectionTitle}>Overlapping doses dry run</Text>
+        <Text style={ui.subtitle}>
+          Arms two dose alarms for the exact same instant, 10 seconds out — one shared chime, two
+          separate notifications. The shape of the historical two-medicines-at-once bug.
+        </Text>
+        <Button
+          label="Arm 2 overlapping alarms in 10s"
+          onPress={onScheduleOverlapAlarms}
+          disabled={armedOverlapKeys != null}
+        />
+        {armedOverlapKeys ? (
+          <Button label="Cancel" onPress={onCancelOverlapAlarms} variant="danger" />
         ) : null}
       </Card>
 

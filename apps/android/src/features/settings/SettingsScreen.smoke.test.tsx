@@ -1,6 +1,7 @@
 import { fireEvent, waitFor } from '@testing-library/react-native';
 import { AlarmProvider } from '../../alarms/AlarmProvider.js';
 import {
+  armDoseAlarms,
   cancelDoseAlarm,
   clearNativeAlarmLog,
   readNativeAlarmLog,
@@ -66,5 +67,26 @@ describe('SettingsScreen', () => {
 
     fireEvent.press(getByText('Cancel'));
     await waitFor(() => expect(cancelDoseAlarm).toHaveBeenCalled());
+
+    // The overlapping-doses dry run: two occurrences at the same triggerAtMs via armDoseAlarms,
+    // the batch form that lands both in one Kotlin call — the shape of the historical
+    // two-medicines-at-once bug.
+    fireEvent.press(getByText('Arm 2 overlapping alarms in 10s'));
+    await waitFor(() =>
+      expect(armDoseAlarms).toHaveBeenCalledWith([
+        expect.objectContaining({ channelId: 'dose_standard_v1' }),
+        expect.objectContaining({ channelId: 'dose_standard_v1' }),
+      ]),
+    );
+    const [overlapCallArgs] = (armDoseAlarms as jest.Mock).mock.calls.at(-1) as [
+      { triggerAtMs: number }[],
+    ];
+    expect(overlapCallArgs[0].triggerAtMs).toBe(overlapCallArgs[1].triggerAtMs);
+
+    const cancelCallsBefore = (cancelDoseAlarm as jest.Mock).mock.calls.length;
+    fireEvent.press(getByText('Cancel'));
+    await waitFor(() =>
+      expect((cancelDoseAlarm as jest.Mock).mock.calls.length).toBe(cancelCallsBefore + 2),
+    );
   });
 });
