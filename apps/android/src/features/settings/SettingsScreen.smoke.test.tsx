@@ -81,7 +81,7 @@ describe('SettingsScreen', () => {
     const [overlapCallArgs] = (armDoseAlarms as jest.Mock).mock.calls.at(-1) as [
       { triggerAtMs: number }[],
     ];
-    expect(overlapCallArgs[0].triggerAtMs).toBe(overlapCallArgs[1].triggerAtMs);
+    expect(overlapCallArgs[0]!.triggerAtMs).toBe(overlapCallArgs[1]!.triggerAtMs);
 
     const cancelCallsBefore = (cancelDoseAlarm as jest.Mock).mock.calls.length;
     fireEvent.press(getByText('Cancel'));
