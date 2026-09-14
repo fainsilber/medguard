@@ -119,6 +119,39 @@ export function SettingsScreen(): React.JSX.Element {
     });
   }, [armedOccurrenceKey]);
 
+  const shabbatChimeSeconds = chimeDurationSecondsFor({ inShabbat: true, shabbatConfig });
+  const [armedShabbatOccurrenceKey, setArmedShabbatOccurrenceKey] = useState<string | null>(null);
+
+  // Arms a real alarm on the Shabbat channel — no Taken/Snooze buttons (D5), exactly the path
+  // that has nothing but ChimeDeadlineReceiver's self-stop deadline to rely on. Separate from the
+  // weekday dry run above rather than reusing it: this exercises the whole real chain
+  // (AlarmManager -> AlarmReceiver -> DoseAlarmService -> the deadline alarm), not a channel
+  // parameter swapped in on the same button, so a caregiver can actually confirm the fix.
+  const onScheduleShabbatAlarm = useCallback(() => {
+    const occurrenceKey = deviceIdGenerator.next();
+    const triggerAtMs = deviceClock.nowMs() + 10_000;
+    setStatusMessage(
+      `Arming a Shabbat-channel alarm for 10s from now — ${shabbatChimeSeconds}s, no action buttons. Lock the phone now and wait for it to stop on its own.`,
+    );
+    scheduleDoseAlarm({
+      occurrenceKey,
+      triggerAtMs,
+      channelId: 'shabbat_v1',
+      title: 'MedGuard — Shabbat test',
+      body: 'Self-stop deadline dry run.',
+      chimeDurationSeconds: shabbatChimeSeconds,
+      escalation: false,
+    }).then(() => setArmedShabbatOccurrenceKey(occurrenceKey));
+  }, [shabbatChimeSeconds]);
+
+  const onCancelShabbatAlarm = useCallback(() => {
+    if (!armedShabbatOccurrenceKey) return;
+    cancelDoseAlarm(armedShabbatOccurrenceKey).then(() => {
+      setArmedShabbatOccurrenceKey(null);
+      setStatusMessage('Shabbat test alarm cancelled.');
+    });
+  }, [armedShabbatOccurrenceKey]);
+
   const [logEntryCount, setLogEntryCount] = useState(() => getAppLogEntries().length);
   useEffect(() => onAppLogChange(() => setLogEntryCount(getAppLogEntries().length)), []);
 
@@ -259,6 +292,23 @@ export function SettingsScreen(): React.JSX.Element {
         />
         {armedOccurrenceKey ? (
           <Button label="Cancel" onPress={onCancelArmedAlarm} variant="danger" />
+        ) : null}
+      </Card>
+
+      <Card>
+        <Text style={sectionTitle}>Shabbat self-stop dry run</Text>
+        <Text style={ui.subtitle}>
+          Arms a real Shabbat-channel alarm ({shabbatChimeSeconds}s, no Taken/Snooze buttons) 10
+          seconds out — the one path with nothing but the self-stop deadline to silence it (D5).
+          Lock the phone right after tapping and confirm it stops on its own.
+        </Text>
+        <Button
+          label="Arm Shabbat test alarm in 10s"
+          onPress={onScheduleShabbatAlarm}
+          disabled={armedShabbatOccurrenceKey != null}
+        />
+        {armedShabbatOccurrenceKey ? (
+          <Button label="Cancel" onPress={onCancelShabbatAlarm} variant="danger" />
         ) : null}
       </Card>
 

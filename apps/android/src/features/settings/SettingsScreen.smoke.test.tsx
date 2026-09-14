@@ -1,6 +1,11 @@
 import { fireEvent, waitFor } from '@testing-library/react-native';
 import { AlarmProvider } from '../../alarms/AlarmProvider.js';
-import { clearNativeAlarmLog, readNativeAlarmLog } from '../../../modules/medguard-alarms/src';
+import {
+  cancelDoseAlarm,
+  clearNativeAlarmLog,
+  readNativeAlarmLog,
+  scheduleDoseAlarm,
+} from '../../../modules/medguard-alarms/src';
 import { SyncProvider } from '../../sync/SyncProvider.js';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import { SettingsScreen } from './SettingsScreen.js';
@@ -49,5 +54,17 @@ describe('SettingsScreen', () => {
 
     fireEvent.press(getByText('Clear'));
     expect(clearNativeAlarmLog).toHaveBeenCalled();
+
+    // The Shabbat self-stop dry run: arms a real alarm on the no-button Shabbat channel, the one
+    // path ChimeDeadlineReceiver's fix has to cover on its own.
+    fireEvent.press(getByText('Arm Shabbat test alarm in 10s'));
+    await waitFor(() =>
+      expect(scheduleDoseAlarm).toHaveBeenCalledWith(
+        expect.objectContaining({ channelId: 'shabbat_v1', chimeDurationSeconds: expect.any(Number) }),
+      ),
+    );
+
+    fireEvent.press(getByText('Cancel'));
+    await waitFor(() => expect(cancelDoseAlarm).toHaveBeenCalled());
   });
 });
