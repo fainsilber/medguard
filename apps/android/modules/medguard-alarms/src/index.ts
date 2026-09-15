@@ -4,6 +4,7 @@ import type { EventSubscription } from 'expo-modules-core';
 import type {
   ArmedAlarm,
   MedGuardAlarmsModuleEvents,
+  NativeAlarmLogEntry,
   PendingActionEvent,
   PendingActionRecord,
   PushTokenEvent,
@@ -13,6 +14,7 @@ import type {
 export type {
   ArmedAlarm,
   MedGuardChannelId,
+  NativeAlarmLogEntry,
   PendingActionEvent,
   PendingActionRecord,
   PushTokenEvent,
@@ -79,6 +81,13 @@ interface MedGuardAlarmsNativeModule {
    */
   readPendingActions(): Promise<PendingActionRecord[]>;
   ackPendingActions(ids: string[]): Promise<void>;
+  /**
+   * What `DoseAlarmService` actually did — ring/stop decisions, the self-stop timer, the player's
+   * own success or failure, and whether `onDestroy` ever fired with a chime still active. Recorded
+   * independently of any JS runtime, because the service can ring and stop with none alive.
+   */
+  readNativeAlarmLog(): Promise<NativeAlarmLogEntry[]>;
+  clearNativeAlarmLog(): Promise<void>;
   /**
    * Milliseconds since boot, including time spent in deep sleep (`SystemClock.elapsedRealtime()`)
    * — unlike `performance.now()`, which halts across real device sleep on Android. The monotonic
@@ -161,6 +170,11 @@ export const readPendingActions = (): Promise<PendingActionRecord[]> =>
 
 export const ackPendingActions = (ids: string[]): Promise<void> =>
   nativeModule.ackPendingActions(ids);
+
+export const readNativeAlarmLog = (): Promise<NativeAlarmLogEntry[]> =>
+  nativeModule.readNativeAlarmLog();
+
+export const clearNativeAlarmLog = (): Promise<void> => nativeModule.clearNativeAlarmLog();
 
 export const elapsedRealtimeMs = (): Promise<number> => nativeModule.elapsedRealtimeMs();
 

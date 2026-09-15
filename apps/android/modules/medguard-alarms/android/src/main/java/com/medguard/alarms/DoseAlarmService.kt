@@ -1,6 +1,8 @@
 package com.medguard.alarms
 
+import android.app.AlarmManager
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -10,9 +12,7 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.support.v4.media.session.MediaSessionCompat
 import androidx.media.VolumeProviderCompat
 import org.json.JSONObject
@@ -36,7 +36,8 @@ import org.json.JSONObject
  *
  *  - **one shared player** for however many doses are sounding, so simultaneous alerts are one
  *    sound and several notifications, not several overlapping sounds;
- *  - **one stop callback**, re-posted to the session's latest deadline after every change;
+ *  - **one stop deadline**, re-armed to the session's latest expiry after every change, via
+ *    `AlarmManager` rather than an in-process timer — see [rescheduleStop];
  *  - **stop conditions beyond the timeout**: a physical button or screen event (below), and an
  *    explicit [ACTION_STOP_CHIME] sent when a caregiver marks the dose.
  */
@@ -56,13 +57,23 @@ class DoseAlarmService : Service() {
         const val ACTION_STOP_CHIME = "com.medguard.alarms.action.STOP_CHIME"
         const val EXTRA_OCCURRENCE_KEY = "com.medguard.alarms.extra.OCCURRENCE_KEY"
 
+        /**
+         * Sent by [ChimeDeadlineReceiver] when `ChimeSession`'s current deadline arrives — the
+         * *only* way a Shabbat chime ever stops itself. The Shabbat channel posts no Taken/Snooze
+         * buttons (D5), so unlike a weekday alert — silenced directly by
+         * `NotificationActionReceiver` the instant either is tapped — Shabbat has nothing else to
+         * fall back on if this one deadline is late.
+         */
+        const val ACTION_CHECK_DEADLINE = "com.medguard.alarms.action.CHECK_DEADLINE"
+
         /** Only the alarm stream matters here; the value is arbitrary and never displayed. */
         private const val VOLUME_CONTROL_MAX = 10
+
+        /** Arbitrary but fixed: one deadline alarm per service instance, never more than one pending. */
+        private const val DEADLINE_REQUEST_CODE = 7601
     }
 
     private val session = ChimeSession()
-    private val stopHandler = Handler(Looper.getMainLooper())
-    private var stopRunnable: Runnable? = null
 
     private var mediaPlayer: MediaPlayer? = null
     private val payloads = mutableMapOf<String, AlarmPayload>()
@@ -79,6 +90,7 @@ class DoseAlarmService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_CHIME) {
             val key = intent.getStringExtra(EXTRA_OCCURRENCE_KEY)
+            NativeAlarmLogStore.append(this, "debug", "onStartCommand: ACTION_STOP_CHIME", mapOf("occurrenceKey" to key))
             if (key == null) {
                 stopEverything()
             } else {
@@ -87,10 +99,17 @@ class DoseAlarmService : Service() {
             return START_NOT_STICKY
         }
 
+        if (intent?.action == ACTION_CHECK_DEADLINE) {
+            NativeAlarmLogStore.append(this, "info", "onStartCommand: ACTION_CHECK_DEADLINE", emptyMap())
+            onDeadlineReached()
+            return START_NOT_STICKY
+        }
+
         val raw = intent?.getStringExtra(AlarmScheduler.EXTRA_PAYLOAD)
         val payload = raw?.let { runCatching { AlarmPayload.fromJson(JSONObject(it)) }.getOrNull() }
 
         if (payload == null) {
+            NativeAlarmLogStore.append(this, "warn", "onStartCommand: unparseable payload", mapOf("idle" to session.isIdle()))
             // Nothing to ring about. Only stop the service if nothing else is: an unparseable
             // intent must not silence a dose that is legitimately sounding.
             if (session.isIdle()) {
@@ -98,6 +117,18 @@ class DoseAlarmService : Service() {
             }
             return START_NOT_STICKY
         }
+
+        NativeAlarmLogStore.append(
+            this,
+            "info",
+            "onStartCommand: ring",
+            mapOf(
+                "occurrenceKey" to payload.occurrenceKey,
+                "channelId" to payload.channelId,
+                "chimeDurationSeconds" to payload.chimeDurationSeconds,
+                "activeBefore" to session.activeChimes().size,
+            ),
+        )
 
         payloads[payload.occurrenceKey] = payload
 
@@ -150,6 +181,11 @@ class DoseAlarmService : Service() {
                     prepare()
                     start()
                 }
+            }.onFailure {
+                // A silent failure here previously left no trace anywhere: the notification and
+                // deadline are still posted, so the service looks like it's ringing when nothing
+                // is actually sounding.
+                NativeAlarmLogStore.append(this, "error", "startChime: MediaPlayer failed", mapOf("error" to it.toString()))
             }.getOrNull()
     }
 
@@ -161,25 +197,57 @@ class DoseAlarmService : Service() {
         mediaPlayer = null
     }
 
+    private fun alarmManager(): AlarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+    private fun deadlinePendingIntent(): PendingIntent {
+        val intent =
+            Intent(this, ChimeDeadlineReceiver::class.java).apply {
+                action = ACTION_CHECK_DEADLINE
+            }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        return PendingIntent.getBroadcast(this, DEADLINE_REQUEST_CODE, intent, flags)
+    }
+
     /**
-     * Points the single stop callback at the session's latest deadline.
+     * Points the single stop deadline at the session's latest expiry.
      *
-     * Cancel-and-repost rather than one callback per alarm: a stale callback firing for an alarm
-     * that has already ended used to cut a later dose's chime short.
+     * Cancel-and-repost rather than one alarm per dose: a stale deadline firing for a dose that
+     * has already ended used to cut a later one's chime short.
+     *
+     * `AlarmManager.setExactAndAllowWhileIdle`, not a plain `Handler.postDelayed` (which this used
+     * to be): an in-process timer runs on `SystemClock.uptimeMillis()`, which has no guarantee of
+     * advancing on schedule through however long this service sits idle with nothing else to wake
+     * it — the ordinary case for a Shabbat chime, which unlike a weekday alert has no
+     * Taken/Snooze button (D5) to fall back on if this one deadline is ever late. `AlarmScheduler`
+     * already trusts this same mechanism to fire the chime in the first place
+     * (docs/android-client-plan.md, "Scheduling"); the deadline that stops it needs to be at least
+     * as reliable. No wake lock, no screen wake either way (PRD §3) — `AlarmManager` needs neither.
      */
     private fun rescheduleStop() {
-        stopRunnable?.let { stopHandler.removeCallbacks(it) }
-        stopRunnable = null
+        val pendingIntent = deadlinePendingIntent()
+        alarmManager().cancel(pendingIntent)
 
         val endsAtMs = session.soundEndsAtMs() ?: return
-        val runnable = Runnable { onDeadlineReached() }
-        stopRunnable = runnable
-        stopHandler.postDelayed(runnable, (endsAtMs - System.currentTimeMillis()).coerceAtLeast(0L))
+        NativeAlarmLogStore.append(this, "debug", "rescheduleStop", mapOf("endsAtMs" to endsAtMs))
+        runCatching {
+            alarmManager().setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, endsAtMs, pendingIntent)
+        }.onFailure {
+            // If this throws, the Shabbat chime has no remaining way to ever stop itself — this
+            // must be as loud as `startChime`'s own failure.
+            NativeAlarmLogStore.append(this, "error", "rescheduleStop: setExactAndAllowWhileIdle failed", mapOf("error" to it.toString()))
+        }
     }
 
     private fun onDeadlineReached() {
         val nowMs = System.currentTimeMillis()
-        for (chime in session.takeExpired(nowMs)) {
+        val expired = session.takeExpired(nowMs)
+        NativeAlarmLogStore.append(
+            this,
+            "info",
+            "onDeadlineReached",
+            mapOf("expired" to expired.map { it.occurrenceKey }, "stillActive" to session.activeChimes().size),
+        )
+        for (chime in expired) {
             settle(chime.occurrenceKey)
         }
 
@@ -195,6 +263,7 @@ class DoseAlarmService : Service() {
     /** Drops one dose from the session; stops the sound only if it was the last one. */
     private fun dropOne(occurrenceKey: String) {
         if (!session.contains(occurrenceKey)) {
+            NativeAlarmLogStore.append(this, "debug", "dropOne: not sounding", mapOf("occurrenceKey" to occurrenceKey))
             return
         }
         session.remove(occurrenceKey)
@@ -210,10 +279,10 @@ class DoseAlarmService : Service() {
 
     private fun stopEverything() {
         val remaining = session.takeAll()
+        NativeAlarmLogStore.append(this, "info", "stopEverything", mapOf("dropped" to remaining.map { it.occurrenceKey }))
         releasePlayer()
         stopListeningForButtons()
-        stopRunnable?.let { stopHandler.removeCallbacks(it) }
-        stopRunnable = null
+        runCatching { alarmManager().cancel(deadlinePendingIntent()) }
 
         for (chime in remaining) {
             settle(chime.occurrenceKey)
@@ -339,8 +408,17 @@ class DoseAlarmService : Service() {
      * chime that outlives everything able to stop it.
      */
     override fun onDestroy() {
-        stopRunnable?.let { stopHandler.removeCallbacks(it) }
-        stopRunnable = null
+        // Whether this fires with `session` already empty (a clean stop) or still holding active
+        // chimes (the service was torn down from under a sound that was still supposed to be
+        // playing — an OS-initiated kill, not anything this class chose) is exactly the fact this
+        // bug needed and had no record of on either device.
+        val stillActive = session.activeChimes().map { it.occurrenceKey }
+        if (stillActive.isNotEmpty()) {
+            NativeAlarmLogStore.append(this, "error", "onDestroy: still had active chimes", mapOf("occurrenceKeys" to stillActive))
+        } else {
+            NativeAlarmLogStore.append(this, "debug", "onDestroy: idle", emptyMap())
+        }
+        runCatching { alarmManager().cancel(deadlinePendingIntent()) }
         releasePlayer()
         stopListeningForButtons()
         session.takeAll()

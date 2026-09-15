@@ -3,27 +3,27 @@ import {
   MAX_SNOOZE_LIMIT,
   MIN_SNOOZE_LIMIT,
   chimeDurationSecondsFor,
+  formatLogEntriesAsText,
   resolveLocal,
   resolveMaxSnoozeCount,
   toIso,
 } from '@medguard/shared';
+import type { LogEntry } from '@medguard/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 
 import {
+  armDoseAlarms,
   cancelDoseAlarm,
+  clearNativeAlarmLog,
   playTestChime,
+  readNativeAlarmLog,
   scheduleDoseAlarm,
 } from '../../../modules/medguard-alarms/src';
 import { AlarmSetupChecklist } from '../../alarms/AlarmSetupChecklist.js';
 import { useRepository } from '../../app/RepositoryContext.js';
 import { useHouseholdSettings } from '../../app/useHouseholdSettings.js';
-import {
-  clearAppLog,
-  exportAppLogText,
-  getAppLogEntries,
-  onAppLogChange,
-} from '../../logging/appLog.js';
+import { clearAppLog, getAppLogEntries, onAppLogChange } from '../../logging/appLog.js';
 import { shareTextFile } from '../export/shareTextFile.js';
 import { deviceClock, deviceIdGenerator } from '../../runtime/deviceRuntime.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
@@ -120,6 +120,83 @@ export function SettingsScreen(): React.JSX.Element {
     });
   }, [armedOccurrenceKey]);
 
+  const shabbatChimeSeconds = chimeDurationSecondsFor({ inShabbat: true, shabbatConfig });
+  const [armedShabbatOccurrenceKey, setArmedShabbatOccurrenceKey] = useState<string | null>(null);
+
+  // Arms a real alarm on the Shabbat channel — no Taken/Snooze buttons (D5), exactly the path
+  // that has nothing but ChimeDeadlineReceiver's self-stop deadline to rely on. Separate from the
+  // weekday dry run above rather than reusing it: this exercises the whole real chain
+  // (AlarmManager -> AlarmReceiver -> DoseAlarmService -> the deadline alarm), not a channel
+  // parameter swapped in on the same button, so a caregiver can actually confirm the fix.
+  const onScheduleShabbatAlarm = useCallback(() => {
+    const occurrenceKey = deviceIdGenerator.next();
+    const triggerAtMs = deviceClock.nowMs() + 10_000;
+    setStatusMessage(
+      `Arming a Shabbat-channel alarm for 10s from now — ${shabbatChimeSeconds}s, no action buttons. Lock the phone now and wait for it to stop on its own.`,
+    );
+    scheduleDoseAlarm({
+      occurrenceKey,
+      triggerAtMs,
+      channelId: 'shabbat_v1',
+      title: 'MedGuard — Shabbat test',
+      body: 'Self-stop deadline dry run.',
+      chimeDurationSeconds: shabbatChimeSeconds,
+      escalation: false,
+    }).then(() => setArmedShabbatOccurrenceKey(occurrenceKey));
+  }, [shabbatChimeSeconds]);
+
+  const onCancelShabbatAlarm = useCallback(() => {
+    if (!armedShabbatOccurrenceKey) return;
+    cancelDoseAlarm(armedShabbatOccurrenceKey).then(() => {
+      setArmedShabbatOccurrenceKey(null);
+      setStatusMessage('Shabbat test alarm cancelled.');
+    });
+  }, [armedShabbatOccurrenceKey]);
+
+  const [armedOverlapKeys, setArmedOverlapKeys] = useState<string[] | null>(null);
+
+  // Two occurrences at the *same* triggerAtMs, via armDoseAlarms — the batch form the reconcile
+  // pass uses, so both land in one Kotlin call and fire as two AlarmReceiver deliveries into the
+  // same already-running DoseAlarmService instance, back to back. That double onStartCommand is
+  // exactly the shape of the historical bug (docs/android-client-plan.md, "the bug behind a
+  // Shabbat of continuous alerts"): a household's two medicines due at once used to reassign the
+  // one MediaPlayer field and orphan whichever was already looping. Confirms one sound plus two
+  // separate notifications now, not two overlapping sounds.
+  const onScheduleOverlapAlarms = useCallback(() => {
+    const keyA = deviceIdGenerator.next();
+    const keyB = deviceIdGenerator.next();
+    const triggerAtMs = deviceClock.nowMs() + 10_000;
+    setStatusMessage('Arming two dose alarms for the same instant, 10s out. Lock the phone now.');
+    armDoseAlarms([
+      {
+        occurrenceKey: keyA,
+        triggerAtMs,
+        channelId: 'dose_standard_v1',
+        title: 'MedGuard — test dose A',
+        body: 'Overlap dry run: alarm A.',
+        chimeDurationSeconds: chimeSeconds,
+        escalation: false,
+      },
+      {
+        occurrenceKey: keyB,
+        triggerAtMs,
+        channelId: 'dose_standard_v1',
+        title: 'MedGuard — test dose B',
+        body: 'Overlap dry run: alarm B.',
+        chimeDurationSeconds: chimeSeconds,
+        escalation: false,
+      },
+    ]).then(() => setArmedOverlapKeys([keyA, keyB]));
+  }, [chimeSeconds]);
+
+  const onCancelOverlapAlarms = useCallback(() => {
+    if (!armedOverlapKeys) return;
+    Promise.all(armedOverlapKeys.map((key) => cancelDoseAlarm(key))).then(() => {
+      setArmedOverlapKeys(null);
+      setStatusMessage('Overlap test alarms cancelled.');
+    });
+  }, [armedOverlapKeys]);
+
   const [logEntryCount, setLogEntryCount] = useState(() => getAppLogEntries().length);
   useEffect(() => onAppLogChange(() => setLogEntryCount(getAppLogEntries().length)), []);
 
@@ -130,13 +207,37 @@ export function SettingsScreen(): React.JSX.Element {
     // real file first, the same way the CSV/backup exports already do via `shareTextFile`, lets
     // this name it explicitly — with the timestamp the moment it was shared, not when it's opened.
     const timestamp = deviceClock.nowIso().replace(/[:.]/g, '-');
-    void shareTextFile(
-      exportAppLogText() || 'MedGuard app log is empty.',
-      `medguard-app-log-${timestamp}.txt`,
-      'text/plain',
-    ).catch((err) => {
-      setStatusMessage(err instanceof Error ? err.message : 'Could not share the log file.');
-    });
+    void readNativeAlarmLog()
+      .catch(() => [])
+      .then((nativeEntries) => {
+        // `DoseAlarmService` runs, rings, and stops chimes with no JS runtime alive to see any of
+        // it, so its own durable log is merged in here rather than left as a separate export —
+        // otherwise the one export a caregiver can actually produce still misses the half of this
+        // system that isn't JS.
+        const nativeAsLogEntries: LogEntry[] = nativeEntries.map((entry) => ({
+          timestamp: new Date(entry.atMs).toISOString(),
+          level: entry.level,
+          scope: 'native-alarms',
+          message: entry.message,
+          data: entry.data,
+        }));
+        const combined = [...getAppLogEntries(), ...nativeAsLogEntries].sort((a, b) =>
+          a.timestamp.localeCompare(b.timestamp),
+        );
+        return shareTextFile(
+          formatLogEntriesAsText(combined) || 'MedGuard app log is empty.',
+          `medguard-app-log-${timestamp}.txt`,
+          'text/plain',
+        );
+      })
+      .catch((err) => {
+        setStatusMessage(err instanceof Error ? err.message : 'Could not share the log file.');
+      });
+  }, []);
+
+  const onClearLog = useCallback(() => {
+    clearAppLog();
+    void clearNativeAlarmLog();
   }, []);
 
   return (
@@ -240,11 +341,44 @@ export function SettingsScreen(): React.JSX.Element {
       </Card>
 
       <Card>
+        <Text style={sectionTitle}>Shabbat self-stop dry run</Text>
+        <Text style={ui.subtitle}>
+          Arms a real Shabbat-channel alarm ({shabbatChimeSeconds}s, no Taken/Snooze buttons) 10
+          seconds out — the one path with nothing but the self-stop deadline to silence it (D5).
+          Lock the phone right after tapping and confirm it stops on its own.
+        </Text>
+        <Button
+          label="Arm Shabbat test alarm in 10s"
+          onPress={onScheduleShabbatAlarm}
+          disabled={armedShabbatOccurrenceKey != null}
+        />
+        {armedShabbatOccurrenceKey ? (
+          <Button label="Cancel" onPress={onCancelShabbatAlarm} variant="danger" />
+        ) : null}
+      </Card>
+
+      <Card>
+        <Text style={sectionTitle}>Overlapping doses dry run</Text>
+        <Text style={ui.subtitle}>
+          Arms two dose alarms for the exact same instant, 10 seconds out — one shared chime, two
+          separate notifications. The shape of the historical two-medicines-at-once bug.
+        </Text>
+        <Button
+          label="Arm 2 overlapping alarms in 10s"
+          onPress={onScheduleOverlapAlarms}
+          disabled={armedOverlapKeys != null}
+        />
+        {armedOverlapKeys ? (
+          <Button label="Cancel" onPress={onCancelOverlapAlarms} variant="danger" />
+        ) : null}
+      </Card>
+
+      <Card>
         <Text style={sectionTitle}>App log</Text>
         <Row label="Entries this session" value={String(logEntryCount)} />
         <View style={ui.row}>
           <Button label="Share log" onPress={onShareLog} />
-          <Button label="Clear" onPress={clearAppLog} variant="danger" />
+          <Button label="Clear" onPress={onClearLog} variant="danger" />
         </View>
       </Card>
 

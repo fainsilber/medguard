@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
+import android.util.Log
 import androidx.core.content.ContextCompat
 import expo.modules.interfaces.permissions.Permissions
 import expo.modules.kotlin.Promise
@@ -27,6 +28,8 @@ class MedGuardAlarmsModule : Module() {
         get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
 
     companion object {
+        private const val TAG = "MedGuardAlarms"
+
         /**
          * Set while a JS runtime exists, so `NotificationActionReceiver` — which runs whether or
          * not the app is alive — can hand a tap straight to JS when it happens to be. When this
@@ -71,6 +74,25 @@ class MedGuardAlarmsModule : Module() {
             runCatching { module.sendEvent("onPushToken", mapOf("token" to token)) }
         }
     }
+
+    /** Converts a `NativeAlarmLogStore` entry into the plain Map/List/primitive tree the bridge can serialize. */
+    private fun jsonToMap(entry: org.json.JSONObject): Map<String, Any?> {
+        val result = mutableMapOf<String, Any?>()
+        val keys = entry.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            result[key] = jsonToAny(entry.get(key))
+        }
+        return result
+    }
+
+    private fun jsonToAny(value: Any): Any? =
+        when (value) {
+            is org.json.JSONObject -> jsonToMap(value)
+            is org.json.JSONArray -> (0 until value.length()).map { jsonToAny(value.get(it)) }
+            org.json.JSONObject.NULL -> null
+            else -> value
+        }
 
     private fun payloadOf(input: ScheduleDoseAlarmRecord) =
         AlarmPayload(
@@ -131,7 +153,11 @@ class MedGuardAlarmsModule : Module() {
              * immediately, so JS never has to ask first.
              */
             AsyncFunction("stopChime") { occurrenceKey: String? ->
-                runCatching {
+                // Must resolve to Unit, not the Result `runCatching` produces: Expo's bridge has no
+                // converter for `kotlin.Result` and rejects every call with "Unknown type: class
+                // kotlin.Result" before JS ever learns whether startService() itself succeeded —
+                // exactly what let a Shabbat chime ring all day with no visible cause in the logs.
+                try {
                     context.startService(
                         Intent(context, DoseAlarmService::class.java).apply {
                             this.action = DoseAlarmService.ACTION_STOP_CHIME
@@ -140,7 +166,10 @@ class MedGuardAlarmsModule : Module() {
                             }
                         },
                     )
+                } catch (e: Exception) {
+                    Log.w(TAG, "stopChime: startService failed", e)
                 }
+                Unit
             }
 
             /**
@@ -296,6 +325,19 @@ class MedGuardAlarmsModule : Module() {
 
             AsyncFunction("ackPendingActions") { ids: List<String> ->
                 PendingActionStore.ack(context, ids)
+            }
+
+            // `DoseAlarmService`'s own lifecycle — ring/stop decisions, the self-stop timer, the
+            // player's success/failure, and whether `onDestroy` ever saw a chime still active —
+            // none of which the JS-side `appLog` can see, since that service can run and stop a
+            // chime with no JS runtime alive to log anything at all. `SettingsScreen`'s Share Log
+            // merges these in alongside the JS log rather than exporting them separately.
+            AsyncFunction("readNativeAlarmLog") {
+                NativeAlarmLogStore.readAll(context).map { entry -> jsonToMap(entry) }
+            }
+
+            AsyncFunction("clearNativeAlarmLog") {
+                NativeAlarmLogStore.clear(context)
             }
 
             // `src/clock/localClockGuard.ts`'s tamper-detection reference: milliseconds since

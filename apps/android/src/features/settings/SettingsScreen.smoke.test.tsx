@@ -1,5 +1,12 @@
-import { waitFor } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
 import { AlarmProvider } from '../../alarms/AlarmProvider.js';
+import {
+  armDoseAlarms,
+  cancelDoseAlarm,
+  clearNativeAlarmLog,
+  readNativeAlarmLog,
+  scheduleDoseAlarm,
+} from '../../../modules/medguard-alarms/src';
 import { SyncProvider } from '../../sync/SyncProvider.js';
 import { renderWithRepository } from '../../testUtils/renderWithRepository.js';
 import { SettingsScreen } from './SettingsScreen.js';
@@ -39,5 +46,47 @@ describe('SettingsScreen', () => {
     expect(getByText('AD1 — Hermes ICU')).toBeTruthy();
     expect(getByText('Sync status')).toBeTruthy();
     expect(getByText('App log')).toBeTruthy();
+
+    // Share log merges DoseAlarmService's own durable log (readNativeAlarmLog) into the export —
+    // added because that service can ring and stop a chime with no JS runtime alive to log
+    // anything, which the plain JS appLog had no way to see.
+    fireEvent.press(getByText('Share log'));
+    await waitFor(() => expect(readNativeAlarmLog).toHaveBeenCalled());
+
+    fireEvent.press(getByText('Clear'));
+    expect(clearNativeAlarmLog).toHaveBeenCalled();
+
+    // The Shabbat self-stop dry run: arms a real alarm on the no-button Shabbat channel, the one
+    // path ChimeDeadlineReceiver's fix has to cover on its own.
+    fireEvent.press(getByText('Arm Shabbat test alarm in 10s'));
+    await waitFor(() =>
+      expect(scheduleDoseAlarm).toHaveBeenCalledWith(
+        expect.objectContaining({ channelId: 'shabbat_v1', chimeDurationSeconds: expect.any(Number) }),
+      ),
+    );
+
+    fireEvent.press(getByText('Cancel'));
+    await waitFor(() => expect(cancelDoseAlarm).toHaveBeenCalled());
+
+    // The overlapping-doses dry run: two occurrences at the same triggerAtMs via armDoseAlarms,
+    // the batch form that lands both in one Kotlin call — the shape of the historical
+    // two-medicines-at-once bug.
+    fireEvent.press(getByText('Arm 2 overlapping alarms in 10s'));
+    await waitFor(() =>
+      expect(armDoseAlarms).toHaveBeenCalledWith([
+        expect.objectContaining({ channelId: 'dose_standard_v1' }),
+        expect.objectContaining({ channelId: 'dose_standard_v1' }),
+      ]),
+    );
+    const [overlapCallArgs] = (armDoseAlarms as jest.Mock).mock.calls.at(-1) as [
+      { triggerAtMs: number }[],
+    ];
+    expect(overlapCallArgs[0]!.triggerAtMs).toBe(overlapCallArgs[1]!.triggerAtMs);
+
+    const cancelCallsBefore = (cancelDoseAlarm as jest.Mock).mock.calls.length;
+    fireEvent.press(getByText('Cancel'));
+    await waitFor(() =>
+      expect((cancelDoseAlarm as jest.Mock).mock.calls.length).toBe(cancelCallsBefore + 2),
+    );
   });
 });
