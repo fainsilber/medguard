@@ -188,7 +188,7 @@ describe('reconcile', () => {
       ScheduleDoseAlarmInput[],
     ];
     expect(inputs[0]).toMatchObject({
-      channelId: 'dose_standard_v1',
+      channelId: 'dose_standard_v2',
       escalation: false,
       chimeDurationSeconds: DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
     });

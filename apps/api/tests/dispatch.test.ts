@@ -149,7 +149,7 @@ describe('dispatchToHousehold', () => {
     const data = message.data as Record<string, string>;
     expect(message.notification).toBeUndefined();
     expect(data.kind).toBe('dose');
-    expect(data.channelId).toBe('dose_standard_v1');
+    expect(data.channelId).toBe('dose_standard_v2');
     expect(data.title).toContain('Methotrexate');
     expect(data.occurrenceId).toBe(payload.occurrenceId);
     expect(JSON.parse(data.payload as string)).toEqual(payload);

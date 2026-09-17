@@ -399,7 +399,7 @@ describe('materializeHorizon in Shabbat mode', () => {
     const planned = materializeHorizon(baseInput());
 
     expect(planned[0]).toMatchObject({
-      channelId: 'dose_standard_v1',
+      channelId: 'dose_standard_v2',
       chimeDurationSeconds: DEFAULT_WEEKDAY_CHIME_DURATION_SECONDS,
     });
   });
@@ -410,7 +410,7 @@ describe('materializeHorizon in Shabbat mode', () => {
     );
 
     expect(toIso(planned[0]!.triggerAtMs)).toBe('2026-06-15T09:00:00.000Z');
-    expect(planned[0]!.channelId).toBe('shabbat_v1');
+    expect(planned[0]!.channelId).toBe('shabbat_v2');
   });
 
   it('decides from when the alarm will fire, not from now', () => {
@@ -424,7 +424,7 @@ describe('materializeHorizon in Shabbat mode', () => {
       }),
     );
 
-    expect(planned[0]!.channelId).toBe('shabbat_v1');
+    expect(planned[0]!.channelId).toBe('shabbat_v2');
   });
 
   it('leaves a dose outside every window on the standard channel', () => {
@@ -437,7 +437,7 @@ describe('materializeHorizon in Shabbat mode', () => {
       }),
     );
 
-    expect(planned[0]!.channelId).toBe('dose_standard_v1');
+    expect(planned[0]!.channelId).toBe('dose_standard_v2');
   });
 
   it('ignores published windows when automation is switched off', () => {
@@ -448,14 +448,14 @@ describe('materializeHorizon in Shabbat mode', () => {
       }),
     );
 
-    expect(planned[0]!.channelId).toBe('dose_standard_v1');
+    expect(planned[0]!.channelId).toBe('dose_standard_v2');
   });
 
   it('is weekday behaviour on a device that has never synced a config', () => {
     // The same answer the Durable Object gives from the same inputs — neither guesses.
     const planned = materializeHorizon(baseInput({ shabbatWindows: [makeWindow()] }));
 
-    expect(planned[0]!.channelId).toBe('dose_standard_v1');
+    expect(planned[0]!.channelId).toBe('dose_standard_v2');
   });
 
   it('takes the Shabbat alert length from the household configuration', () => {

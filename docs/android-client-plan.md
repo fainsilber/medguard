@@ -378,16 +378,23 @@ is the thing the web cannot do, done literally.
 
 ### Channels
 
-Created once in `MedGuardChannels.kt` with **versioned ids** — `dose_standard_v1`,
-`dose_escalation_v1`, `shabbat_v1`, `low_stock_v1`, `sync_status_v1`. A notification channel's sound
+Created once in `MedGuardChannels.kt` with **versioned ids** — `dose_standard_v2`,
+`dose_escalation_v2`, `shabbat_v2`, `low_stock_v1`, `sync_status_v1`. A notification channel's sound
 and importance are immutable after creation, so without versioned ids, retuning the chime the way
 the Shabbat burst was retuned four times would require every caregiver to reinstall the app.
 
+**None of the three dose-alert channels carries its own sound (v2).** v1 gave each a `setSound(...)`
+with alarm audio attributes — an independent sound source the OS played automatically on posting,
+on top of `DoseAlarmService`'s own `MediaPlayer`, and one `stopEverything()`/the deadline alarm had
+no way to reach. On Shabbat's long alarm-attributed ringtone this could keep sounding well after the
+service's own logs showed a clean stop. `MediaPlayer` is the sole audio source; channel sound is
+`null` throughout, hence the id bump — an existing channel's sound can't be edited in place.
+
 | Channel | Importance | Sound | Actions |
 | --- | --- | --- | --- |
-| `dose_standard_v1` | HIGH | default | Taken, Snooze |
-| `dose_escalation_v1` | HIGH, bypass DND if granted | default | Taken, Snooze; full-screen intent when permitted |
-| `shabbat_v1` | HIGH | custom chime, 30s default | **none** (D5) |
+| `dose_standard_v2` | HIGH | none — `MediaPlayer` only | Taken, Snooze |
+| `dose_escalation_v2` | HIGH, bypass DND if granted | none — `MediaPlayer` only | Taken, Snooze; full-screen intent when permitted |
+| `shabbat_v2` | HIGH | none — `MediaPlayer` only | **none** (D5) |
 | `low_stock_v1` | DEFAULT | default | Open inventory |
 | `sync_status_v1` | LOW, ongoing | silent | — (carries the "alarms unarmed" / "sync stale" states) |
 
@@ -662,15 +669,20 @@ gets revisited if a real answer differs.
   reconciliation that phase 2 will build. The web burst (10 pushes ~1.1s apart) is a schedule held
   in DO SQLite and drained by the same chain, so every push is assertable under
   `runDurableObjectAlarm`; `fcm` devices get exactly one (AD3).
-- **Android** arms Shabbat-window doses on `shabbat_v1` at the configured chime length; the
+- **Android** arms Shabbat-window doses on `shabbat_v2` at the configured chime length; the
   reconcile diff now includes the channel, so Shabbat starting between two passes re-arms rather
   than leaving a dose on the weekday channel with "Taken"/"Snooze" on it. `listArmedAlarms` reports
   the channel for that reason.
 - **Both clients** get a Shabbat screen: the config form, and the next 8 weeks of computed times
   in the household's timezone, for checking against a luach. Automation defaults to *off* on a new
   config — nothing changes how alarms behave until someone has verified the times.
-- **The setup checklist** gains a "Before Shabbat" section (the `shabbat_v1` channel's own sound
-  setting, and DND access), since Android treats each channel's sound as a separate user setting.
+- **The setup checklist** gains a "Before Shabbat" section (confirming the `shabbat_v2` channel's
+  notifications are still enabled, and DND access). **v2 update:** the channel carries no sound of
+  its own — v1 did, an independent OS-triggered sound source `DoseAlarmService`'s own stop logic
+  had no way to reach, which could keep a Shabbat chime sounding after the app's own logs showed a
+  clean stop. `MediaPlayer` is the sole audio source now; the checklist no longer tells a caregiver
+  to turn on a channel sound, since doing so in system settings would reintroduce exactly that bug
+  on their own phone.
 
 **Two things worth knowing:**
 

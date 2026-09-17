@@ -24,7 +24,7 @@ class AlarmPayloadTest {
     private fun samplePayload() =
         AlarmPayload(
             occurrenceKey = "schedule-1:2026-06-15T09:00:00.000Z",
-            channelId = "dose_standard_v1",
+            channelId = "dose_standard_v2",
             title = "Ondansetron is due",
             body = "4mg",
             chimeDurationSeconds = 45,
@@ -43,7 +43,7 @@ class AlarmPayloadTest {
 
     @Test
     fun `round-trips an escalation payload`() {
-        val payload = samplePayload().copy(channelId = "dose_escalation_v1", escalation = true)
+        val payload = samplePayload().copy(channelId = "dose_escalation_v2", escalation = true)
 
         assertEquals(payload, AlarmPayload.fromJson(payload.toJson()))
     }

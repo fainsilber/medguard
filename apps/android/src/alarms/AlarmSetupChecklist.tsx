@@ -107,11 +107,12 @@ export function AlarmSetupChecklist(): React.JSX.Element {
         <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>Before Shabbat</Text>
         <Text style={{ fontSize: 12, color: colors.textMuted }}>
           Shabbat alerts arrive on their own notification channel, and nothing can be tapped on
-          them by design. Check once, before a Shabbat you are relying on them for: in Android
-          Settings &rarr; Notifications &rarr; MedGuard, confirm &ldquo;Shabbat alerts&rdquo; is on
-          and set to make a sound; and if the phone will be in Do Not Disturb, add MedGuard to the
-          apps allowed to interrupt it. The permissions above cover the rest — this one channel is
-          separate because Android treats each channel&rsquo;s sound as its own setting.
+          them by design. The chime itself plays through this app&rsquo;s own alarm stream, not the
+          notification&rsquo;s sound — so there is no sound setting to turn on for this channel;
+          leave it as installed. Check once, before a Shabbat you are relying on them for: in
+          Android Settings &rarr; Notifications &rarr; MedGuard, confirm &ldquo;Shabbat
+          alerts&rdquo; is still enabled; and if the phone will be in Do Not Disturb, add MedGuard
+          to the apps allowed to interrupt it. The permissions above cover the rest.
         </Text>
       </View>
 
