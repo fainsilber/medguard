@@ -104,7 +104,7 @@ export function SettingsScreen(): React.JSX.Element {
     scheduleDoseAlarm({
       occurrenceKey,
       triggerAtMs,
-      channelId: 'dose_standard_v1',
+      channelId: 'dose_standard_v2',
       title: 'MedGuard — test dose',
       body: 'Locked-phone alarm spike (Sprint A0).',
       chimeDurationSeconds: chimeSeconds,
@@ -137,7 +137,7 @@ export function SettingsScreen(): React.JSX.Element {
     scheduleDoseAlarm({
       occurrenceKey,
       triggerAtMs,
-      channelId: 'shabbat_v1',
+      channelId: 'shabbat_v2',
       title: 'MedGuard — Shabbat test',
       body: 'Self-stop deadline dry run.',
       chimeDurationSeconds: shabbatChimeSeconds,
@@ -171,7 +171,7 @@ export function SettingsScreen(): React.JSX.Element {
       {
         occurrenceKey: keyA,
         triggerAtMs,
-        channelId: 'dose_standard_v1',
+        channelId: 'dose_standard_v2',
         title: 'MedGuard — test dose A',
         body: 'Overlap dry run: alarm A.',
         chimeDurationSeconds: chimeSeconds,
@@ -180,7 +180,7 @@ export function SettingsScreen(): React.JSX.Element {
       {
         occurrenceKey: keyB,
         triggerAtMs,
-        channelId: 'dose_standard_v1',
+        channelId: 'dose_standard_v2',
         title: 'MedGuard — test dose B',
         body: 'Overlap dry run: alarm B.',
         chimeDurationSeconds: chimeSeconds,

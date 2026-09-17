@@ -61,7 +61,7 @@ describe('SettingsScreen', () => {
     fireEvent.press(getByText('Arm Shabbat test alarm in 10s'));
     await waitFor(() =>
       expect(scheduleDoseAlarm).toHaveBeenCalledWith(
-        expect.objectContaining({ channelId: 'shabbat_v1', chimeDurationSeconds: expect.any(Number) }),
+        expect.objectContaining({ channelId: 'shabbat_v2', chimeDurationSeconds: expect.any(Number) }),
       ),
     );
 
@@ -74,8 +74,8 @@ describe('SettingsScreen', () => {
     fireEvent.press(getByText('Arm 2 overlapping alarms in 10s'));
     await waitFor(() =>
       expect(armDoseAlarms).toHaveBeenCalledWith([
-        expect.objectContaining({ channelId: 'dose_standard_v1' }),
-        expect.objectContaining({ channelId: 'dose_standard_v1' }),
+        expect.objectContaining({ channelId: 'dose_standard_v2' }),
+        expect.objectContaining({ channelId: 'dose_standard_v2' }),
       ]),
     );
     const [overlapCallArgs] = (armDoseAlarms as jest.Mock).mock.calls.at(-1) as [

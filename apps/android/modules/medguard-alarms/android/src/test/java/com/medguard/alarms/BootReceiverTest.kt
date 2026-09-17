@@ -44,7 +44,7 @@ class BootReceiverTest {
     private fun payload(occurrenceKey: String, triggerAtMs: Long) =
         AlarmPayload(
             occurrenceKey = occurrenceKey,
-            channelId = "dose_standard_v1",
+            channelId = "dose_standard_v2",
             title = "Ondansetron is due",
             body = "4mg",
             chimeDurationSeconds = 45,

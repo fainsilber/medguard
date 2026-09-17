@@ -4,7 +4,7 @@
  * Shabbat burst was retuned four times requires a new id here, not an edit to an existing one.
  */
 export type MedGuardChannelId =
-  'dose_standard_v1' | 'dose_escalation_v1' | 'shabbat_v1' | 'low_stock_v1' | 'sync_status_v1';
+  'dose_standard_v2' | 'dose_escalation_v2' | 'shabbat_v2' | 'low_stock_v1' | 'sync_status_v1';
 
 export interface ScheduleDoseAlarmInput {
   /** `occurrenceKey` from `packages/shared/src/schedule.ts` — the Android notification tag. */

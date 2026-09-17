@@ -190,7 +190,7 @@ export function materializeHorizon(input: MaterializeHorizonInput): PlannedAlarm
       occurrenceKey: key,
       triggerAtMs,
       occurrence,
-      channelId: inShabbat ? 'shabbat_v1' : 'dose_standard_v1',
+      channelId: inShabbat ? 'shabbat_v2' : 'dose_standard_v2',
       // Per alarm, from the same `inShabbat` that picks the channel — the two must agree, because
       // an alert with no buttons to press (Shabbat) and one a caregiver is expected to act on
       // want different lengths, and the length is baked into a payload that may fire days later

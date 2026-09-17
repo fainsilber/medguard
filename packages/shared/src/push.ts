@@ -122,9 +122,9 @@ export type PushKind = PushPayload['kind'];
  * the message and the two cannot drift; Kotlin still owns creating them.
  */
 export const PUSH_CHANNEL_IDS: Record<PushKind, string> = {
-  dose: 'dose_standard_v1',
-  escalation: 'dose_escalation_v1',
-  shabbat: 'shabbat_v1',
+  dose: 'dose_standard_v2',
+  escalation: 'dose_escalation_v2',
+  shabbat: 'shabbat_v2',
   low_stock: 'low_stock_v1',
 };
 

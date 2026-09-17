@@ -84,4 +84,23 @@ class MedGuardChannelsTest {
 
         assertEquals(5, manager.notificationChannels.size)
     }
+
+    /**
+     * v1 gave the three dose-alert channels their own `setSound(...)`, a second sound source
+     * `DoseAlarmService` had no way to reach and that could keep ringing long after its own
+     * MediaPlayer-based stop logic ran cleanly. `MediaPlayer` is the sole intended audio source
+     * (its own class doc) — this pins that no channel sound ever comes back.
+     */
+    @Test
+    fun `no dose-alert channel has its own sound — MediaPlayer is the only audio source`() {
+        MedGuardChannels.createAll(context)
+
+        for (id in listOf(
+            MedGuardChannels.DOSE_STANDARD,
+            MedGuardChannels.DOSE_ESCALATION,
+            MedGuardChannels.SHABBAT,
+        )) {
+            assertEquals("expected channel $id to have no sound", null, manager.getNotificationChannel(id).sound)
+        }
+    }
 }

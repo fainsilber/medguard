@@ -6,7 +6,7 @@ import type { PlannedAlarm } from './horizon.js';
 function planned(
   occurrenceKey: string,
   triggerAtMs: number,
-  channelId: PlannedAlarm['channelId'] = 'dose_standard_v1',
+  channelId: PlannedAlarm['channelId'] = 'dose_standard_v2',
   chimeDurationSeconds = 60,
 ): PlannedAlarm {
   return {
@@ -24,7 +24,7 @@ function planned(
 function armed(
   occurrenceKey: string,
   triggerAtMs: number,
-  channelId = 'dose_standard_v1',
+  channelId = 'dose_standard_v2',
   chimeDurationSeconds = 60,
 ): ArmedRecord {
   return { occurrenceKey, triggerAtMs, channelId, chimeDurationSeconds };
@@ -80,14 +80,14 @@ describe('diffAlarms', () => {
   it('re-arms a dose whose channel changed — Shabbat began since it was armed', () => {
     // Same occurrence, same instant, different channel. Left alone it would ring on the weekday
     // channel, with the "Taken" and "Snooze" buttons Shabbat mode exists to avoid (delta D5).
-    const diff = diffAlarms([armed('a', 1_000)], [planned('a', 1_000, 'shabbat_v1')]);
+    const diff = diffAlarms([armed('a', 1_000)], [planned('a', 1_000, 'shabbat_v2')]);
 
     expect(diff.toArm.map((alarm) => alarm.occurrenceKey)).toEqual(['a']);
     expect(diff.toCancel).toEqual([]);
   });
 
   it('leaves an alarm alone when its channel is unchanged', () => {
-    const diff = diffAlarms([armed('a', 1_000, 'shabbat_v1')], [planned('a', 1_000, 'shabbat_v1')]);
+    const diff = diffAlarms([armed('a', 1_000, 'shabbat_v2')], [planned('a', 1_000, 'shabbat_v2')]);
 
     expect(diff.toArm).toEqual([]);
   });
@@ -105,7 +105,7 @@ describe('diffAlarms', () => {
     // The length rides inside the alarm payload, so an already-armed alarm keeps the old number
     // until it is re-armed — meaning editing the setting would appear to do nothing for as long
     // as the 48-hour horizon.
-    const diff = diffAlarms([armed('a', 1_000)], [planned('a', 1_000, 'dose_standard_v1', 30)]);
+    const diff = diffAlarms([armed('a', 1_000)], [planned('a', 1_000, 'dose_standard_v2', 30)]);
 
     expect(diff.toArm.map((alarm) => alarm.occurrenceKey)).toEqual(['a']);
     expect(diff.toCancel).toEqual([]);
@@ -113,8 +113,8 @@ describe('diffAlarms', () => {
 
   it('leaves an alarm alone when its alert length is unchanged', () => {
     const diff = diffAlarms(
-      [armed('a', 1_000, 'shabbat_v1', 30)],
-      [planned('a', 1_000, 'shabbat_v1', 30)],
+      [armed('a', 1_000, 'shabbat_v2', 30)],
+      [planned('a', 1_000, 'shabbat_v2', 30)],
     );
 
     expect(diff.toArm).toEqual([]);
@@ -122,7 +122,7 @@ describe('diffAlarms', () => {
 
   it('does not churn alarms armed by a build that never reported an alert length', () => {
     const diff = diffAlarms(
-      [{ occurrenceKey: 'a', triggerAtMs: 1_000, channelId: 'dose_standard_v1' }],
+      [{ occurrenceKey: 'a', triggerAtMs: 1_000, channelId: 'dose_standard_v2' }],
       [planned('a', 1_000)],
     );
 

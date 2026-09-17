@@ -793,7 +793,7 @@ export class DoseAlarmChain {
    *
    * No device is excluded, including the one that got the first alert: the point is that a dose
    * has gone unanswered, and whoever is nearest the child should hear about it. On Android this
-   * arrives on the `dose_escalation_v1` channel, which is the one permitted to bypass Do Not
+   * arrives on the `dose_escalation_v2` channel, which is the one permitted to bypass Do Not
    * Disturb and — where the platform allows it — take the screen (delta AD4).
    */
   private async escalate(householdId: string, row: DoseAlarmRow, nowMs: number): Promise<void> {

@@ -29,7 +29,7 @@ class AlarmSchedulerTest {
     private fun payload(occurrenceKey: String, triggerAtMs: Long = 4_000_000_000_000L) =
         AlarmPayload(
             occurrenceKey = occurrenceKey,
-            channelId = "dose_standard_v1",
+            channelId = "dose_standard_v2",
             title = "Ondansetron is due",
             body = "4mg",
             chimeDurationSeconds = 45,
