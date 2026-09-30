@@ -215,6 +215,30 @@ export class DoseAlarmChain {
     return rows[0]?.value ?? null;
   }
 
+  /**
+   * Erases everything this chain has stored, including the household id itself.
+   *
+   * This is the half of "delete this household" that D1's `ON DELETE CASCADE` cannot reach: the
+   * alarm rows carry medicine names and dose sizes, and live in this Durable Object's own SQLite,
+   * not in D1. Clearing `alarm_meta` also makes any alarm that fires afterwards inert, because
+   * `runDueWork` returns at once when it has no household to work for.
+   *
+   * Sweeps every table rather than naming them, so a table added to `createAlarmTables` later
+   * cannot quietly keep a deleted household's data. The GLOB patterns skip SQLite's own tables
+   * and the platform's `_cf_KV`, neither of which is ours to empty.
+   */
+  purge(): void {
+    const tables = this.sql
+      .exec<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' " +
+          "AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*'",
+      )
+      .toArray();
+    for (const { name } of tables) {
+      this.sql.exec(`DELETE FROM "${name}"`);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Reading the household's synced state
   // -------------------------------------------------------------------------

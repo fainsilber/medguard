@@ -28,6 +28,7 @@ import { shareTextFile } from '../export/shareTextFile.js';
 import { deviceClock, deviceIdGenerator } from '../../runtime/deviceRuntime.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
 import { useSyncStatus } from '../../sync/SyncProvider.js';
+import { PrivacyPolicyLink } from '../../ui/PrivacyPolicyLink.js';
 import { Button, Card, colors, styles as ui } from '../../ui/primitives.js';
 import { APP_VERSION, BUILD_TIME, GIT_SHA, NATIVE_BUILD_VERSION } from '../../version.js';
 
@@ -254,6 +255,12 @@ export function SettingsScreen(): React.JSX.Element {
         <Row label="Git SHA" value={GIT_SHA} />
         <Row label="Built" value={BUILD_TIME ? new Date(BUILD_TIME).toLocaleString() : 'unknown'} />
         <Row label="Native build number" value={NATIVE_BUILD_VERSION ?? 'unknown'} />
+      </Card>
+
+      <Card>
+        <Text style={sectionTitle}>Privacy</Text>
+        <Text style={ui.subtitle}>How MedGuard handles your household&rsquo;s information.</Text>
+        <PrivacyPolicyLink />
       </Card>
 
       <Card>

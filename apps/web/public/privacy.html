@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How MedGuard, a medication-tracking app for households, handles your information."
+    />
+    <title>MedGuard Privacy Policy</title>
+    <!--
+      A privacy policy that phones home would be a poor look, so this page is deliberately
+      self-contained: inline styles, no scripts, no fonts, no images, no third-party requests.
+      It is a plain static file (not part of the React app) so it loads without the app, without
+      an account, and from anywhere — what the Google Play policy requires of the linked page.
+
+      Keep it in step with reality: docs/data-handling.md is the engineering-side source, and
+      apps/web/tests/privacyPolicy.test.ts pins the parts most likely to drift.
+    -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --fg: #0f172a;
+        --muted: #475569;
+        --rule: #e2e8f0;
+        --panel: #f1f5f9;
+        --link: #0369a1;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f172a;
+          --fg: #e2e8f0;
+          --muted: #94a3b8;
+          --rule: #1e293b;
+          --panel: #1e293b;
+          --link: #7dd3fc;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          16px/1.6 system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+      }
+      main {
+        max-width: 44rem;
+        margin: 0 auto;
+        padding: 1.25rem 1rem 4rem;
+      }
+      a {
+        color: var(--link);
+      }
+      h1 {
+        margin: 1rem 0 0.25rem;
+        font-size: 1.75rem;
+        line-height: 1.25;
+      }
+      h2 {
+        margin: 2.25rem 0 0.5rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--rule);
+        font-size: 1.25rem;
+        line-height: 1.3;
+      }
+      p,
+      ul {
+        margin: 0.6rem 0;
+      }
+      ul {
+        padding-left: 1.25rem;
+      }
+      li {
+        margin: 0.35rem 0;
+      }
+      .meta,
+      .back {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .summary {
+        margin: 1.25rem 0 0;
+        padding: 0.75rem 1rem;
+        background: var(--panel);
+        border-radius: 0.5rem;
+      }
+      .summary h2 {
+        margin: 0.25rem 0 0;
+        padding: 0;
+        border: 0;
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin: 0.75rem 0;
+      }
+      table {
+        width: 100%;
+        min-width: 32rem;
+        border-collapse: collapse;
+        font-size: 0.925rem;
+      }
+      th,
+      td {
+        padding: 0.5rem 0.6rem;
+        border: 1px solid var(--rule);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: var(--panel);
+      }
+      code {
+        font-size: 0.9em;
+      }
+      /* On a phone a three-column table hides its most important column behind a sideways
+         scroll nobody notices, so each row becomes a card with the column names as labels. */
+      @media (max-width: 40rem) {
+        .table-wrap {
+          overflow-x: visible;
+        }
+        table,
+        tbody,
+        tr,
+        td {
+          display: block;
+          min-width: 0;
+          width: 100%;
+        }
+        thead {
+          position: absolute;
+          left: -9999px;
+        }
+        tr {
+          margin: 0 0 0.75rem;
+          border: 1px solid var(--rule);
+          border-radius: 0.5rem;
+          overflow: hidden;
+        }
+        td {
+          border: 0;
+          border-bottom: 1px solid var(--rule);
+        }
+        td:last-child {
+          border-bottom: 0;
+        }
+        td:first-child {
+          background: var(--panel);
+          font-weight: 600;
+        }
+        td:not(:first-child)::before {
+          content: attr(data-label);
+          display: block;
+          margin-bottom: 0.15rem;
+          color: var(--muted);
+          font-size: 0.8rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="back"><a href="/">&larr; Back to MedGuard</a></p>
+
+      <h1>MedGuard Privacy Policy</h1>
+      <p class="meta">Last updated: 30 September 2026</p>
+
+      <div class="summary">
+        <h2>The short version</h2>
+        <ul>
+          <li>
+            MedGuard keeps a household&rsquo;s medication records: what was given, when, and by
+            whom. That is sensitive health information, and this policy is written with that in
+            mind.
+          </li>
+          <li>
+            Records live on your own device first. They only leave it if you set up or join a
+            household, so the caregivers in it can share them.
+          </li>
+          <li>
+            No ads. No analytics or tracking. No accounts with an email address or password. We
+            never sell or rent your information.
+          </li>
+          <li>
+            You can delete a household, and everything on our servers with it, from inside the app.
+          </li>
+        </ul>
+      </div>
+
+      <h2 id="who">1. Who this policy covers</h2>
+      <p>
+        MedGuard is a medication-tracking app for households caring for someone on a complex
+        medication schedule. It is available as a web app (installable to your home screen) at
+        <a href="https://medguard-web.fainsilber.workers.dev"
+          >medguard-web.fainsilber.workers.dev</a
+        >
+        and as an Android app (<code>il.co.fainsilber.med</code>). This policy covers both apps and
+        the MedGuard server they connect to.
+      </p>
+      <p>
+        MedGuard is developed and operated by Johnny Fainsilber (&ldquo;we&rdquo;,
+        &ldquo;us&rdquo;). Contact:
+        <a href="mailto:medguard@fainsilber.co.il">medguard@fainsilber.co.il</a>.
+      </p>
+
+      <h2 id="how">2. How MedGuard works</h2>
+      <p>
+        <strong>On its own,</strong> MedGuard stores everything on the device you are holding and
+        works fully offline. In this mode your records are not sent to us. The one thing the app may
+        still do is ask the MedGuard server for the current time, to check that your device&rsquo;s
+        clock is right before it approves a dose; that request carries no records.
+      </p>
+      <p>
+        <strong>In a household,</strong> you start a household, or join one with a six-digit code
+        from a caregiver who already belongs. From then on the records are also stored on the
+        MedGuard server, so every caregiver&rsquo;s device stays in step, receives live updates, and
+        can be sent reminders.
+      </p>
+
+      <h2 id="collect">3. What information is involved</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Information</th>
+              <th>What it includes</th>
+              <th>Where it is kept</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="Information">Medication and care records</td>
+              <td data-label="What it includes">
+                Medicine names, strengths and forms, and which person each medicine is for;
+                schedules and dose amounts; a log of every dose (what, when, to whom, who gave it,
+                any notes, and the reason for a safety override); limits for as-needed medicines;
+                stock counts and refills; Shabbat and Yom Tov settings.
+              </td>
+              <td data-label="Where it is kept">
+                Your device. Also our server, if you use a household.
+              </td>
+            </tr>
+            <tr>
+              <td data-label="Information">Names you type</td>
+              <td data-label="What it includes">
+                The household&rsquo;s name; the name each caregiver gives themselves (for example
+                &ldquo;Mom&rdquo;); and a display name for each person whose medicines are tracked,
+                which you choose (a first name, nickname or initial is enough). MedGuard does not
+                ask for a date of birth or any ID number. Free-text notes are yours to write, so
+                please leave out anything you would not want every caregiver in the household to
+                read.
+              </td>
+              <td data-label="Where it is kept">
+                Your device. Also our server, if you use a household.
+              </td>
+            </tr>
+            <tr>
+              <td data-label="Information">Coordinates you enter</td>
+              <td data-label="What it includes">
+                The Shabbat screen asks for a latitude and longitude, used to work out candle
+                lighting and Havdalah times. You type these in. MedGuard does not read your
+                device&rsquo;s GPS or location services, and you choose how precise the coordinates
+                are.
+              </td>
+              <td data-label="Where it is kept">
+                Your device. Also our server, if you use a household.
+              </td>
+            </tr>
+            <tr>
+              <td data-label="Information">Device and connection details</td>
+              <td data-label="What it includes">
+                A random device ID; an access token (our server keeps only a one-way hash of it); a
+                short description of the device (the first 50 characters of the browser
+                identification string on the web, or the phone model and Android version); the
+                notification address described in section 6; and your IP address, which our servers
+                see with every request.
+              </td>
+              <td data-label="Where it is kept">
+                Our server, if you use a household. IP addresses are covered in section 10.
+              </td>
+            </tr>
+            <tr>
+              <td data-label="Information">Diagnostic log</td>
+              <td data-label="What it includes">
+                A short technical log of app activity (sync steps and errors), shown on the
+                Diagnostics screen (called Settings on Android) to help fix faults.
+              </td>
+              <td data-label="Where it is kept">
+                Held on your device. It goes nowhere unless you choose to export and share it.
+              </td>
+            </tr>
+            <tr>
+              <td data-label="Information">Files you create</td>
+              <td data-label="What it includes">
+                CSV exports, printable summaries and JSON backups you make, and any backup file you
+                choose to import.
+              </td>
+              <td data-label="Where it is kept">
+                Wherever you save or send them. Once a file leaves the app it is outside
+                MedGuard&rsquo;s control.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="not-collected">4. What we do not collect</h2>
+      <ul>
+        <li>
+          No email addresses, phone numbers, passwords, payment details, dates of birth or
+          government ID numbers.
+        </li>
+        <li>No access to your device&rsquo;s location, contacts, photos, camera or microphone.</li>
+        <li>
+          No advertising identifiers, and no analytics, advertising, tracking or crash-reporting
+          software in either app.
+        </li>
+      </ul>
+
+      <h2 id="use">5. How we use information</h2>
+      <ul>
+        <li>
+          To show your household&rsquo;s records and keep every caregiver&rsquo;s device in step.
+        </li>
+        <li>
+          To run dosing safety checks. For example, the server re-checks a dose against its cooldown
+          and daily limit so that two caregivers cannot both log the same dose.
+        </li>
+        <li>
+          To send dose reminders, to escalate to the whole household when a dose has not been
+          confirmed, and to send low-stock and Shabbat alerts.
+        </li>
+        <li>
+          To keep the service secure, for example by limiting repeated attempts to guess a join
+          code.
+        </li>
+        <li>To diagnose and fix faults.</li>
+      </ul>
+      <p>
+        We do not use information for advertising, marketing or profiling, and we do not sell it.
+      </p>
+
+      <h2 id="notifications">6. Notifications</h2>
+      <p>
+        Dose alerts name the person, the medicine and the amount, for example &ldquo;Sam &middot;
+        Methotrexate: dose due&rdquo;, because a caregiver woken at 3 a.m. needs to know who it is
+        for and what to give. That means
+        <strong>a person&rsquo;s name and a medicine name can appear on a locked screen</strong>
+        and stay in your phone&rsquo;s notification history until they are cleared. Anyone who can
+        see your phone can see it. You can turn notifications off at any time in your device or
+        browser settings.
+      </p>
+      <ul>
+        <li>
+          <strong>Android:</strong> dose alarms are scheduled on the phone itself. As a backstop,
+          the server can also send a message through Google&rsquo;s Firebase Cloud Messaging (FCM).
+          To do that, the server stores your device&rsquo;s FCM registration token, Google&rsquo;s
+          messaging software creates an identifier for your installation of the app, and the text of
+          each message, including the person&rsquo;s name, the medicine name and the dose, passes
+          through Google&rsquo;s servers.
+        </li>
+        <li>
+          <strong>Web:</strong> the server stores your browser&rsquo;s push subscription (an address
+          at your browser maker&rsquo;s push service, plus public encryption keys) and sends alerts
+          through that service. The message content is encrypted so that the push service cannot
+          read it.
+        </li>
+      </ul>
+
+      <h2 id="permissions">7. Android permissions</h2>
+      <p>
+        The Android app asks for the following. None of them gives us access to your personal
+        information; they exist so a dose alarm reliably rings.
+      </p>
+      <ul>
+        <li>Notifications: to show dose alerts.</li>
+        <li>Exact alarms: to ring at the minute a dose is due.</li>
+        <li>Run at startup: to set the alarms again after the phone restarts.</li>
+        <li>
+          Foreground service: to play the alert sound for its full length, and to record a tap on
+          &ldquo;Taken&rdquo; or &ldquo;Snooze&rdquo; from a locked screen.
+        </li>
+        <li>
+          Full-screen alerts and Do Not Disturb access: so an unconfirmed dose can get through when
+          the phone is locked or silenced. Android asks you to grant Do Not Disturb access yourself.
+        </li>
+        <li>Battery optimisation exemption: so Android does not stop the alarms to save power.</li>
+      </ul>
+
+      <h2 id="sharing">8. Who we share information with</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Who</th>
+              <th>What they receive</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="Who">Other caregivers in your household</td>
+              <td data-label="What they receive">Everything in the household&rsquo;s records.</td>
+              <td data-label="Why">
+                Sharing is the point of a household. There are no separate roles: every caregiver
+                sees and can log everything. Only invite people you trust, and remove a device from
+                the Household screen if it is lost or no longer needed.
+              </td>
+            </tr>
+            <tr>
+              <td data-label="Who">Cloudflare, Inc.</td>
+              <td data-label="What they receive">
+                Everything our server stores, plus the IP address and request details of each
+                connection.
+              </td>
+              <td data-label="Why">
+                Cloudflare hosts the web app, the MedGuard server, its database and its real-time
+                service, acting as our service provider. See
+                <a href="https://www.cloudflare.com/privacypolicy/"
+                  >Cloudflare&rsquo;s privacy policy</a
+                >.
+              </td>
+            </tr>
+            <tr>
+              <td data-label="Who">Google (Firebase Cloud Messaging), Android only</td>
+              <td data-label="What they receive">
+                Your device&rsquo;s FCM token, an identifier for your installation of the app, and
+                the text of each notification.
+              </td>
+              <td data-label="Why">
+                To deliver Android alerts. See
+                <a href="https://policies.google.com/privacy">Google&rsquo;s privacy policy</a>.
+              </td>
+            </tr>
+            <tr>
+              <td data-label="Who">
+                Your browser maker&rsquo;s push service (Google, Mozilla, Apple or Microsoft), web
+                only
+              </td>
+              <td data-label="What they receive">
+                Your push subscription address and an encrypted message.
+              </td>
+              <td data-label="Why">To deliver web notifications.</td>
+            </tr>
+            <tr>
+              <td data-label="Who">Authorities, where required</td>
+              <td data-label="What they receive">Only what the law obliges us to hand over.</td>
+              <td data-label="Why">To comply with a legal obligation.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        We do not sell, rent or trade information, and we do not share it for advertising. As the
+        person who runs the service, the developer has administrator access to the server database
+        and uses it only to operate and fix the service.
+      </p>
+
+      <h2 id="security">9. How we protect information</h2>
+      <ul>
+        <li>All traffic between the apps and the server uses HTTPS.</li>
+        <li>
+          Every request is tied to the household its device token belongs to, and the server only
+          ever returns that household&rsquo;s data, never another&rsquo;s. Device tokens and join
+          codes are stored only as one-way hashes; a join code expires after 15 minutes and works
+          once.
+        </li>
+        <li>
+          On Android, app data is excluded from cloud backups, so the dosing history is not copied
+          to your Google account, and the access token is kept in Android&rsquo;s Keystore-backed
+          secure storage.
+        </li>
+      </ul>
+      <p>
+        <strong>Limits, stated plainly.</strong> MedGuard does not add its own encryption to stored
+        records, on your device or on our server. It relies on your device&rsquo;s encryption (use a
+        screen lock) and on the encryption Cloudflare provides for its storage. A phone that is
+        unlocked and shared with others shows whatever MedGuard shows. No system is perfectly
+        secure, and we cannot guarantee that this one is.
+      </p>
+
+      <h2 id="delete">10. Keeping and deleting information</h2>
+      <ul>
+        <li>
+          <strong>On your device,</strong> records stay until you remove them: use &ldquo;Clear all
+          data on this device&rdquo; on the Log screen, use &ldquo;Leave this household&rdquo; on
+          the Household screen (which clears this device&rsquo;s copy), clear the app&rsquo;s
+          storage, or uninstall.
+        </li>
+        <li>
+          <strong>On our server,</strong> a household&rsquo;s information is kept for as long as the
+          household exists. To delete it, open the Household screen and choose
+          <strong>&ldquo;Delete this household&rdquo;</strong>. That permanently erases the
+          household, its caregivers and devices, every medicine, schedule, dose log, stock record
+          and setting, and the reminder-scheduling data derived from them, for every caregiver. It
+          cannot be undone. Copies already saved on caregivers&rsquo; own devices stay there until
+          they are cleared on each device.
+        </li>
+        <li>
+          <strong>Removing one device:</strong> &ldquo;Revoke&rdquo; on the Household screen deletes
+          that device&rsquo;s record, including its notification address.
+        </li>
+        <li>
+          <strong>Individual dose entries cannot be edited or deleted.</strong> A dosing history
+          that could be quietly rewritten would not be a trustworthy medical record, so a correction
+          is recorded as a new entry that supersedes the old one. Deleting the household is the way
+          to remove the history from our server.
+        </li>
+        <li>
+          <strong>If you cannot use the app to delete,</strong> for example because no device is
+          still signed in, email us at
+          <a href="mailto:medguard@fainsilber.co.il">medguard@fainsilber.co.il</a>. Because deletion
+          is permanent and affects every caregiver, we may ask you to show that you belong to the
+          household first.
+        </li>
+        <li>
+          <strong>IP addresses:</strong> when someone tries to join a household, the address is kept
+          for about ten minutes to limit repeated guessing, then discarded. Cloudflare may keep its
+          own operational logs of connections under its own policy.
+        </li>
+      </ul>
+
+      <h2 id="choices">11. Your choices</h2>
+      <ul>
+        <li>Use MedGuard on a single device without ever creating or joining a household.</li>
+        <li>
+          Export your records at any time from the Log screen: a CSV, a full JSON backup, and on the
+          web a printable summary.
+        </li>
+        <li>Correct a record by adding a corrected entry, or by editing a medicine or schedule.</li>
+        <li>Turn notifications off in your device or browser settings.</li>
+        <li>
+          Depending on where you live, you may have further rights over your personal information,
+          such as access or deletion. Email us and we will help.
+        </li>
+      </ul>
+
+      <h2 id="children">12. Children</h2>
+      <p>
+        MedGuard is for adult caregivers. The records in it often concern a child in a
+        caregiver&rsquo;s care, and that information is entered by the caregiver; the app does not
+        ask for a child&rsquo;s date of birth or any ID number, only a display name you choose.
+        MedGuard is not directed at children, and a child should not create a household. If you
+        believe one has, email us and we will delete it.
+      </p>
+
+      <h2 id="location">13. Where information is processed</h2>
+      <p>
+        Cloudflare runs a global network, so information held on our server may be processed and
+        stored in countries other than your own.
+      </p>
+
+      <h2 id="changes">14. Changes to this policy</h2>
+      <p>
+        If we change how MedGuard handles information, we will update this page and the date at the
+        top. Please check back if you rely on it.
+      </p>
+
+      <h2 id="contact">15. Contact</h2>
+      <p>
+        Questions, requests, or a deletion we cannot do in the app:
+        <a href="mailto:medguard@fainsilber.co.il">medguard@fainsilber.co.il</a>.
+      </p>
+    </main>
+  </body>
+</html>

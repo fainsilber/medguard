@@ -7,7 +7,9 @@ That is protected health information in most jurisdictions and sensitive family 
 of them. This document exists so the handling is a deliberate, reviewable decision rather than
 whatever fell out of the implementation.
 
-**Status:** updated 2026-08-09. Real-time sync (Sprint 4) is deployed; the Android client's local
+**Status:** updated 2026-09-30 to add the public privacy policy (below) and to record that household
+deletion now also purges Durable Object storage; the sprint status that follows is as of 2026-08-09.
+Real-time sync (Sprint 4) is deployed; the Android client's local
 alarm engine (Sprint A3) is code-complete; server-side push and the dose-alarm/escalation chain
 (Sprint 5, driven by the Android track as Sprint A4) are still unbuilt. The Android section below
 describes device-local storage on a real, code-complete client (Sprints A0–A3), not a scaffold.
@@ -72,7 +74,7 @@ As on web, this is local-first and fully usable with no network, and inherits th
 full-disk encryption rather than adding an application-level one — the same "shared, unlocked,
 unencrypted device is the realistic exposure" caveat above applies unchanged.
 
-### On the server (Cloudflare D1)
+### On the server (Cloudflare D1 and Durable Objects)
 
 Per household: the same domain records, plus identity.
 
@@ -80,7 +82,8 @@ Per household: the same domain records, plus identity.
 | --- | --- |
 | `medicines`, `schedules`, `intake_logs`, `inventory_*`, `household_settings`, `shabbat_config` | **Medical.** Drug names, doses, times, who administered, override reasons |
 | `dose_snoozes` (Sprint A3) | **Medical-adjacent.** Who deferred which dose occurrence, by how long, and when — no drug name or quantity of its own, but ties directly to a specific scheduled dose |
-| `households`, `users` | Household name and caregiver display names, both free text |
+| `HouseholdDO` storage (`dose_alarms`, `shabbat_bursts`, `low_stock_flags`, `alarm_meta`) | **Medical.** Not in D1: each household's Durable Object keeps its own SQLite copy of medicine names, patient display names, dose sizes and due times for the alarm chain, plus the household id. D1's `ON DELETE CASCADE` cannot reach it, so `DELETE /households` purges it explicitly (`HouseholdDO.purge`) |
+| `households`, `users`, `patients` | Household name, caregiver display names, and (since multi-patient households) a display name for each person whose medicines are tracked — all free text the caregiver chooses. `patients` carries no date of birth or ID number |
 | `devices` | Device token **hash**, push credentials, a truncated user-agent string |
 | `join_codes` | Join code **hash**, expiry, redemption state |
 | `join_attempts` | Client IP and timestamp, for rate limiting |
@@ -89,9 +92,10 @@ Domain records are stored as validated JSON plus indexed columns. Nothing is enc
 application layer beyond what Cloudflare provides for D1 at rest and TLS in transit.
 
 **Not stored anywhere:** no email addresses, no phone numbers, no passwords, no payment details, no
-date of birth, no government identifiers. The patient is a row id with no name attached — a
-caregiver's own free-text notes are the only place identifying detail could end up, and that is
-their choice, not a field the app asks for.
+date of birth, no government identifiers. Each patient has a caregiver-chosen display name
+(`patients.display_name`, up to 200 characters — a first name, nickname or initial is enough; the
+app does not ask for a surname, date of birth or ID). Free-text notes are the only other place
+identifying detail could end up, and that is the caregiver's choice, not a field the app asks for.
 
 ---
 
@@ -162,8 +166,12 @@ with credentials enabled, which is broad — see gaps.
 ## Retention and deletion
 
 - **Device:** clearing site data or uninstalling removes the local copy entirely.
-- **Server:** `households` cascades on delete to users, devices, and every scoped domain table, so
-  removing a household leaves no orphaned medical rows. This is tested.
+- **Server:** any caregiver can delete their household in-app (Household screen → "Delete this
+  household", `DELETE /api/v1/households`). `households` cascades on delete to users, devices, and
+  every scoped domain table, and the route then purges the household's Durable Object storage,
+  which the cascade cannot reach (it holds medicine names and dose sizes — see the server table
+  above). Both halves are tested (`household-lifecycle.test.ts`, `alarms.test.ts`). Copies already
+  synced to other caregivers' devices stay on those devices until cleared there.
 - **Intake logs are never deleted or edited, by design.** A correction appends a superseding entry
   (safety invariant 1). A dosing history that can be quietly rewritten is not a medical record. This
   is a deliberate tension with "right to erasure" — deleting the whole household is the supported
@@ -184,8 +192,11 @@ the live API (2026-08-03), not from real use:
 | Household id | `8a479c7d-67e7-421d-ab80-06b2c6381d4f` |
 | Contents | One caregiver ("Verify"), one device, one medicine named "Verify" |
 
-There is no delete route in the API by design (§ Retention and deletion, above) — removing it
-means a direct SQL delete against the production D1 database:
+The API's delete route (§ Retention and deletion, above) needs a signed-in device of that
+household, so if none is left, removing it means a direct SQL delete against the production D1
+database. That does **not** reach the household's Durable Object storage. This one has a medicine
+but no schedule, so at most its household id sits there and no medicine names or dose sizes do; a
+household that had schedules should be deleted through the API route instead:
 
 ```bash
 cd apps/api
@@ -210,8 +221,9 @@ closing before it holds a real protocol for a long stretch.
    confirm — see "Revoked-device data retention" in `apps/android/README.md`. There is no push-based
    remote wipe. This is the most serious of these.
 2. **A dose notification's text reaches the lock screen, and the phone's own notification history.**
-   Sprint A4's alerts name the medicine (a caregiver woken at 3 AM by "a dose is due" cannot act on
-   it), which means a medicine name is visible on a locked screen and retained in Android's
+   Sprint A4's alerts name the person and the medicine (a caregiver woken at 3 AM by "a dose is due"
+   cannot act on it), which means a patient's display name and a medicine name are visible on a
+   locked screen and retained in Android's
    notification log until it is cleared. Deliberate, and the same trade every medication reminder
    makes; worth knowing about if a phone is shared or seen by others. Shabbat-mode alerts carry the
    same detail. Nothing else about the record — dosage history, notes, who logged what — ever leaves
@@ -224,6 +236,36 @@ closing before it holds a real protocol for a long stretch.
    encryption.
 6. **Backup/export is manual.** The CSV, printable summary and full JSON backup/import/wipe (Sprint 2
    and Sprint 7, landed early) are the only export path; there is no automated/scheduled backup.
+
+---
+
+## The public privacy policy
+
+Google Play requires a privacy policy on the store listing and inside the app, on a public,
+login-free, non-PDF web page. It is `apps/web/public/privacy.html` — a static, self-contained file
+(no scripts, fonts or third-party requests), served by the web Worker at
+**https://medguard-web.fainsilber.workers.dev/privacy** (`PRIVACY_POLICY_URL` in
+`packages/shared/src/links.ts`). That extension-less path returns 200 directly; `/privacy.html`
+redirects to it.
+
+It is linked from the first-run screen, the name screen and (web) a footer on every tab, and
+(Android) the Household and Settings screens. The Android app opens the absolute URL; the web app links to its own
+precached copy, so it reads offline.
+
+**When this document changes, the policy probably has to.** In particular, edit
+`privacy.html` (and its "Last updated" date) whenever any of these change:
+
+- a new kind of data is stored, or an existing one starts being sent somewhere new;
+- a new third party handles data (a push provider, analytics, crash reporting — none exist today,
+  and the policy says so);
+- an Android permission is added to `apps/android/plugins/withMedGuardAlarms.ts`;
+- deletion or retention behaviour changes (the policy describes the in-app delete and the ten-minute
+  IP window).
+
+`apps/web/tests/privacyPolicy.test.ts` pins the policy's shape (self-contained; names Cloudflare,
+FCM and web push; has a deletion section and a contact) but cannot check that the prose is true.
+The Play Console **Data safety** form and the store listing's privacy-policy URL are entered by
+hand and must agree with it.
 
 ---
 

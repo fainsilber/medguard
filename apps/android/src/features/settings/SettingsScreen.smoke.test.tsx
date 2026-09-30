@@ -29,7 +29,7 @@ import { SettingsScreen } from './SettingsScreen.js';
  */
 describe('SettingsScreen', () => {
   it('renders once the repository has finished initializing', async () => {
-    const { getByText, queryByText } = renderWithRepository(
+    const { getByText, getByRole, queryByText } = renderWithRepository(
       <SyncProvider>
         <AlarmProvider>
           <SettingsScreen />
@@ -46,6 +46,9 @@ describe('SettingsScreen', () => {
     expect(getByText('AD1 — Hermes ICU')).toBeTruthy();
     expect(getByText('Sync status')).toBeTruthy();
     expect(getByText('App log')).toBeTruthy();
+    // Google Play wants the privacy policy reachable from inside the app; Settings is where a
+    // reviewer or caregiver goes looking for it.
+    expect(getByRole('link', { name: 'Privacy policy' })).toBeTruthy();
 
     // Share log merges DoseAlarmService's own durable log (readNativeAlarmLog) into the export —
     // added because that service can ring and stop a chime with no JS runtime alive to log

@@ -291,5 +291,9 @@ authRoutes.post('/leave', requireDevice, async (c) => {
 authRoutes.delete('/households', requireDevice, async (c) => {
   const { householdId } = c.get('auth');
   await c.env.DB.prepare('DELETE FROM households WHERE id = ?').bind(householdId).run();
+  // D1's cascade cannot reach the household's Durable Object, which holds medicine names and
+  // dose sizes for the alarm chain. Purged second, so nothing can re-materialize from D1 rows
+  // that are already gone (see `HouseholdDO.purge`).
+  await c.env.HOUSEHOLD.get(c.env.HOUSEHOLD.idFromName(householdId)).purge();
   return c.json({ ok: true });
 });
