@@ -865,3 +865,61 @@ describe('the chain across schedule edits', () => {
     expect(await nextWake(stub)).toBe(dueAtMs + 24 * 60 * MS_PER_MINUTE);
   });
 });
+
+describe('household deletion', () => {
+  /** Row counts for every table the Durable Object owns, i.e. everything but SQLite's and the platform's own. */
+  function rowCounts(stub: DurableObjectStub<HouseholdDO>): Promise<Record<string, number>> {
+    return runInDurableObject(stub, (_instance, state) => {
+      const sql = state.storage.sql;
+      const names = sql
+        .exec<{ name: string }>(
+          "SELECT name FROM sqlite_master WHERE type = 'table' " +
+            "AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*'",
+        )
+        .toArray();
+      return Object.fromEntries(
+        names.map(({ name }) => [
+          name,
+          sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM "${name}"`).one().n,
+        ]),
+      );
+    });
+  }
+
+  it('erases the medicine names and dose sizes the alarm chain keeps, and cancels its alarm', async () => {
+    const { session, stub } = await householdWithDose(30);
+
+    // Without these the assertions below would pass on a household that never stored anything.
+    const before = await rowCounts(stub);
+    expect(before['dose_alarms']).toBeGreaterThan(0);
+    expect(await runInDurableObject(stub, (_i, state) => state.storage.getAlarm())).not.toBeNull();
+
+    const response = await SELF.fetch(`${BASE}/households`, authed(session, { method: 'DELETE' }));
+    expect(response.status).toBe(200);
+
+    const after = await rowCounts(stub);
+    expect(Object.values(after).every((n) => n === 0)).toBe(true);
+    expect(await runInDurableObject(stub, (_i, state) => state.storage.getAlarm())).toBeNull();
+  });
+
+  it('sweeps tables it was never told about, so a future table cannot keep a deleted household', async () => {
+    const { session, stub } = await householdWithDose(30);
+    await runInDurableObject(stub, (_i, state) => {
+      state.storage.sql.exec('CREATE TABLE IF NOT EXISTS added_later (note TEXT NOT NULL)');
+      state.storage.sql.exec("INSERT INTO added_later (note) VALUES ('kept?')");
+    });
+
+    await SELF.fetch(`${BASE}/households`, authed(session, { method: 'DELETE' }));
+
+    expect((await rowCounts(stub))['added_later']).toBe(0);
+  });
+
+  it("never touches another household's alarm state", async () => {
+    const doomed = await householdWithDose(30);
+    const other = await householdWithDose(30);
+
+    await SELF.fetch(`${BASE}/households`, authed(doomed.session, { method: 'DELETE' }));
+
+    expect((await rowCounts(other.stub))['dose_alarms']).toBeGreaterThan(0);
+  });
+});

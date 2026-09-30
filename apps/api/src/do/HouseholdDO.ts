@@ -561,6 +561,19 @@ export class HouseholdDO extends DurableObject<Env> {
   }
 
   /**
+   * Erases everything this Durable Object holds for the household and cancels its alarm.
+   *
+   * Called by `DELETE /households` after the D1 rows are gone. That order matters: with the
+   * household already absent from D1, nothing can re-materialize alarm rows between here and the
+   * end of the purge. Without this call a deleted household would leave its medicine names and
+   * dose sizes behind in this object's storage indefinitely.
+   */
+  async purge(): Promise<void> {
+    this.alarms.purge();
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  /**
    * Does whatever is owed, then arms for the next thing.
    *
    * Deliberately does not check that this is the exact moment the alarm was set for. Alarms fire
