@@ -3,6 +3,8 @@ export type { Clock, ClockTrust, EpochMs, IdGenerator, IsoInstant } from './cloc
 
 export { systemClock, uuidIdGenerator } from './runtime/systemClock.js';
 
+export { PRIVACY_POLICY_URL } from './links.js';
+
 // Domain entities and validation
 export { SINGLE_PATIENT_ID, medicinePatientId } from './types.js';
 export type * from './types.js';

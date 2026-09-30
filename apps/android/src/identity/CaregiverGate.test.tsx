@@ -91,4 +91,12 @@ describe('CaregiverGate', () => {
     fireEvent.changeText(getByPlaceholderText('e.g. Mom, Dad, Grandma'), 'M');
     expect(queryByText('Caregiver name cannot be blank')).toBeFalsy();
   });
+
+  it('keeps the privacy policy one tap away on the name screen of a device that skipped a household', async () => {
+    const { findByText, getByRole } = renderGate();
+    await chooseStandalone(findByText);
+
+    expect(await findByText('Your name')).toBeTruthy();
+    expect(getByRole('link', { name: 'Privacy policy' })).toBeTruthy();
+  });
 });

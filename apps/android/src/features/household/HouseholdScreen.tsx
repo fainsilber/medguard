@@ -13,6 +13,7 @@ import { useRepository } from '../../app/RepositoryContext.js';
 import { getCaregiverName } from '../../identity/caregiverName.js';
 import { clearHouseholdSession, getHouseholdSession } from '../../identity/session.js';
 import type { HouseholdSession } from '../../identity/session.js';
+import { PrivacyPolicyLink } from '../../ui/PrivacyPolicyLink.js';
 import {
   Button,
   Card,
@@ -210,6 +211,7 @@ export function HouseholdScreen(): React.JSX.Element {
           </Card>
 
           <PatientRosterCard />
+          <PrivacyPolicyLink />
         </ScrollView>
       </KeyboardAvoidingScreen>
     );
@@ -394,6 +396,7 @@ export function HouseholdScreen(): React.JSX.Element {
             )}
           </View>
         </Card>
+        <PrivacyPolicyLink />
       </ScrollView>
     </KeyboardAvoidingScreen>
   );

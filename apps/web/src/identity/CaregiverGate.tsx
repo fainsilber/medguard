@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { getHouseholdSession } from '../api/session.js';
 import { RepositoryProvider } from '../app/RepositoryContext.js';
 import { HouseholdOnboarding } from '../features/household/HouseholdOnboarding.js';
+import { PrivacyPolicyLink } from '../ui/PrivacyPolicyLink.js';
 import { buttonClass, inputClass } from '../ui/primitives.js';
 import { getCaregiverName, setCaregiverName } from './caregiverName.js';
 
@@ -82,6 +83,7 @@ export function CaregiverGate({ children }: { children: ReactNode }) {
           Continue
         </button>
       </form>
+      <PrivacyPolicyLink />
     </main>
   );
 }

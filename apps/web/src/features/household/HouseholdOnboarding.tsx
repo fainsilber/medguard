@@ -5,6 +5,7 @@ import { createHousehold, redeemJoinCode } from '../../api/householdApi.js';
 import { setHouseholdSession } from '../../api/session.js';
 import type { HouseholdSession } from '../../api/session.js';
 import { setCaregiverName } from '../../identity/caregiverName.js';
+import { PrivacyPolicyLink } from '../../ui/PrivacyPolicyLink.js';
 import { buttonClass, inputClass, labelClass, primaryButtonClass } from '../../ui/primitives.js';
 
 /**
@@ -215,7 +216,12 @@ export function HouseholdOnboarding({
     return <div className="flex flex-col gap-4">{content}</div>;
   }
 
+  // The first screen a new caregiver sees, and the point at which records may start leaving the
+  // device — so the policy is one tap away here, not only once they are inside the app.
   return (
-    <main className="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-6 p-4">{content}</main>
+    <main className="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-6 p-4">
+      {content}
+      <PrivacyPolicyLink />
+    </main>
   );
 }

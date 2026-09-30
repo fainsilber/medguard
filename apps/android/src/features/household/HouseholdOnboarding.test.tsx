@@ -181,3 +181,17 @@ describe('HouseholdOnboarding', () => {
     expect(getByText('Start a new household')).toBeTruthy();
   });
 });
+
+describe('HouseholdOnboarding privacy policy link', () => {
+  it('is on the first-run screen, where records may start leaving the device', () => {
+    const { getByRole } = renderOnboarding();
+
+    expect(getByRole('link', { name: 'Privacy policy' })).toBeTruthy();
+  });
+
+  it('is left to the surrounding Household screen when embedded, so it never appears twice', () => {
+    const { queryByRole } = render(<HouseholdOnboarding embedded onDone={jest.fn()} />);
+
+    expect(queryByRole('link', { name: 'Privacy policy' })).toBeNull();
+  });
+});

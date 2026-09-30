@@ -66,4 +66,41 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByText(/^v/)).toBeInTheDocument());
     expect(screen.getByRole('heading', { name: /Dose alerts/ })).toBeInTheDocument();
   });
+
+  describe('privacy policy link', () => {
+    /** Opens the static page in a new tab, so an installed PWA is never stranded on it. */
+    function expectPolicyLink(link: HTMLElement) {
+      expect(link).toHaveAttribute('href', '/privacy.html');
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    }
+
+    it('is on the first screen a new caregiver sees, before anything is sent anywhere', () => {
+      render(<App />);
+
+      expectPolicyLink(screen.getByRole('link', { name: 'Privacy policy' }));
+    });
+
+    it('is on the name screen of a device that skipped setting up a household', async () => {
+      const user = userEvent.setup();
+      render(<App />);
+
+      await user.click(screen.getByRole('button', { name: 'Use this device on its own for now' }));
+
+      expectPolicyLink(screen.getByRole('link', { name: 'Privacy policy' }));
+    });
+
+    it('stays reachable from every tab once signed in', async () => {
+      const user = userEvent.setup();
+      render(<App />);
+
+      await signInStandalone(user);
+
+      const nav = await screen.findByRole('navigation', { name: 'Sections' });
+      expectPolicyLink(screen.getByRole('link', { name: 'Privacy policy' }));
+
+      await user.click(within(nav).getByRole('button', { name: 'Medicines' }));
+      expectPolicyLink(screen.getByRole('link', { name: 'Privacy policy' }));
+    });
+  });
 });

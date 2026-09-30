@@ -5,6 +5,7 @@ import { createHousehold, redeemJoinCode } from '../../api/householdApi.js';
 import { setCaregiverName } from '../../identity/caregiverName.js';
 import { setHouseholdSession } from '../../identity/session.js';
 import type { HouseholdSession } from '../../identity/session.js';
+import { PrivacyPolicyLink } from '../../ui/PrivacyPolicyLink.js';
 import { Button, KeyboardAvoidingScreen, colors, styles as sharedStyles } from '../../ui/primitives.js';
 
 /**
@@ -224,7 +225,11 @@ export function HouseholdOnboarding({
 
   return (
     <KeyboardAvoidingScreen>
-      <View style={[sharedStyles.content, { flex: 1, justifyContent: 'center' }]}>{content}</View>
+      <View style={[sharedStyles.content, { flex: 1, justifyContent: 'center' }]}>
+        {content}
+        {/* The first screen a new caregiver sees, and where records may start leaving the device. */}
+        <PrivacyPolicyLink />
+      </View>
     </KeyboardAvoidingScreen>
   );
 }

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { RepositoryProvider } from '../app/RepositoryContext.js';
 import { HouseholdOnboarding } from '../features/household/HouseholdOnboarding.js';
+import { PrivacyPolicyLink } from '../ui/PrivacyPolicyLink.js';
 import { Button, KeyboardAvoidingScreen, colors, styles as ui } from '../ui/primitives.js';
 import { getCaregiverName, setCaregiverName } from './caregiverName.js';
 import { getHouseholdSession } from './session.js';
@@ -106,6 +107,7 @@ export function CaregiverGate({ children }: { children: ReactNode }): React.JSX.
           </Text>
         ) : null}
         <Button label="Continue" onPress={() => void handleSubmit()} variant="primary" />
+        <PrivacyPolicyLink />
       </View>
     </KeyboardAvoidingScreen>
   );

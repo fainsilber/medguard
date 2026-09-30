@@ -18,6 +18,7 @@ import { SafetyWarningBanner } from './sync/SafetyWarningBanner.js';
 import { PushProvider } from './push/PushProvider.js';
 import { SyncProvider } from './sync/SyncProvider.js';
 import { SyncStatusBadge } from './sync/SyncStatusBadge.js';
+import { PrivacyPolicyLink } from './ui/PrivacyPolicyLink.js';
 import { buttonClass, primaryButtonClass } from './ui/primitives.js';
 
 interface TabDefinition {
@@ -82,6 +83,10 @@ function AppShell() {
       <main>
         {motzei.show ? <ReconciliationSheet onDone={motzei.dismiss} /> : <ActiveScreen />}
       </main>
+
+      <footer className="print:hidden">
+        <PrivacyPolicyLink />
+      </footer>
     </div>
   );
 }
