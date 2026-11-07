@@ -1,4 +1,5 @@
-import { Badge } from '../ui/primitives.js';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Badge, colors } from '../ui/primitives.js';
 import type { BadgeTone } from '../ui/primitives.js';
 import { useSyncStatus } from './SyncProvider.js';
 import type { SyncIndicatorStatus } from './SyncProvider.js';
@@ -9,15 +10,45 @@ import type { SyncIndicatorStatus } from './SyncProvider.js';
  * must never just quietly disappear. Android equivalent of `apps/web/src/sync/SyncStatusBadge.tsx`.
  */
 export function SyncStatusBadge(): React.JSX.Element | null {
-  const { status } = useSyncStatus();
+  const { status, syncNow } = useSyncStatus();
 
   if (status.kind === 'disconnected') {
     return null;
   }
 
   const { label, tone } = describe(status);
-  return <Badge tone={tone}>{label}</Badge>;
+  // Tapping runs a sync now — the way out of "Sync failed" without restarting the app. Inert
+  // while a round is already in progress or scheduled, and once the device has been removed
+  // (every attempt would fail the same way; the revoked banner is the caregiver's way forward).
+  const tappable = status.kind !== 'syncing' && status.kind !== 'retrying' && status.kind !== 'revoked';
+
+  return (
+    <View style={styles.wrapper}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Sync now"
+        accessibilityHint={status.kind === 'error' ? status.message : undefined}
+        accessibilityState={{ disabled: !tappable }}
+        disabled={!tappable}
+        onPress={() => {
+          void syncNow();
+        }}
+      >
+        <Badge tone={tone}>{label}</Badge>
+      </Pressable>
+      {status.kind === 'error' ? (
+        <Text style={styles.reason} numberOfLines={2}>
+          {status.message}
+        </Text>
+      ) : null}
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  wrapper: { alignItems: 'center' },
+  reason: { color: colors.textMuted, fontSize: 11, marginTop: 2, textAlign: 'center' },
+});
 
 function describe(status: Exclude<SyncIndicatorStatus, { kind: 'disconnected' }>): {
   label: string;
@@ -26,6 +57,8 @@ function describe(status: Exclude<SyncIndicatorStatus, { kind: 'disconnected' }>
   switch (status.kind) {
     case 'syncing':
       return { label: 'Syncing…', tone: 'neutral' };
+    case 'retrying':
+      return { label: `Retrying (${status.attempt}/${status.max})…`, tone: 'neutral' };
     case 'synced':
       return { label: 'Synced', tone: 'safe' };
     case 'pending':
@@ -33,7 +66,7 @@ function describe(status: Exclude<SyncIndicatorStatus, { kind: 'disconnected' }>
     case 'offline':
       return { label: 'Offline', tone: 'neutral' };
     case 'error':
-      return { label: 'Sync error', tone: 'locked' };
+      return { label: 'Sync failed · tap to retry', tone: 'locked' };
     case 'revoked':
       return { label: 'Removed', tone: 'locked' };
   }

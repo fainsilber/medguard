@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { fireEvent, waitFor } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { AppState, Text } from 'react-native';
 import { SINGLE_PATIENT_ID } from '@medguard/shared';
 import type { Medicine } from '@medguard/shared';
 import { fixedClock, sequentialIds } from '@medguard/shared/testing';
@@ -156,7 +156,7 @@ describe('SyncProvider', () => {
     );
 
     await findByText('ready');
-    expect(queryByText(/Synced|Pending|Offline|Sync error|Removed/)).toBeFalsy();
+    expect(queryByText(/Synced|Pending|Offline|Sync failed|Retrying|Removed/)).toBeFalsy();
   });
 
   it('shows Synced once the live channel is open and nothing is pending', async () => {
@@ -432,5 +432,165 @@ describe('SyncProvider', () => {
       timeout: 5_000,
     });
     expect(await getHouseholdSession()).toBeNull();
+  });
+
+  describe('retry and manual sync', () => {
+    const session = { deviceToken: 'tok-1', householdId: 'h1', userId: 'u1', deviceId: 'd1' };
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    /** A fetch whose sync calls fail (a dropped connection, not a 401) until `ok()` is called. */
+    function flakyFetch() {
+      const state = { failing: true, calls: 0 };
+      stubFetch((url, init) => {
+        if (url.includes('/sync/')) {
+          state.calls += 1;
+          if (state.failing) {
+            throw new Error('network down');
+          }
+        }
+        return defaultFetchHandler(url, init);
+      });
+      return state;
+    }
+
+    it('retries a failed sync three times on its own, then shows the failure and stops', async () => {
+      await setHouseholdSession(session);
+      jest.useFakeTimers();
+      const net = flakyFetch();
+
+      const { findByText } = renderWithRepository(
+        <SyncProvider>
+          <SyncStatusBadge />
+        </SyncProvider>,
+        { dbName: 'sync-provider-retry.db' },
+      );
+
+      await findByText('Retrying (1/3)…');
+      await jest.advanceTimersByTimeAsync(5_000);
+      await findByText('Retrying (2/3)…');
+      await jest.advanceTimersByTimeAsync(15_000);
+      await findByText('Retrying (3/3)…');
+      await jest.advanceTimersByTimeAsync(45_000);
+      await findByText('Sync failed · tap to retry');
+
+      // Nothing more happens on its own.
+      const callsWhenGivenUp = net.calls;
+      await jest.advanceTimersByTimeAsync(10 * 60_000);
+      expect(net.calls).toBe(callsWhenGivenUp);
+    });
+
+    it('a retry that succeeds clears the retrying state', async () => {
+      await setHouseholdSession(session);
+      jest.useFakeTimers();
+      const net = flakyFetch();
+
+      const { findByText } = renderWithRepository(
+        <SyncProvider>
+          <SyncStatusBadge />
+        </SyncProvider>,
+        { dbName: 'sync-provider-retry-ok.db' },
+      );
+
+      await findByText('Retrying (1/3)…');
+      net.failing = false;
+      await jest.advanceTimersByTimeAsync(5_000);
+      FakeWebSocket.latest().open();
+      await findByText('Synced');
+    });
+
+    it('tapping the badge after a failure syncs again, and shows a repeat failure straight away', async () => {
+      await setHouseholdSession(session);
+      jest.useFakeTimers();
+      const net = flakyFetch();
+
+      const { findByText, findByRole, queryByText } = renderWithRepository(
+        <SyncProvider>
+          <SyncStatusBadge />
+        </SyncProvider>,
+        { dbName: 'sync-provider-manual.db' },
+      );
+
+      await findByText('Retrying (1/3)…');
+      await jest.advanceTimersByTimeAsync(5_000 + 15_000 + 45_000);
+      await findByText('Sync failed · tap to retry');
+      // The reason is visible, not just a generic label.
+      expect(queryByText(/Could not reach the server/)).toBeTruthy();
+
+      // Still failing: the tap's own failure is shown at once, not hidden behind more retries.
+      const before = net.calls;
+      fireEvent.press(await findByRole('button', { name: 'Sync now' }));
+      await waitFor(() => expect(net.calls).toBeGreaterThan(before));
+      await findByText('Sync failed · tap to retry');
+      expect(queryByText(/Retrying/)).toBeNull();
+
+      // Connection back: one more tap and it is synced.
+      net.failing = false;
+      FakeWebSocket.latest().open();
+      fireEvent.press(await findByRole('button', { name: 'Sync now' }));
+      await findByText('Synced');
+    });
+
+    it('syncs when the app returns to the foreground', async () => {
+      await setHouseholdSession(session);
+      let onChange: ((state: string) => void) | undefined;
+      jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+        _type: string,
+        listener: (state: string) => void,
+      ) => {
+        onChange = listener;
+        return { remove: () => {} };
+      }) as unknown as typeof AppState.addEventListener);
+      let pulls = 0;
+      stubFetch((url, init) => {
+        if (url.includes('/sync/pull') || url.includes('/sync/bootstrap')) {
+          pulls += 1;
+        }
+        return defaultFetchHandler(url, init);
+      });
+
+      const { findByText } = renderWithRepository(
+        <SyncProvider>
+          <SyncStatusBadge />
+        </SyncProvider>,
+        { dbName: 'sync-provider-foreground.db' },
+      );
+      await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+      FakeWebSocket.latest().open();
+      await findByText('Synced');
+      await waitFor(() => expect(onChange).toBeDefined());
+
+      const before = pulls;
+      onChange!('background');
+      onChange!('active');
+      await waitFor(() => expect(pulls).toBeGreaterThan(before));
+    });
+
+    it('never retries a revoked device, and the badge is not tappable', async () => {
+      await setHouseholdSession(session);
+      jest.useFakeTimers();
+      let calls = 0;
+      stubFetch(() => {
+        calls += 1;
+        return jsonResponse({ error: 'unauthorized' }, 401);
+      });
+
+      const { findByText, getByRole } = renderWithRepository(
+        <SyncProvider>
+          <SyncStatusBadge />
+        </SyncProvider>,
+        { dbName: 'sync-provider-revoked-no-retry.db' },
+      );
+
+      await findByText('Removed');
+      expect(getByRole('button', { name: 'Sync now' }).props.accessibilityState).toMatchObject({
+        disabled: true,
+      });
+      const settled = calls;
+      await jest.advanceTimersByTimeAsync(10 * 60_000);
+      expect(calls).toBe(settled);
+    });
   });
 });

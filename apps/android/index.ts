@@ -3,6 +3,7 @@ import { AppRegistry } from 'react-native';
 
 import App from './App';
 import { runPendingActionsTask } from './src/alarms/headlessTask';
+import { defineBackgroundSyncTask } from './src/sync/backgroundSync';
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App), and also
 // ensures the environment is set up appropriately for either Expo Go or a native build.
@@ -14,3 +15,10 @@ registerRootComponent(App);
  * a mismatch is silent, and the symptom would be a tap that simply never becomes a dose.
  */
 AppRegistry.registerHeadlessTask('MedGuardPendingActions', () => runPendingActionsTask);
+
+/**
+ * Periodic sync while the app is closed (WorkManager, ~15 min). Expo requires the task to be
+ * defined at module scope so the worker can find it when it starts the JS bundle on its own;
+ * `SyncProvider` registers/unregisters the schedule as the household connection comes and goes.
+ */
+defineBackgroundSyncTask();

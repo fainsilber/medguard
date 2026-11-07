@@ -72,6 +72,17 @@ dose that *was* given. `NotificationActionReceiver` therefore starts a headless 
 deliberately does **not** sync: the record is durable and in the outbox, and pushing it needs the
 session, a network round trip and retry handling inside a service Android may stop at any moment.
 
+**Background sync.** With the app closed, `src/sync/backgroundSync.ts` runs one sync round roughly
+every 15 minutes through `expo-background-task` (WorkManager — 15 is Android's floor, and Doze or
+an OEM battery manager may delay it; local alarms never depend on it). It applies any captured
+taps first, then pushes and pulls with `SyncEngine`; there is no in-task retry — the next run is
+the retry. `SyncProvider` registers the schedule while a household is connected, unregisters it on
+leaving, and hands the worker its own sync runner when the app is alive so two engines never share
+the database. In the foreground, a failed round is retried 3 times (5s, 15s, 45s) before the badge
+shows "Sync failed · tap to retry"; tapping the badge, returning to the foreground, or reopening the
+live channel starts a fresh round. To exercise the worker on a debug build, call
+`BackgroundTask.triggerTaskWorkerForTestingAsync()`.
+
 **Registration.** `src/alarms/pushRegistration.ts` sends the FCM token to
 `POST /api/v1/devices/push` on every start (idempotent by design — Firebase rotates tokens without
 telling the app) and again whenever the new `onPushToken` event fires. Both the POST and the token
