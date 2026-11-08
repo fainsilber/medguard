@@ -111,6 +111,7 @@ export default tseslint.config(
     files: [
       'apps/android/src/clock/localClockGuard.test.tsx',
       'apps/android/src/alarms/headlessTask.test.tsx',
+      'apps/android/src/sync/backgroundSync.test.tsx',
     ],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',

@@ -1,12 +1,8 @@
-import * as SQLite from 'expo-sqlite';
-import { MedGuardRepository, PendingActionApplier } from '@medguard/store';
-import { SqliteStore } from '@medguard/store/sqlite';
+import { PendingActionApplier } from '@medguard/store';
 import * as MedGuardAlarms from '../../modules/medguard-alarms/src';
-import { getCaregiverName } from '../identity/caregiverName.js';
-import { getOrCreateDeviceId } from '../identity/deviceId.js';
 import { appLog } from '../logging/appLog.js';
 import { deviceClock, deviceIdGenerator } from '../runtime/deviceRuntime.js';
-import { ExpoSqliteDriver, createSqliteSchema } from '../store/expoSqliteDriver.js';
+import { openHeadlessRepository } from '../store/openHeadlessRepository.js';
 
 const log = appLog('headless');
 
@@ -32,24 +28,15 @@ const log = appLog('headless');
  */
 export async function runPendingActionsTask(): Promise<void> {
   try {
-    const [userId, deviceId] = await Promise.all([getCaregiverName(), getOrCreateDeviceId()]);
-    if (!userId) {
+    const opened = await openHeadlessRepository();
+    if (!opened) {
       // No caregiver has identified themselves on this device, so there is nobody to attribute a
       // dose to (safety invariant 5). The tap stays captured and is applied at the next launch,
       // where the app can ask.
       log.debug('headless drain skipped — no caregiver identified on this device');
       return;
     }
-
-    const db = await SQLite.openDatabaseAsync('medguard.db');
-    await createSqliteSchema(db);
-    const store = new SqliteStore(new ExpoSqliteDriver(db));
-    const repository = new MedGuardRepository(store, {
-      clock: deviceClock,
-      ids: deviceIdGenerator,
-      userId,
-      deviceId,
-    });
+    const { repository, userId, deviceId } = opened;
 
     const applier = new PendingActionApplier({
       repository,
@@ -66,8 +53,8 @@ export async function runPendingActionsTask(): Promise<void> {
 
     // Deliberately not syncing from here. The record is durable and in the outbox; pushing it
     // needs the household session, a network round trip and the sync engine's retry handling,
-    // all inside a service Android may stop at any moment. The next app start — or the next
-    // foreground — drains the outbox as it always does.
+    // all inside a service Android may stop at any moment. The periodic background sync
+    // (`sync/backgroundSync.ts`), the next app start, or the next foreground drains the outbox.
   } catch (error: unknown) {
     // Never throw out of a headless task: an unhandled rejection here is a native crash on a
     // locked phone, which is a far worse outcome than the tap waiting for the next app launch.

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { AppState } from 'react-native';
 import type { LiveMessage, LiveSafetyWarningMessage } from '@medguard/shared';
 import { LiveClient, SyncApiError, SyncEngine } from '@medguard/store';
 import type { LiveClientStatus } from '@medguard/store';
@@ -10,9 +11,31 @@ import { clearHouseholdSession, getHouseholdSession, onHouseholdSessionChange } 
 import type { HouseholdSession } from '../identity/session.js';
 import { appLog } from '../logging/appLog.js';
 import { useLiveQuery } from '../store/useLiveQuery.js';
+import {
+  registerBackgroundSync,
+  setForegroundSyncRunner,
+  unregisterBackgroundSync,
+} from './backgroundSync.js';
+import { onSyncIntervalChange } from './syncInterval.js';
 
 const log = appLog('sync');
 const liveLog = appLog('live');
+
+/**
+ * A failed round is retried on its own this many times, with these delays, before the failure is
+ * shown ("Sync failed"). After that nothing retries until a new trigger: a tap on the badge, the
+ * app returning to the foreground, the live channel reopening, a server `sync` message, or a new
+ * local write.
+ */
+const RETRY_DELAYS_MS = [5_000, 15_000, 45_000] as const;
+const MAX_AUTO_RETRIES = RETRY_DELAYS_MS.length;
+
+/**
+ * `auto`: a normal trigger — resets the retry budget. `manual`: the caregiver tapped the badge —
+ * a single attempt whose failure is shown right away, since they are watching. `retry`: the
+ * provider's own scheduled retry — keeps counting.
+ */
+type SyncMode = 'auto' | 'manual' | 'retry';
 
 /**
  * Starts and stops the sync engine and live WebSocket as the household connection comes and
@@ -27,6 +50,9 @@ export type SyncIndicatorStatus =
   | { kind: 'disconnected' }
   | { kind: 'offline' }
   | { kind: 'syncing' }
+  /** A round failed and the provider is waiting to retry on its own — `attempt` is the upcoming
+   * retry's number (1-based) out of `max`. Not yet shown as an error. */
+  | { kind: 'retrying'; attempt: number; max: number }
   | { kind: 'synced' }
   | { kind: 'pending'; count: number }
   | { kind: 'error'; message: string }
@@ -40,6 +66,9 @@ interface SyncContextValue {
   status: SyncIndicatorStatus;
   lastSafetyWarning: LiveSafetyWarningMessage | null;
   dismissSafetyWarning: () => void;
+  /** Runs a sync round now — what tapping the status badge does. A no-op with no household or
+   * once this device has been revoked. */
+  syncNow: () => Promise<void>;
   /**
    * Wipes this device's local medical data and forgets the household session — the caregiver's
    * own confirmed response to a `'revoked'` status. Mirrors `HouseholdScreen`'s "Leave" flow
@@ -63,6 +92,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState<number | null>(null);
   const [revoked, setRevoked] = useState(false);
   const [lastSafetyWarning, setLastSafetyWarning] = useState<LiveSafetyWarningMessage | null>(null);
 
@@ -85,7 +115,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   // Called from the outbox-watching effect below, so a caregiver's own new dose is pushed right
   // away rather than waiting for the next WebSocket event or reconnect to happen to trigger one.
-  const runSyncRef = useRef<() => Promise<void>>(async () => {});
+  const runSyncRef = useRef<(mode?: SyncMode) => Promise<void>>(async () => {});
 
   useEffect(() => {
     if (session === undefined) {
@@ -96,8 +126,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setConnectionStatus('closed');
       setError(null);
       setRevoked(false);
+      setRetryAttempt(null);
       setPendingCount(0);
       runSyncRef.current = async () => {};
+      // Left the household (or was removed and cleared): nothing to sync in the background.
+      void unregisterBackgroundSync();
       return;
     }
 
@@ -105,8 +138,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     // must not inherit a previous session's error/revoked state.
     setError(null);
     setRevoked(false);
+    setRetryAttempt(null);
 
     let cancelled = false;
+    let retryCount = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearRetryTimer = () => {
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
     const engine = new SyncEngine({
       store,
       repository,
@@ -124,23 +166,51 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const runSync = async () => {
+    const runSync = async (mode: SyncMode = 'auto') => {
+      if (mode !== 'retry') {
+        // Any new trigger supersedes a pending scheduled retry. A manual attempt gets no
+        // automatic retries of its own — its failure is shown immediately.
+        clearRetryTimer();
+        retryCount = mode === 'manual' ? MAX_AUTO_RETRIES : 0;
+        if (mode === 'manual' && !cancelled) {
+          setError(null);
+          setRetryAttempt(null);
+        }
+      }
       setSyncing(true);
       try {
         await engine.runOnce();
+        retryCount = 0;
         if (!cancelled) {
           setError(null);
+          setRetryAttempt(null);
         }
       } catch (err) {
         if (err instanceof SyncApiError && err.code === 'unauthorized') {
           log.error('sync round failed: device revoked', { message: err.message });
+          clearRetryTimer();
           if (!cancelled) {
             setRevoked(true);
+            setRetryAttempt(null);
           }
         } else {
           const message = err instanceof Error ? err.message : 'Sync failed';
           log.error('sync round failed', { message });
-          if (!cancelled) {
+          if (cancelled) {
+            // Torn down mid-round — nothing to show or schedule.
+          } else if (retryCount < MAX_AUTO_RETRIES) {
+            const delay = RETRY_DELAYS_MS[retryCount] ?? RETRY_DELAYS_MS[MAX_AUTO_RETRIES - 1];
+            retryCount += 1;
+            setError(null);
+            setRetryAttempt(retryCount);
+            log.info('retrying sync', { attempt: retryCount, delayMs: delay });
+            clearRetryTimer();
+            retryTimer = setTimeout(() => {
+              retryTimer = null;
+              void runSync('retry');
+            }, delay);
+          } else {
+            setRetryAttempt(null);
             setError(message);
           }
         }
@@ -152,6 +222,14 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
     };
     runSyncRef.current = runSync;
+    // If the OS wakes the app's JS for a periodic background sync while this provider is alive,
+    // run through this engine rather than opening a second one on the same database.
+    setForegroundSyncRunner(() => runSync('auto'));
+    void registerBackgroundSync();
+    // A change in Settings reschedules at once rather than at the next app start.
+    const unsubscribeInterval = onSyncIntervalChange(() => {
+      void registerBackgroundSync();
+    });
 
     const handleMessage = (message: LiveMessage) => {
       if (message.type === 'sync') {
@@ -179,8 +257,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+      clearRetryTimer();
       liveClient.stop();
       runSyncRef.current = async () => {};
+      setForegroundSyncRunner(null);
+      unsubscribeInterval();
     };
     // store/repository are stable for the lifetime of RepositoryProvider — only a different
     // household session should tear down and rebuild the connection.
@@ -206,19 +287,35 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     previousOutboxCount.current = outboxCount;
   }, [session, outboxCount]);
 
+  // Coming back to the foreground is the moment a caregiver is most likely to be looking at
+  // stale data — sync rather than waiting for the next live-channel event.
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void runSyncRef.current('auto');
+      }
+    });
+    return () => subscription.remove();
+  }, [session]);
+
   const status: SyncIndicatorStatus = !session
     ? { kind: 'disconnected' }
     : revoked
       ? { kind: 'revoked' }
       : error
         ? { kind: 'error', message: error }
-        : syncing
-          ? { kind: 'syncing' }
-          : connectionStatus !== 'open'
-            ? { kind: 'offline' }
-            : pendingCount > 0
-              ? { kind: 'pending', count: pendingCount }
-              : { kind: 'synced' };
+        : retryAttempt !== null
+          ? { kind: 'retrying', attempt: retryAttempt, max: MAX_AUTO_RETRIES }
+          : syncing
+            ? { kind: 'syncing' }
+            : connectionStatus !== 'open'
+              ? { kind: 'offline' }
+              : pendingCount > 0
+                ? { kind: 'pending', count: pendingCount }
+                : { kind: 'synced' };
 
   const clearRevokedDevice = async () => {
     await repository.clearAllData();
@@ -231,6 +328,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         status,
         lastSafetyWarning,
         dismissSafetyWarning: () => setLastSafetyWarning(null),
+        syncNow: () => runSyncRef.current('manual'),
         clearRevokedDevice,
       }}
     >
