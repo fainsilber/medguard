@@ -28,6 +28,11 @@ import { shareTextFile } from '../export/shareTextFile.js';
 import { deviceClock, deviceIdGenerator } from '../../runtime/deviceRuntime.js';
 import { useLiveQuery } from '../../store/useLiveQuery.js';
 import { useSyncStatus } from '../../sync/SyncProvider.js';
+import {
+  SYNC_INTERVAL_OPTIONS,
+  getSyncIntervalMinutes,
+  setSyncIntervalMinutes,
+} from '../../sync/syncInterval.js';
 import { PrivacyPolicyLink } from '../../ui/PrivacyPolicyLink.js';
 import { Button, Card, colors, styles as ui } from '../../ui/primitives.js';
 import { APP_VERSION, BUILD_TIME, GIT_SHA, NATIVE_BUILD_VERSION } from '../../version.js';
@@ -50,6 +55,19 @@ export function SettingsScreen(): React.JSX.Element {
   const pendingCount = useLiveQuery(() => repository.pendingSyncCount(), ['syncOutbox']);
   const shabbatConfig = useLiveQuery(() => repository.getShabbatConfig(), ['shabbatConfig']);
   const householdSettings = useHouseholdSettings();
+
+  // This device's background-sync interval — local, not synced. Loaded once; `undefined` until then
+  // so the card never briefly highlights the default for someone who chose something else.
+  const [syncInterval, setSyncInterval] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    void getSyncIntervalMinutes().then((minutes) => {
+      if (!cancelled) setSyncInterval(minutes);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [armedOccurrenceKey, setArmedOccurrenceKey] = useState<string | null>(null);
   const [status_, setStatusMessage] = useState('');
@@ -236,6 +254,21 @@ export function SettingsScreen(): React.JSX.Element {
       });
   }, []);
 
+  const onChooseSyncInterval = useCallback((minutes: number, label: string) => {
+    setSyncIntervalMinutes(minutes)
+      .then(() => {
+        setSyncInterval(minutes);
+        setStatusMessage(
+          minutes === 0
+            ? 'Background sync is off.'
+            : `Background sync set to ${label.toLowerCase()}.`,
+        );
+      })
+      .catch((err) => {
+        setStatusMessage(err instanceof Error ? err.message : 'Could not save the sync interval.');
+      });
+  }, []);
+
   const onClearLog = useCallback(() => {
     clearAppLog();
     void clearNativeAlarmLog();
@@ -272,6 +305,28 @@ export function SettingsScreen(): React.JSX.Element {
         />
         {status.kind === 'error' ? <Row label="Last error" value={status.message} warn /> : null}
       </Card>
+
+      {status.kind !== 'disconnected' ? (
+        <Card>
+          <Text style={sectionTitle}>Background sync</Text>
+          <Text style={ui.subtitle}>
+            How often MedGuard syncs while the app is closed. Android may delay runs to save
+            battery, so this is a target, not a guarantee. &ldquo;Off&rdquo; only stops background
+            syncing; the app still syncs while open.
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+            {SYNC_INTERVAL_OPTIONS.map((option) => (
+              <Button
+                key={option.minutes}
+                label={option.label}
+                variant={syncInterval === option.minutes ? 'primary' : 'default'}
+                disabled={syncInterval === undefined}
+                onPress={() => onChooseSyncInterval(option.minutes, option.label)}
+              />
+            ))}
+          </View>
+        </Card>
+      ) : null}
 
       <Card>
         <Text style={sectionTitle}>AD1 — Hermes ICU</Text>

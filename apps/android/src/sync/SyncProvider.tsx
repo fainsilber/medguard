@@ -16,6 +16,7 @@ import {
   setForegroundSyncRunner,
   unregisterBackgroundSync,
 } from './backgroundSync.js';
+import { onSyncIntervalChange } from './syncInterval.js';
 
 const log = appLog('sync');
 const liveLog = appLog('live');
@@ -225,6 +226,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     // run through this engine rather than opening a second one on the same database.
     setForegroundSyncRunner(() => runSync('auto'));
     void registerBackgroundSync();
+    // A change in Settings reschedules at once rather than at the next app start.
+    const unsubscribeInterval = onSyncIntervalChange(() => {
+      void registerBackgroundSync();
+    });
 
     const handleMessage = (message: LiveMessage) => {
       if (message.type === 'sync') {
@@ -256,6 +261,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       liveClient.stop();
       runSyncRef.current = async () => {};
       setForegroundSyncRunner(null);
+      unsubscribeInterval();
     };
     // store/repository are stable for the lifetime of RepositoryProvider — only a different
     // household session should tear down and rebuild the connection.

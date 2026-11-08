@@ -8,6 +8,7 @@ import { getHouseholdSession } from '../identity/session.js';
 import { appLog } from '../logging/appLog.js';
 import { deviceClock, deviceIdGenerator } from '../runtime/deviceRuntime.js';
 import { openHeadlessRepository } from '../store/openHeadlessRepository.js';
+import { getSyncIntervalMinutes } from './syncInterval.js';
 
 const log = appLog('bg-sync');
 
@@ -15,16 +16,16 @@ const log = appLog('bg-sync');
  * Periodic sync while the app is closed.
  *
  * Android's WorkManager (through `expo-background-task`) wakes the app's JS roughly every
- * `MINIMUM_INTERVAL_MINUTES` — 15 is the platform's floor, and Doze or an OEM battery manager may
- * delay a run further, which is acceptable: local alarms never depend on sync. The worker
- * survives the app being killed and the phone rebooting.
+ * interval the caregiver chose in Settings (`syncInterval.ts`; 15 minutes by default, which is also
+ * the platform's floor — Doze or an OEM battery manager may delay a run further, which is
+ * acceptable: local alarms never depend on sync). The worker survives the app being killed and the
+ * phone rebooting.
  *
  * Each run does one round and stops. There is no in-task retry: the next scheduled run is the
  * retry. The task must never throw (an unhandled rejection in a background worker is a crash on
  * a locked phone), so every failure is logged and reported to the worker as `Failed`.
  */
 export const BACKGROUND_SYNC_TASK = 'MedGuardBackgroundSync';
-const MINIMUM_INTERVAL_MINUTES = 15;
 
 type SyncRunner = () => Promise<void>;
 let foregroundRunner: SyncRunner | null = null;
@@ -107,32 +108,70 @@ export function defineBackgroundSyncTask(): void {
   );
 }
 
-/** Idempotent; never throws — a device that can't schedule background work still syncs in the foreground. */
-export async function registerBackgroundSync(): Promise<void> {
-  try {
-    const status = await BackgroundTask.getStatusAsync();
-    if (status === BackgroundTask.BackgroundTaskStatus.Restricted) {
-      log.warn('background sync unavailable — background tasks are restricted on this device');
-      return;
+// Register/unregister can be triggered from several places at once (provider mount, a Settings
+// change); running them one at a time keeps the check-then-act below from interleaving.
+let scheduling: Promise<void> = Promise.resolve();
+function serialized(task: () => Promise<void>): Promise<void> {
+  const next = scheduling.then(task, task);
+  scheduling = next.catch(() => {});
+  return next;
+}
+
+/**
+ * Schedules the periodic task at the interval chosen in Settings; "Off" unregisters it. Idempotent
+ * and never throws — a device that can't schedule background work still syncs in the foreground.
+ *
+ * Deliberately does nothing when the task is already scheduled at that interval: Android's
+ * scheduler cancels and re-enqueues on every registration, which restarts the countdown. Calling
+ * this on each app start would mean a once-a-day interval never fires for someone who opens the
+ * app daily.
+ */
+export function registerBackgroundSync(): Promise<void> {
+  return serialized(async () => {
+    try {
+      const minutes = await getSyncIntervalMinutes();
+      if (minutes === 0) {
+        await unregisterNow();
+        return;
+      }
+      const status = await BackgroundTask.getStatusAsync();
+      if (status === BackgroundTask.BackgroundTaskStatus.Restricted) {
+        log.warn('background sync unavailable — background tasks are restricted on this device');
+        return;
+      }
+      if (await TaskManager.isTaskRegisteredAsync(BACKGROUND_SYNC_TASK)) {
+        const options = await TaskManager.getTaskOptionsAsync<{ minimumInterval?: number } | null>(
+          BACKGROUND_SYNC_TASK,
+        );
+        if (options?.minimumInterval === minutes) {
+          return;
+        }
+        await BackgroundTask.unregisterTaskAsync(BACKGROUND_SYNC_TASK);
+      }
+      await BackgroundTask.registerTaskAsync(BACKGROUND_SYNC_TASK, { minimumInterval: minutes });
+      log.debug('background sync scheduled', { minutes });
+    } catch (error: unknown) {
+      log.warn('could not register background sync', {
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-    await BackgroundTask.registerTaskAsync(BACKGROUND_SYNC_TASK, {
-      minimumInterval: MINIMUM_INTERVAL_MINUTES,
-    });
-  } catch (error: unknown) {
-    log.warn('could not register background sync', {
-      message: error instanceof Error ? error.message : String(error),
-    });
+  });
+}
+
+async function unregisterNow(): Promise<void> {
+  if (await TaskManager.isTaskRegisteredAsync(BACKGROUND_SYNC_TASK)) {
+    await BackgroundTask.unregisterTaskAsync(BACKGROUND_SYNC_TASK);
   }
 }
 
-export async function unregisterBackgroundSync(): Promise<void> {
-  try {
-    if (await TaskManager.isTaskRegisteredAsync(BACKGROUND_SYNC_TASK)) {
-      await BackgroundTask.unregisterTaskAsync(BACKGROUND_SYNC_TASK);
+export function unregisterBackgroundSync(): Promise<void> {
+  return serialized(async () => {
+    try {
+      await unregisterNow();
+    } catch (error: unknown) {
+      log.warn('could not unregister background sync', {
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-  } catch (error: unknown) {
-    log.warn('could not unregister background sync', {
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
+  });
 }

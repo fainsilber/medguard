@@ -28,6 +28,7 @@ jest.mock('expo-background-task', () => ({
 jest.mock('expo-task-manager', () => ({
   defineTask: jest.fn(),
   isTaskRegisteredAsync: jest.fn().mockResolvedValue(true),
+  getTaskOptionsAsync: jest.fn().mockResolvedValue({ minimumInterval: 15 }),
 }));
 
 const NOW_ISO = '2026-08-03T10:00:00.000Z';
@@ -41,13 +42,14 @@ function fresh() {
     '../identity/caregiverName.js'
   );
   const bg = require('./backgroundSync.js') as typeof import('./backgroundSync.js');
+  const interval = require('./syncInterval.js') as typeof import('./syncInterval.js');
   const BackgroundTask = require('expo-background-task') as jest.Mocked<
     typeof import('expo-background-task')
   >;
   const TaskManager = require('expo-task-manager') as jest.Mocked<
     typeof import('expo-task-manager')
   >;
-  return { sqlite, session, caregiverName, bg, BackgroundTask, TaskManager };
+  return { sqlite, session, caregiverName, bg, interval, BackgroundTask, TaskManager };
 }
 
 function stubFetch(handler: (url: string) => Response | Promise<Response>) {
@@ -188,8 +190,9 @@ describe('background task registration', () => {
     await expect(executor()).resolves.toBe(1);
   });
 
-  it('registers a 15-minute periodic task, and tolerates a platform refusal', async () => {
-    const { bg, BackgroundTask } = fresh();
+  it('registers at the default 15 minutes, and tolerates a platform refusal', async () => {
+    const { bg, BackgroundTask, TaskManager } = fresh();
+    TaskManager.isTaskRegisteredAsync.mockResolvedValue(false);
 
     await bg.registerBackgroundSync();
     expect(BackgroundTask.registerTaskAsync).toHaveBeenCalledWith('MedGuardBackgroundSync', {
@@ -198,6 +201,46 @@ describe('background task registration', () => {
 
     BackgroundTask.registerTaskAsync.mockRejectedValueOnce(new Error('denied'));
     await expect(bg.registerBackgroundSync()).resolves.toBeUndefined();
+  });
+
+  it('registers at the interval chosen in Settings', async () => {
+    const { bg, BackgroundTask, TaskManager, interval } = fresh();
+    TaskManager.isTaskRegisteredAsync.mockResolvedValue(false);
+    await interval.setSyncIntervalMinutes(1440);
+
+    await bg.registerBackgroundSync();
+    expect(BackgroundTask.registerTaskAsync).toHaveBeenCalledWith('MedGuardBackgroundSync', {
+      minimumInterval: 1440,
+    });
+  });
+
+  it('unregisters, and never registers, when the interval is Off', async () => {
+    const { bg, BackgroundTask, interval } = fresh();
+    await interval.setSyncIntervalMinutes(0);
+
+    await bg.registerBackgroundSync();
+    expect(BackgroundTask.unregisterTaskAsync).toHaveBeenCalledWith('MedGuardBackgroundSync');
+    expect(BackgroundTask.registerTaskAsync).not.toHaveBeenCalled();
+  });
+
+  it('leaves an already-scheduled task alone so the countdown is not restarted', async () => {
+    const { bg, BackgroundTask } = fresh();
+    // Registered at 15 (the mock default) and the stored interval is the default 15.
+
+    await bg.registerBackgroundSync();
+    expect(BackgroundTask.unregisterTaskAsync).not.toHaveBeenCalled();
+    expect(BackgroundTask.registerTaskAsync).not.toHaveBeenCalled();
+  });
+
+  it('reschedules when the registered interval differs from the chosen one', async () => {
+    const { bg, BackgroundTask, interval } = fresh();
+    await interval.setSyncIntervalMinutes(60);
+
+    await bg.registerBackgroundSync();
+    expect(BackgroundTask.unregisterTaskAsync).toHaveBeenCalledWith('MedGuardBackgroundSync');
+    expect(BackgroundTask.registerTaskAsync).toHaveBeenCalledWith('MedGuardBackgroundSync', {
+      minimumInterval: 60,
+    });
   });
 
   it('does not register where background tasks are restricted', async () => {
